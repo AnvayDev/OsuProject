@@ -35,8 +35,9 @@ easy to get wrong, the DOM mapping decisions, and known limitations.
 | DrawSizePreservingFillContainer, Game, GameHost (rAF loop) | done | `graphics/containers/…`, `Game.ts`, `platform/GameHost.ts` |
 | Bindables (Bindable, Leased, Bool, WithCurrent, Number/Float/Double/Int/Long) | done, tested | `bindables/*` |
 | InputManager, PassThrough/UserInputManager, mouse/key event managers, events, DOM handler, KeyBindingContainer | done, tested | `input/**` |
-| Fonts (BMFont atlases → JSON), FontStore/GlyphStore, TextBuilder (+multiline/truncating), SpriteText | in progress | `text/*`, `graphics/sprites/SpriteText.ts` |
-| FillFlowContainer, GridContainer, BufferedContainer (blur), ScrollContainer, ScreenStack, Audio, ProxyDrawable, DecouplingFramedClock/InterpolatingFramedClock | **not started** | |
+| Fonts (BMFont atlases → JSON), FontStore/GlyphStore, TextBuilder (+multiline/truncating), SpriteText | done, tested | `text/*`, `graphics/sprites/SpriteText.ts` |
+| FlowContainer, FillFlowContainer, GridContainer (+GridContainerContent, ObservableArray, Cached) | done, tested | `graphics/containers/*`, `lists/ObservableArray.ts`, `caching/Cached.ts` |
+| BufferedContainer (blur), ScrollContainer, ScreenStack, Audio, ProxyDrawable, DecouplingFramedClock/InterpolatingFramedClock | **not started** | |
 
 Verification: `npm test` (transforms, primitives, layout: 43 tests) and `tests/visual/framework-scene.html`, a scene that exercises masking, borders, edge effects, additive blending and per-leaf alpha.
 
@@ -124,6 +125,8 @@ Limitation: CSS stacking contexts isolate blending. To keep that rare, drawables
 - Bilinear four-corner gradients (neither horizontal nor vertical) are approximated by a vertical gradient through the column midpoints.
 - Values are JS doubles; osu! uses float32. Differences are sub-pixel.
 - `MaskingSmoothness` (1 px anti-alias) is the browser's own edge AA.
+- C# indexers become methods: `ObservableArray[i]` → `.get(i)` / `.set(i, v)`, so `grid.Content[0][1] = d` is `grid.content!.get(0)!.set(1, d)`.
+  `GridContainer.content` accepts a plain `(Drawable | null)[][]`, matching C#'s implicit conversion to `GridContainerContent`.
 
 ## 12. Text (`IO/Stores/GlyphStore.cs`, `FontStore.cs`, `Text/TextBuilder*.cs`, `Graphics/Sprites/SpriteText*.cs`)
 

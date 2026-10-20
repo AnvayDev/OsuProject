@@ -5,6 +5,9 @@ import type { Matrix3 } from './Matrix3';
 import type { MarginPadding } from './MarginPadding';
 import { Vector2 } from './Vector2';
 
+/** C# float.MaxValue. */
+export const FLOAT_MAX = 3.4028234663852886e38;
+
 export const Precision = {
   FLOAT_EPSILON: 1e-3,
   DOUBLE_EPSILON: 1e-7,
