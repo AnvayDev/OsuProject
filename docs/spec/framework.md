@@ -44,7 +44,8 @@ easy to get wrong, the DOM mapping decisions, and known limitations.
 | Audio: AudioManager/AudioThread, AudioComponent/Adjustable/AudioAdjustments/AggregateBindable, AudioCollectionManager, AudioMixer, Track/TrackVirtual/TrackWeb/TrackStore, Sample/SampleChannel/SampleWeb/SampleStore, ChannelAmplitudes (BASS-exact) | done, tested (unit + Chromium) | `audio/**`, `platform/AudioThread.ts` |
 | ResourceStore/NamespacedResourceStore/UrlResourceStore/OnlineStore; osu-resources Samples/Tracks/Textures copy + manifest | done | `io/ResourceStore.ts`, `scripts/copy-resources.mjs` |
 | DecouplingFramedClock, InterpolatingFramedClock, OffsetClock/FramedOffsetClock, Interpolation.Damp/DampContinuously | done, tested | `timing/*` |
-| Mixer effects (AudioFilter/BQF), BindableList | **not started** (port when first needed) | |
+| BindableList | done, tested | `bindables/BindableList.ts` |
+| Mixer effects (AudioFilter/BQF) | **not started** (port when first needed) | |
 
 Verification: `npm test` (transforms, primitives, layout: 43 tests) and `tests/visual/framework-scene.html`, a scene that exercises masking, borders, edge effects, additive blending and per-leaf alpha.
 
