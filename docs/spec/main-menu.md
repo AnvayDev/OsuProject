@@ -1063,7 +1063,9 @@ Framework source: `fw/Audio/BassAmplitudeProcessor.cs:32-52`, `fw/Audio/Track/Ch
 - **Measured against BASS 2.4 (2026-10-20, libbass.so with known test signals; max error 2e-8):** `FFT512[k] = |rfft(x · w)[k]| · 4/512` for k = 1…255
   and `· 2/512` for k = 0. Here `w[n] = 0.5 − 0.5·cos(2πn/512)` (periodic Hann) and `x` = the mono mix `(L+R)/2` of the 512 samples at the channel
   position. A full-scale sine at a bin centre reads exactly 1.0 (neighbours 0.5); DC 0.5 reads 0.5 in bin 0 and 0.5 in bin 1. Levels are per-channel
-  peak `|x|` (not RMS) over 1/60 s: a 0.5-amplitude sine reads 0.5.
+  peak `|x|` (not RMS) over 1/60 s: a 0.5-amplitude sine reads 0.5. With BASSmix (`BASS_Mixer_ChannelGetLevel/GetData`, `MIXER_CHAN_BUFFER`, as
+  osu! uses), both are **pre-volume**: a source at `BASS_ATTRIB_VOL` 0.5 still reads its full level and FFT. So the visualiser and logo
+  don't react to the volume settings. WebAudio: tap the analysers before the channel's GainNode/StereoPanner.
 - WebAudio: `ChannelSplitterNode` → two `AnalyserNode`s (fftSize 1024 ≥ 1/60 s). Use the last `round(sampleRate/60)` samples of
   `getFloatTimeDomainData`, peak `|x|`, for L/R. A mono-mix `AnalyserNode` (its input is down-mixed to (L+R)/2) with `fftSize = 512`:
   `getFloatTimeDomainData` → our own FFT with the formula above. Don't use `getFloatFrequencyData`: it uses a Blackman window, 1/N scaling and

@@ -1,4 +1,4 @@
-// Ported from osu.Framework/Game.cs (scene-graph structure only; resources/audio/config are wired by the game layer).
+// Ported from osu.Framework/Game.cs (scene-graph structure, fonts, resources and audio; textures/shaders/config are wired by the game layer).
 
 import { Container } from './graphics/containers/Container';
 import { DrawSizePreservingFillContainer } from './graphics/containers/DrawSizePreservingFillContainer';
@@ -8,6 +8,10 @@ import { Vector2 } from './layout/Vector2';
 import type { GameHost } from './platform/GameHost';
 import { DependencyContainer, type IReadOnlyDependencyContainer } from './allocation/DependencyContainer';
 import { FontStore, GlyphStore } from './text/FontStore';
+import { AudioManager } from './audio/AudioManager';
+import { SampleStore } from './audio/sample/SampleStore';
+import { TrackStore } from './audio/track/TrackStore';
+import { NamespacedResourceStore, OnlineStore, ResourceStore } from './io/ResourceStore';
 
 /** Where generated assets (scripts/prepare-assets.mjs) are served from. */
 export const ASSET_ROOT = `${import.meta.env?.BASE_URL ?? '/'}assets`.replace(/\/\//g, '/');
@@ -31,6 +35,11 @@ export abstract class Game extends Container {
 
   private gameDependencies!: DependencyContainer;
 
+  /** The resources of this game. The game layer adds its stores (e.g. osu-resources); framework stores namespace into it. */
+  protected resources!: ResourceStore<Blob>;
+
+  audio!: AudioManager;
+
   protected override createChildDependencies(parent: IReadOnlyDependencyContainer): IReadOnlyDependencyContainer {
     return this.gameDependencies = new DependencyContainer(super.createChildDependencies(parent));
   }
@@ -38,6 +47,22 @@ export abstract class Game extends Container {
   /** Registers fonts in the order osu!framework's Game.load and osu!'s OsuGameBase.Load add them (see public/assets/Fonts/index.json). */
   protected override load(dependencies: IReadOnlyDependencyContainer): Promise<void> {
     super.load(dependencies);
+
+    this.resources = new ResourceStore<Blob>();
+
+    const tracks = new ResourceStore<Blob>();
+    tracks.addStore(new NamespacedResourceStore(this.resources, 'Tracks'));
+    tracks.addStore(new OnlineStore());
+
+    const samples = new ResourceStore<Blob>();
+    samples.addStore(new NamespacedResourceStore(this.resources, 'Samples'));
+    samples.addStore(new OnlineStore());
+
+    this.audio = new AudioManager(this.host!.audioThread, tracks, samples);
+    this.gameDependencies.cache(this.audio);
+
+    this.gameDependencies.cacheAs(TrackStore, this.audio.tracks);
+    this.gameDependencies.cacheAs(SampleStore, this.audio.samples);
 
     this.fonts.addStore(this.localFonts);
     this.gameDependencies.cache(this.fonts);

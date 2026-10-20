@@ -1,4 +1,4 @@
-// Generates public/assets/ (git-ignored) from osu-resources / osu-framework resources, so the repo doesn't carry ~30 MB of
+// Generates public/assets/ (git-ignored) from osu-resources / osu-framework resources, so the repo doesn't carry ~100 MB of
 // derived binaries. Runs before `npm run dev` / `npm run build` (incl. Vercel) and is a no-op when already up to date.
 // Clones the reference repos at pinned commits if _reference/ is missing.
 import { execSync } from 'node:child_process';
@@ -12,7 +12,7 @@ const pins = {
 };
 
 const stampFile = path.resolve('public/assets/.stamp');
-const generatorVersion = '2'; // bump when the generated layout changes
+const generatorVersion = '3'; // bump when the generated layout changes
 const stamp = JSON.stringify({ generatorVersion, pins });
 
 if (fs.existsSync(stampFile) && fs.readFileSync(stampFile, 'utf8') === stamp && !process.argv.includes('--force')) {
@@ -35,5 +35,6 @@ for (const [repo, commit] of Object.entries(pins)) {
 
 fs.rmSync(path.resolve('public/assets'), { recursive: true, force: true });
 execSync('node scripts/build-fonts.mjs', { stdio: 'inherit' });
+execSync('node scripts/copy-resources.mjs', { stdio: 'inherit' });
 
 fs.writeFileSync(stampFile, stamp);

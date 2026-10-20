@@ -41,7 +41,9 @@ easy to get wrong, the DOM mapping decisions, and known limitations.
 | BufferedContainer (blur, cached frame buffers, group colour), Utils/Blur | done, tested (DrawOriginal/grayscale throw) | `graphics/containers/BufferedContainer.ts`, `utils/Blur.ts` |
 | Screen, ScreenStack, IScreen/ScreenExtensions, screen events | done, tested | `screens/*` |
 | ProxyDrawable (draw-order relocation, proxy-of-proxy) | done, tested | `graphics/ProxyDrawable.ts` |
-| Audio, DecouplingFramedClock/InterpolatingFramedClock | **not started** | |
+| Audio: AudioManager/AudioThread, AudioComponent/Adjustable/AudioAdjustments/AggregateBindable, AudioCollectionManager, AudioMixer, Track/TrackVirtual/TrackWeb/TrackStore, Sample/SampleChannel/SampleWeb/SampleStore, ChannelAmplitudes (BASS-exact) | done, tested (unit + Chromium) | `audio/**`, `platform/AudioThread.ts` |
+| ResourceStore/NamespacedResourceStore/UrlResourceStore/OnlineStore; osu-resources Samples/Tracks/Textures copy + manifest | done | `io/ResourceStore.ts`, `scripts/copy-resources.mjs` |
+| Mixer effects (AudioFilter/BQF), BindableList, DecouplingFramedClock/InterpolatingFramedClock | **not started** | |
 
 Verification: `npm test` (transforms, primitives, layout: 43 tests) and `tests/visual/framework-scene.html`, a scene that exercises masking, borders, edge effects, additive blending and per-leaf alpha.
 
@@ -171,3 +173,28 @@ Limitation: CSS stacking contexts isolate blending. To keep that rare, drawables
 - Gradient colours apply **per glyph quad** (each glyph gets the full ColourInfo), not across the whole text.
 - Strings are processed per UTF-16 code unit, as C#'s `foreach (char c in text)` does.
 - Some osu-resources `.bin` files (Noto) declare a BMFont info block one byte too long. SharpFNT reads sequentially, and so does the converter.
+
+## 13. Audio (`Audio/**`, Web Audio)
+
+- Single-threaded: osu!framework's `ExecutionMode.SingleThread` semantics. `EnqueueAction` runs inline and only `Dispose()` is deferred to the
+  next `Update()`. `GameHost` calls `AudioThread.onNewFrame()` (every `AudioManager.update()`) once per frame, before the scene graph update.
+  osu! runs it on its own ~1 kHz thread.
+- Graph per channel: source → [AmplitudeProcessor] → GainNode (`AggregateVolume`, linear like `BASS_ATTRIB_VOL`) → StereoPannerNode
+  (`AggregateBalance`) → mixer input GainNode → destination. The amplitude tap is pre-volume and pre-pan, as with BASSmix (measured).
+- Tracks (`TrackWeb`, ex-`TrackBass`) stream through an `HTMLAudioElement` from a Blob URL. `CurrentTime` = element time. Length is set on
+  `loadedmetadata`. Looping from restart point 0 uses the element's seamless loop (the BASS loop flag); otherwise `ended` seeks to
+  `RestartPoint` (the end sync). Rate = |frequency| × tempo, clamped to the element's [0.0625, 16]. Pitch is preserved only while frequency is 1.
+  BASS_FX time-stretch with simultaneous pitch change and reverse playback are not reproduced.
+- Samples decode to an `AudioBuffer` once per name (factory). Each `Play()` creates an `AudioBufferSourceNode` channel, with frequency as
+  `playbackRate` (min 100 Hz equivalent) and frequency 0 pausing. **No concurrency limit:** with osu!'s `BASS_SAMCHAN_STREAM | DECODE`
+  channels, BASS does not enforce the sample's `max`/override-longest (measured: four concurrent channels all stay active), so
+  `PlaybackConcurrency` has no audible effect.
+- `ChannelAmplitudes` reproduce BASS exactly from AnalyserNode time-domain data (measured formulas: docs/spec/main-menu.md §7.3).
+- Stores are asynchronous: `TrackStore.get` / `SampleStore.get` return Promises; a sample resolves once decoded. Byte resources are Blobs.
+  The game adds `UrlResourceStore.fromManifest(ASSET_ROOT + '/osu.Game.Resources')` to `Game.resources`, as `OsuGameBase` adds
+  `DllResourceStore(OsuResources.ResourceAssembly)`.
+- The AudioContext starts suspended until the first user gesture (browser autoplay policy). AudioManager resumes it on the first
+  pointer/key input.
+- Not ported yet: mixer effects (`AudioFilter` low-pass ducking used by dialogs), device selection, `Waveform`.
+- Risk: BASS is configured with `BASS_CONFIG_MP3_OLDGAPS` (no iTunSMPB, no assumed 529-sample delay). Browsers' MP3 decoders apply LAME
+  gapless trimming, so beatmap time may differ by ~25 ms on some MP3s. Verify against a real client before tuning offsets.

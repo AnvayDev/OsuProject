@@ -16,6 +16,7 @@ import { macOSKeyBindings } from './MacOSGameHost';
 import { FramedClock } from '../timing/FramedClock';
 import type { IFrameBasedClock } from '../timing/IClock';
 import { StopwatchClock } from '../timing/StopwatchClock';
+import { AudioThread } from './AudioThread';
 
 export class GameHost {
   /** The root of the scene graph. */
@@ -25,6 +26,9 @@ export class GameHost {
 
   /** The clock which is to be used by the scene graph (will be assigned to root). */
   readonly sceneGraphClock: IFrameBasedClock = new FramedClock(new StopwatchClock(true));
+
+  /** Updates the registered AudioManagers once per frame (osu!framework runs them on a dedicated thread). */
+  readonly audioThread = new AudioThread();
 
   private frameCount = 0;
   private rafHandle = 0;
@@ -83,6 +87,8 @@ export class GameHost {
     if (root === null) return;
 
     this.frameCount++;
+
+    this.audioThread.onNewFrame();
 
     this.sceneGraphClock.processFrame();
 
