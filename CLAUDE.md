@@ -24,3 +24,15 @@ against `docs/reference/real/`). Loop until they pass. Report honestly what was 
 - Animations use the framework's osu!framework-style transforms, never CSS transitions/animations.
 - Layout is in osu units; the root ScalingContainer is the only place that converts to CSS pixels.
 - Never edit `_reference/`. Never commit secrets. Don't touch files owned by another concurrent task.
+
+## Setup (fresh clone / cloud)
+
+```bash
+npm install
+npx playwright install chromium
+mkdir -p _reference && cd _reference && git clone --depth 1 https://github.com/ppy/osu.git && git clone --depth 1 https://github.com/ppy/osu-framework.git && git clone --depth 1 https://github.com/ppy/osu-resources.git
+```
+
+No computer use / real-client access in cloud sessions: use `docs/reference/real/` screenshots and the source.
+Status (2026-10-19): specs done = carousel, intro, main-menu; partial = controls-overlays-common. Not started: framework,
+game-shell, song-select, toolbar-music, settings-listing, assets-formats, web-visual-references; no src/ code yet.
