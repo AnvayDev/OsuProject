@@ -5,7 +5,9 @@ import { InvokeOnDisposal } from '../allocation/InvokeOnDisposal';
 import type { FrameTimeInfo, IFrameBasedClock } from '../timing/IClock';
 import { DefaultEasingFunction, Easing, type IEasingFunction } from './Easing';
 import { TargetGroupingTransformTracker } from './TargetGroupingTransformTracker';
+import type { Bindable } from '../bindables/Bindable';
 import type { Transform } from './Transform';
+import { TransformBindable } from './TransformBindable';
 import { TransformCustom } from './TransformCustom';
 import { TransformSequence, type TransformSequenceGenerator } from './TransformSequence';
 
@@ -280,6 +282,11 @@ export abstract class Transformable {
   transformTo<TValue>(propertyOrFieldName: string, newValue: TValue, duration = 0, easing: Easing | IEasingFunction = Easing.None,
                       grouping: string | null = null): TransformSequence<this> {
     return this.applyTransform(this.makeTransform(propertyOrFieldName, newValue, duration, easing, grouping));
+  }
+
+  /** Smoothly adjusts the value of a bindable over time. */
+  transformBindableTo<TValue>(bindable: Bindable<TValue>, newValue: TValue, duration = 0, easing: Easing | IEasingFunction = Easing.None): TransformSequence<this> {
+    return this.applyTransform(this.populateTransform(new TransformBindable<TValue, this>(bindable), newValue, duration, easing));
   }
 
   /** Applies a transform to this object (TransformableExtensions.TransformTo(this T, Transform)). */

@@ -46,7 +46,8 @@ easy to get wrong, the DOM mapping decisions, and known limitations.
 | DecouplingFramedClock, InterpolatingFramedClock, OffsetClock/FramedOffsetClock, Interpolation.Damp/DampContinuously | done, tested | `timing/*` |
 | BindableList | done, tested | `bindables/BindableList.ts` |
 | PathApproximator (bezier/B-spline/catmull/circular arc/linear) + CircularArcProperties, float32-exact Vector2F, .NET semantics (Math.Round half-even, invariant parsing, char.IsWhiteSpace trims), Logger (console) | done, tested | `utils/PathApproximator.ts`, `utils/CircularArcProperties.ts`, `layout/Vector2F.ts`, `utils/DotNet.ts`, `logging/Logger.ts` |
-| ExtensionMethods (SHA-256 via WebCrypto, MD5, ToStandardisedPath), GetCommonPrefix, ExcludeSystemFileNames, TextureStore/LargeTextureStore (lookup + cache) | done, tested | `extensions/*`, `io/ResourceStore.ts`, `graphics/textures/TextureStore.ts` |
+| ExtensionMethods (SHA-256 via WebCrypto, MD5, ToStandardisedPath), GetCommonPrefix, ExcludeSystemFileNames, TextureStore/LargeTextureStore (lookup + cache, texture sources wrapped like TextureLoaderStore: png/jpg extensions), Game.Textures | done, tested | `extensions/*`, `io/ResourceStore.ts`, `graphics/textures/TextureStore.ts` |
+| NonNullableBindable, TransformBindable (`transformBindableTo`), DrawableAudioWrapper/DrawableTrack (+`volumeTo`/`balanceTo`/`frequencyTo`/`tempoTo`; no DrawableAudioMixer), ConfigManager/IniConfigManager (ini text in `localStorage`), GameHost caches the Game, DependencyKey admits private-constructor classes | done, tested | `bindables/NonNullableBindable.ts`, `transforms/TransformBindable.ts`, `graphics/audio/*`, `configuration/*` |
 | Mixer effects (AudioFilter/BQF) | **not started** (port when first needed) | |
 
 Verification: `npm test` (transforms, primitives, layout: 43 tests) and `tests/visual/framework-scene.html`, a scene that exercises masking, borders, edge effects, additive blending and per-leaf alpha.

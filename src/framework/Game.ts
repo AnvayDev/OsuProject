@@ -1,4 +1,4 @@
-// Ported from osu.Framework/Game.cs (scene-graph structure, fonts, resources and audio; textures/shaders/config are wired by the game layer).
+// Ported from osu.Framework/Game.cs (scene-graph structure, fonts, resources, textures and audio; shaders and config are not ported).
 
 import { Container } from './graphics/containers/Container';
 import { DrawSizePreservingFillContainer } from './graphics/containers/DrawSizePreservingFillContainer';
@@ -12,6 +12,7 @@ import { AudioManager } from './audio/AudioManager';
 import { SampleStore } from './audio/sample/SampleStore';
 import { TrackStore } from './audio/track/TrackStore';
 import { NamespacedResourceStore, OnlineStore, ResourceStore } from './io/ResourceStore';
+import { TextureStore } from './graphics/textures/TextureStore';
 
 /** Where generated assets (scripts/prepare-assets.mjs) are served from. */
 export const ASSET_ROOT = `${import.meta.env?.BASE_URL ?? '/'}assets`.replace(/\/\//g, '/');
@@ -38,6 +39,8 @@ export abstract class Game extends Container {
   /** The resources of this game. The game layer adds its stores (e.g. osu-resources); framework stores namespace into it. */
   protected resources!: ResourceStore<Blob>;
 
+  textures!: TextureStore;
+
   audio!: AudioManager;
 
   protected override createChildDependencies(parent: IReadOnlyDependencyContainer): IReadOnlyDependencyContainer {
@@ -49,6 +52,10 @@ export abstract class Game extends Container {
     super.load(dependencies);
 
     this.resources = new ResourceStore<Blob>();
+
+    this.textures = new TextureStore(new NamespacedResourceStore(this.resources, 'Textures'));
+    this.textures.addTextureSource(new OnlineStore());
+    this.gameDependencies.cache(this.textures);
 
     const tracks = new ResourceStore<Blob>();
     tracks.addStore(new NamespacedResourceStore(this.resources, 'Tracks'));

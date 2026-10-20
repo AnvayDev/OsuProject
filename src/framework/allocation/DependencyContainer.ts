@@ -3,8 +3,9 @@
 // and [Cached] becomes `dependencies.cacheAs(Type, this)` in createChildDependencies().
 // CacheInfo (name/parent qualifiers) is reduced to an optional name.
 
+/** A class. The second form admits classes with a private constructor (e.g. created through a static factory). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type DependencyKey<T> = abstract new (...args: any[]) => T;
+export type DependencyKey<T> = (abstract new (...args: any[]) => T) | { readonly prototype: T; readonly name: string };
 
 export interface IReadOnlyDependencyContainer {
   /** Retrieves a cached dependency of the given type, or null (Get returns null when nothing is cached). */

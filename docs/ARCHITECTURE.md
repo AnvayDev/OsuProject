@@ -61,7 +61,7 @@ src/
     Game.ts                  host: rAF loop, root element, update → layout → DOM write
   game/                      port of osu.Game (mirrors its folder names where practical)
     OsuGame.ts               layering of screen stack, backgrounds, overlays, toolbar, cursor, notifications, volume, OSD
-    config/                  OsuConfigManager (localStorage), defaults copied from osu.Game/Configuration/OsuConfigManager.cs
+    configuration/           OsuConfigManager (localStorage), defaults copied from osu.Game/Configuration/OsuConfigManager.cs
     graphics/                OsuColour, OsuFont, OsuIcon, cursor/, containers/ (ParallaxContainer, BeatSyncedContainer,
                              OsuScrollContainer…), backgrounds/ (Background, Triangles, TrianglesV2), userinterface/ (controls)
     resources/               asset manifest + loaders (textures, samples, fonts)

@@ -8,7 +8,7 @@ import { DomInputHandler } from '../input/handlers/DomInputHandler';
 import { InputHandler, UserInputManager } from '../input/InputManager';
 import { PlatformAction } from '../input/PlatformAction';
 import { PlatformActionContainer } from '../input/PlatformActionContainer';
-import type { Game } from '../Game';
+import { Game } from '../Game';
 import { Axes } from '../layout/Enums';
 import { Vector2 } from '../layout/Vector2';
 import { Platform, RuntimeInfo } from '../RuntimeInfo';
@@ -57,6 +57,7 @@ export class GameHost {
     });
 
     this.dependencies.cache(root);
+    this.dependencies.cacheAs(Game, game);
     this.dependencies.cacheAs(GameHost, this);
 
     game.setHost(this);

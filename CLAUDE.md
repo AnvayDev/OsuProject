@@ -37,7 +37,9 @@ mkdir -p _reference && cd _reference && git clone --depth 1 --branch 2026.1005.0
 No computer use / real-client access in cloud sessions: use `docs/reference/real/` screenshots and the source.
 Status (2026-10-20): specs done = carousel, intro, main-menu, framework, assets-formats; partial = controls-overlays-common. Not started:
 game-shell, song-select, toolbar-music, settings-listing, web-visual-references. src/framework is done and tested (docs/spec/framework.md §1);
-only mixer effects remain, to port when first needed. Game layer (data, no UI yet): .osu decoder, beatmap import into IndexedDB, WorkingBeatmap
-(tracks, backgrounds, decoding), BeatmapManager and the dummy beatmap are done and tested (docs/spec/assets-formats.md §1-6). Next: mirror
-metadata/star-rating lookup, downloads, then the UI. No gameplay is ported (user decision): star ratings come from the mirror.
+only mixer effects remain, to port when first needed. Game layer: .osu decoder, beatmap import into IndexedDB, WorkingBeatmap
+(tracks, backgrounds, decoding), BeatmapManager and the dummy beatmap are done and tested (docs/spec/assets-formats.md §1-6). Shell done and
+tested: OsuGameBase/OsuGame (index.html + src/main.ts), OsuConfigManager, OsuScreen/OsuScreenStack, background screens (default rotation,
+beatmap), Parallax/Scaling/UserDim containers, MusicController, OsuColour/OsuFont/OsuSpriteText. Dev states via window.__osu (src/dev/).
+Next: song select, then intro/main menu (OsuGame.createLoader), mirror lookup and downloads. No gameplay is ported (user decision).
 Cloud screenshots: `PW_CHROMIUM=/opt/pw-browsers/chromium node scripts/shot.mjs ...` (dev server running). Recordings: docs/reference/recordings/web/*.mp4 (ffmpeg available).
