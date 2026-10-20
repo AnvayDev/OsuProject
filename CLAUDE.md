@@ -36,6 +36,7 @@ mkdir -p _reference && cd _reference && git clone --depth 1 --branch 2026.1005.0
 
 No computer use / real-client access in cloud sessions: use `docs/reference/real/` screenshots and the source.
 Status (2026-10-20): specs done = carousel, intro, main-menu, framework; partial = controls-overlays-common. Not started: game-shell,
-song-select, toolbar-music, settings-listing, assets-formats, web-visual-references. src/framework: transforms, layout, Drawable/Container,
-Sprite/Box, clocks, scheduler, host done (see docs/spec/framework.md §1); bindables, input, text, flow/scroll, screens, audio pending.
+song-select, toolbar-music, settings-listing, assets-formats, web-visual-references. src/framework is done and tested (docs/spec/framework.md §1):
+transforms, layout, Drawable/Container, Sprite/Box, text, bindables, input/key bindings, flow/grid/scroll/buffered containers, proxies, screens,
+clocks, audio (Web Audio, BASS-exact amplitudes), resource stores. Only BindableList and mixer effects remain, to port when first needed. No game layer yet.
 Cloud screenshots: `PW_CHROMIUM=/opt/pw-browsers/chromium node scripts/shot.mjs ...` (dev server running). Recordings: docs/reference/recordings/web/*.mp4 (ffmpeg available).
