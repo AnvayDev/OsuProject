@@ -3,6 +3,8 @@
 
 import { DependencyContainer } from '../allocation/DependencyContainer';
 import { Container } from '../graphics/containers/Container';
+import { DomInputHandler } from '../input/handlers/DomInputHandler';
+import { InputHandler, UserInputManager } from '../input/InputManager';
 import type { Game } from '../Game';
 import { Axes } from '../layout/Enums';
 import { Vector2 } from '../layout/Vector2';
@@ -25,9 +27,17 @@ export class GameHost {
   /** The DOM element the scene graph is mounted into (defaults to document.body). */
   constructor(private readonly mount: HTMLElement = document.body) {}
 
-  /** Creates the root above the game. Overridden once input handling exists (UserInputManager). */
+  /** The input handlers available to the root UserInputManager. */
+  readonly availableInputHandlers: InputHandler[] = [];
+
+  private domInput: DomInputHandler | null = null;
+
+  /** Creates the root above the game (Game.CreateUserInputManager). */
   protected createRoot(_game: Game): Container {
-    return new Container();
+    this.domInput = new DomInputHandler(this.mount);
+    this.availableInputHandlers.push(this.domInput);
+
+    return new UserInputManager(() => this.availableInputHandlers, () => this.domInput?.cursorInWindow ?? true);
   }
 
   private bootstrapSceneGraph(game: Game): void {
@@ -78,6 +88,7 @@ export class GameHost {
 
   exit(): void {
     cancelAnimationFrame(this.rafHandle);
+    this.domInput?.dispose();
     this.root?.dispose();
     this.root = null;
   }

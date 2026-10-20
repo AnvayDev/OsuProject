@@ -980,9 +980,40 @@ export abstract class CompositeDrawable extends Drawable {
     return child.loadState === LoadState.Loaded;
   }
 
+  override buildNonPositionalInputQueue(queue: Drawable[], allowBlocking = true): boolean {
+    if (!super.buildNonPositionalInputQueue(queue, allowBlocking))
+      return false;
+
+    const children = this.aliveInternalChildrenList;
+
+    for (let i = 0; i < children.count; ++i) {
+      if (this.shouldBeConsideredForInput(children.get(i)))
+        children.get(i).buildNonPositionalInputQueue(queue, allowBlocking);
+    }
+
+    return true;
+  }
+
   /** Determines whether the subtree should receive positional input when the mouse is at the given screen-space position. */
   protected receivePositionalInputAtSubTree(screenSpacePos: Vector2): boolean {
     return !this.masking || this.receivePositionalInputAt(screenSpacePos);
+  }
+
+  override buildPositionalInputQueue(screenSpacePos: Vector2, queue: Drawable[]): boolean {
+    if (!super.buildPositionalInputQueue(screenSpacePos, queue))
+      return false;
+
+    if (!this.receivePositionalInputAtSubTree(screenSpacePos))
+      return false;
+
+    const children = this.aliveInternalChildrenList;
+
+    for (let i = 0; i < children.count; ++i) {
+      if (this.shouldBeConsideredForInput(children.get(i)))
+        children.get(i).buildPositionalInputQueue(screenSpacePos, queue);
+    }
+
+    return true;
   }
 
   // #endregion

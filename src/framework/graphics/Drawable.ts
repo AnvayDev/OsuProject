@@ -9,6 +9,7 @@
 // Input handlers live in Drawable.input.ts (added with the InputManager port).
 
 import { type IReadOnlyDependencyContainer } from '../allocation/DependencyContainer';
+import { Signal } from '../bindables/Signal';
 import { Anchor, Axes, FillMode, Invalidation, LoadState, RotationDirection } from '../layout/Enums';
 import { InvalidationList, InvalidationSource, LayoutMember, LayoutValueOf } from '../layout/Layout';
 import { MarginPadding } from '../layout/MarginPadding';
@@ -22,6 +23,12 @@ import { Transform } from '../transforms/Transform';
 import { Transformable } from '../transforms/Transformable';
 import { TransformSequence } from '../transforms/TransformSequence';
 import { Colour4 } from './Colour4';
+import {
+  ClickEvent, DoubleClickEvent, DragEndEvent, DragEvent, DragStartEvent, FocusEvent, FocusLostEvent, HoverEvent, HoverLostEvent,
+  KeyDownEvent, KeyUpEvent, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ScrollEvent, type UIEvent,
+} from '../input/events/UIEvents';
+import { InputState } from '../input/InputState';
+import { MouseButton } from '../input/Key';
 import { ColourInfo } from './ColourInfo';
 import { BlendingParameters, DrawColourInfo, DrawInfo } from './DrawInfo';
 import type { CompositeDrawable } from './containers/CompositeDrawable';
@@ -96,8 +103,8 @@ export abstract class Drawable extends Transformable {
     this._parent = null;
     this.childID = 0;
 
-    this.onUpdate = null;
-    this.invalidated = null;
+    this.onUpdate.clear();
+    this.invalidated.clear();
 
     this.onDispose?.();
     this.onDispose = null;
@@ -173,6 +180,9 @@ export abstract class Drawable extends Transformable {
 
       this.updateClock(clock);
 
+      this.requestsNonPositionalInput = HandleInputCache.requestsNonPositionalInput(this);
+      this.requestsPositionalInput = HandleInputCache.requestsPositionalInput(this);
+
       this.requestsNonPositionalInputSubTree = this.requestsNonPositionalInput;
       this.requestsPositionalInputSubTree = this.requestsPositionalInput;
 
@@ -220,9 +230,8 @@ export abstract class Drawable extends Transformable {
 
     this.loadComplete();
 
-    const onLoadComplete = this.onLoadComplete;
-    this.onLoadComplete = null;
-    for (const f of onLoadComplete ?? []) f(this);
+    this.onLoadComplete.emit(this);
+    this.onLoadComplete.clear();
 
     return true;
   }
@@ -268,13 +277,13 @@ export abstract class Drawable extends Transformable {
   // #region Periodic tasks (events, Scheduler, Transforms, Update)
 
   /** This event is fired after the update() method is called at the end of updateSubTree(). */
-  onUpdate: ((d: Drawable) => void) | null = null;
+  readonly onUpdate = new Signal<Drawable>();
 
-  /** This event is fired after the loadComplete() method is called. (C# events support multiple handlers.) */
-  onLoadComplete: ((d: Drawable) => void)[] | null = [];
+  /** This event is fired after the loadComplete() method is called (handlers are cleared afterwards). */
+  readonly onLoadComplete = new Signal<Drawable>();
 
   /** @internal Fired after the invalidate method is called. */
-  invalidated: ((d: Drawable, invalidation: Invalidation) => void) | null = null;
+  readonly invalidated = new Signal<[Drawable, Invalidation]>();
 
   /** @internal */ onDispose: (() => void) | null = null;
   /** @internal */ onUnbindAllBindables: (() => void) | null = null;
@@ -309,7 +318,7 @@ export abstract class Drawable extends Transformable {
       this._scheduler.update();
 
     this.update();
-    this.onUpdate?.(this);
+    this.onUpdate.emit(this);
     return true;
   }
 
@@ -1364,7 +1373,7 @@ export abstract class Drawable extends Transformable {
     if (anyInvalidated)
       this.invalidationID++;
 
-    this.invalidated?.(this, invalidation);
+    this.invalidated.emit([this, invalidation]);
 
     return anyInvalidated;
   }
@@ -1494,21 +1503,205 @@ export abstract class Drawable extends Transformable {
 
   // #endregion
 
-  // #region Interaction / Input (core flags; handlers are added by the input module)
+  // #region Interaction / Input
 
-  /** @internal */ requestsNonPositionalInput = false;
-  /** @internal */ requestsPositionalInput = false;
-  /** @internal */ requestsNonPositionalInputSubTree = false;
-  /** @internal */ requestsPositionalInputSubTree = false;
+  /** Handle a UI event. Default implementation for all event handlers. Returns true if this drawable handled the event (blocks propagation). */
+  protected handle(_e: UIEvent): boolean {
+    return false;
+  }
 
-  /** Whether this drawable contains the given screen-space position. */
+  /** Trigger a UI event with target set to this Drawable. Returns the result of the event handler. */
+  triggerEvent(e: UIEvent): boolean {
+    e.target = this;
+
+    if (e instanceof MouseMoveEvent) return this.onMouseMove(e);
+    if (e instanceof HoverEvent) return this.onHover(e);
+    if (e instanceof HoverLostEvent) {
+      this.onHoverLost(e);
+      return false;
+    }
+    if (e instanceof MouseDownEvent) return this.onMouseDown(e);
+    if (e instanceof MouseUpEvent) {
+      this.onMouseUp(e);
+      return false;
+    }
+    if (e instanceof ClickEvent) return this.onClick(e);
+    if (e instanceof DoubleClickEvent) return this.onDoubleClick(e);
+    if (e instanceof DragStartEvent) return this.onDragStart(e);
+    if (e instanceof DragEvent) {
+      this.onDrag(e);
+      return false;
+    }
+    if (e instanceof DragEndEvent) {
+      this.onDragEnd(e);
+      return false;
+    }
+    if (e instanceof ScrollEvent) return this.onScroll(e);
+    if (e instanceof FocusEvent) {
+      this.onFocus(e);
+      return false;
+    }
+    if (e instanceof FocusLostEvent) {
+      this.onFocusLost(e);
+      return false;
+    }
+    if (e instanceof KeyDownEvent) return this.onKeyDown(e);
+    if (e instanceof KeyUpEvent) {
+      this.onKeyUp(e);
+      return false;
+    }
+
+    return this.handle(e);
+  }
+
+  /** Triggers a left click event for this Drawable. */
+  triggerClick(): boolean {
+    return this.triggerEvent(new ClickEvent(Drawable.containingInputStateResolver?.(this) ?? new InputState(), MouseButton.Left));
+  }
+
+  /** @internal Set by InputManager.ts to resolve the containing input manager's state without an import cycle. */
+  static containingInputStateResolver: ((d: Drawable) => InputState | null) | null = null;
+
+  // #region Individual event handlers
+
+  /** An event that occurs every time the mouse is moved while hovering this Drawable. */
+  protected onMouseMove(e: MouseMoveEvent): boolean { return this.handle(e); }
+
+  /** An event that occurs when the mouse starts hovering this Drawable. */
+  protected onHover(e: HoverEvent): boolean { return this.handle(e); }
+
+  /** An event that occurs when the mouse stops hovering this Drawable. */
+  protected onHoverLost(e: HoverLostEvent): void { this.handle(e); }
+
+  /** An event that occurs when a MouseButton is pressed on this Drawable. */
+  protected onMouseDown(e: MouseDownEvent): boolean { return this.handle(e); }
+
+  /** An event that occurs when a MouseButton that was pressed on this Drawable is released. */
+  protected onMouseUp(e: MouseUpEvent): void { this.handle(e); }
+
+  /** An event that occurs when a MouseButton is clicked on this Drawable (pressed and released with the mouse inside). */
+  protected onClick(e: ClickEvent): boolean { return this.handle(e); }
+
+  /** An event that occurs when a MouseButton is double-clicked on this Drawable. */
+  protected onDoubleClick(e: DoubleClickEvent): boolean { return this.handle(e); }
+
+  /** An event that occurs when the mouse starts dragging on this Drawable. Return true to become the dragged drawable. */
+  protected onDragStart(e: DragStartEvent): boolean { return this.handle(e); }
+
+  /** An event that occurs every time the mouse moves while dragging this Drawable. */
+  protected onDrag(e: DragEvent): void { this.handle(e); }
+
+  /** An event that occurs when the mouse button that started a drag is released. */
+  protected onDragEnd(e: DragEndEvent): void { this.handle(e); }
+
+  /** An event that occurs when the mouse wheel is scrolled on this Drawable. */
+  protected onScroll(e: ScrollEvent): boolean { return this.handle(e); }
+
+  /** An event that occurs when this Drawable gains focus. */
+  protected onFocus(e: FocusEvent): void { this.handle(e); }
+
+  /** An event that occurs when this Drawable loses focus. */
+  protected onFocusLost(e: FocusLostEvent): void { this.handle(e); }
+
+  /** An event that occurs when a Key is pressed. */
+  protected onKeyDown(e: KeyDownEvent): boolean { return this.handle(e); }
+
+  /** An event that occurs when a Key is released. */
+  protected onKeyUp(e: KeyUpEvent): void { this.handle(e); }
+
+  // #endregion
+
+  /** @internal Whether this drawable has overridden any non-positional input handler (Drawable.HandleInputCache). */
+  requestsNonPositionalInput = false;
+
+  /** @internal Whether this drawable has overridden any positional input handler (Drawable.HandleInputCache). */
+  requestsPositionalInput = false;
+
+  /** @internal Conservatively approximates whether there is a descendant which requestsNonPositionalInput. */
+  requestsNonPositionalInputSubTree = false;
+
+  /** @internal Conservatively approximates whether there is a descendant which requestsPositionalInput. */
+  requestsPositionalInputSubTree = false;
+
+  /** Whether this drawable should receive non-positional input. This does not mean that the drawable will immediately handle the received input, but that it may handle it at some point. */
+  get handleNonPositionalInput(): boolean {
+    return this.requestsNonPositionalInput;
+  }
+
+  /** Whether this drawable should receive positional input. This does not mean that the drawable will immediately handle the received input, but that it may handle it at some point. */
+  get handlePositionalInput(): boolean {
+    return this.requestsPositionalInput;
+  }
+
+  /** Whether this Drawable is currently focused. */
+  hasFocus = false;
+
+  /** If true, we are eagerly requesting focus. If nothing else above us has (or is requesting focus) we will get it. */
+  get requestsFocus(): boolean {
+    return false;
+  }
+
+  /** If true, we will gain focus (receiving priority on keyboard input) (and receive an onFocus event) on returning true in onClick. */
+  get acceptsFocus(): boolean {
+    return false;
+  }
+
+  /** Whether this Drawable can be clicked to change focus (when focused elsewhere). */
+  get changeFocusOnClick(): boolean {
+    return true;
+  }
+
+  /** Whether this Drawable is currently hovered over. This is updated only if handlePositionalInput is true. */
+  isHovered = false;
+
+  /** Whether this Drawable is currently being dragged. */
+  isDragged = false;
+
+  /** Determines whether this drawable receives positional input when the mouse is at the given screen-space position. */
+  receivePositionalInputAt(screenSpacePos: Vector2): boolean {
+    return this.contains(screenSpacePos);
+  }
+
+  /** Computes whether a given screen-space position is contained within this drawable. Mouse input events are only received when this function is true, or when the drawable is in focus. */
   contains(screenSpacePos: Vector2): boolean {
     return this.drawRectangle.contains(this.toLocalSpace(screenSpacePos));
   }
 
-  /** Whether the given screen-space position is accepted for positional input. */
-  receivePositionalInputAt(screenSpacePos: Vector2): boolean {
-    return this.contains(screenSpacePos);
+  /** Whether non-positional input should be propagated to the sub-tree rooted at this drawable. */
+  get propagateNonPositionalInputSubTree(): boolean {
+    return this.isPresent && this.requestsNonPositionalInputSubTree;
+  }
+
+  /** Whether positional input should be propagated to the sub-tree rooted at this drawable. */
+  get propagatePositionalInputSubTree(): boolean {
+    return this.isPresent && this.requestsPositionalInputSubTree && !this.isMaskedAway;
+  }
+
+  /** Whether clicks should be blocked when this drawable is in a dragged state. */
+  get dragBlocksClick(): boolean {
+    return true;
+  }
+
+  /** @internal Builds the non-positional input queue (back to front). Returns false if we shouldn't propagate further. */
+  buildNonPositionalInputQueue(queue: Drawable[], _allowBlocking = true): boolean {
+    if (!this.propagateNonPositionalInputSubTree)
+      return false;
+
+    if (this.handleNonPositionalInput)
+      queue.push(this);
+
+    return true;
+  }
+
+  /** @internal Builds the positional input queue (back to front) at the given screen space position. Returns false if we shouldn't propagate further. */
+  buildPositionalInputQueue(screenSpacePos: Vector2, queue: Drawable[]): boolean {
+    if (!this.propagatePositionalInputSubTree)
+      return false;
+
+    if (this.handlePositionalInput && this.receivePositionalInputAt(screenSpacePos))
+      queue.push(this);
+
+    return true;
   }
 
   // #endregion
@@ -1744,3 +1937,55 @@ class PositionOffsetTransform extends Transform<Vector2, Drawable> {
     this.endValue = d.position.add(this.offset);
   }
 }
+
+/** Ported from osu.Framework/Graphics/Drawable.HandleInputCache.cs: C# reflects over overridden methods; here we walk the prototype chain. */
+const HandleInputCache = {
+  positionalInputMethods: ['handle', 'onMouseMove', 'onHover', 'onHoverLost', 'onMouseDown', 'onMouseUp', 'onClick', 'onDoubleClick',
+    'onDragStart', 'onDrag', 'onDragEnd', 'onScroll', 'onFocus', 'onFocusLost'],
+  nonPositionalInputMethods: ['handle', 'onFocus', 'onFocusLost', 'onKeyDown', 'onKeyUp'],
+  positionalInputProperties: ['handlePositionalInput'],
+  nonPositionalInputProperties: ['handleNonPositionalInput', 'acceptsFocus'],
+  // IHasTooltip, IHasCustomTooltip, IHasContextMenu, IHasPopover (duck-typed members)
+  positionalInputInterfaceMembers: ['tooltipText', 'getCustomTooltip', 'contextMenuItems', 'getPopover'],
+  // IKeyBindingHandler
+  nonPositionalInputInterfaceMembers: ['onPressed'],
+
+  cache: new Map<Function, [boolean, boolean]>(),
+
+  overrides(d: Drawable, name: string): boolean {
+    for (let proto = Object.getPrototypeOf(d); proto !== null && proto !== Drawable.prototype; proto = Object.getPrototypeOf(proto)) {
+      if (Object.prototype.hasOwnProperty.call(proto, name))
+        return true;
+    }
+
+    return false;
+  },
+
+  compute(d: Drawable): [boolean, boolean] {
+    const ctor = d.constructor;
+    let v = this.cache.get(ctor);
+
+    if (v === undefined) {
+      const positional = this.positionalInputMethods.some(m => this.overrides(d, m))
+        || this.positionalInputProperties.some(m => this.overrides(d, m))
+        || this.positionalInputInterfaceMembers.some(m => m in d)
+        || (d as { requireHighFrequencyMousePosition?: boolean }).requireHighFrequencyMousePosition === true;
+
+      const nonPositional = this.nonPositionalInputMethods.some(m => this.overrides(d, m))
+        || this.nonPositionalInputProperties.some(m => this.overrides(d, m))
+        || this.nonPositionalInputInterfaceMembers.some(m => m in d);
+
+      this.cache.set(ctor, v = [positional, nonPositional]);
+    }
+
+    return v;
+  },
+
+  requestsPositionalInput(d: Drawable): boolean {
+    return this.compute(d)[0];
+  },
+
+  requestsNonPositionalInput(d: Drawable): boolean {
+    return this.compute(d)[1];
+  },
+};
