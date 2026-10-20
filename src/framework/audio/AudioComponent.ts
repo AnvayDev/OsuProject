@@ -12,8 +12,12 @@ export abstract class AudioComponent {
   /** Audio operations would run on a separate thread in osu!; here only deferred disposal is queued. */
   protected readonly pendingActions: (() => void)[] = [];
 
-  /** Enqueues an action to be performed on the audio thread (inline: CanPerformInline). */
-  protected enqueueAction(action: () => void): Promise<void> {
+  /**
+   * Enqueues an action to be performed on the audio thread (inline: CanPerformInline).
+   * C# protected; public here so code that C# makes wait on a track's queued load (WorkingBeatmap.prepareTrackForPreview blocks in Track.Seek)
+   * can queue behind it instead. Runs inline unless a component queues (TrackWeb before its audio has loaded).
+   */
+  enqueueAction(action: () => void): Promise<void> {
     action();
     return Promise.resolve();
   }

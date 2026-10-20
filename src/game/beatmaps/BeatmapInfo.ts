@@ -7,6 +7,7 @@ import { BeatmapMetadata } from './BeatmapMetadata';
 import { BeatmapOnlineStatus } from './BeatmapOnlineStatus';
 import type { BeatmapSetInfo } from './BeatmapSetInfo';
 import { BeatmapUserSettings } from './BeatmapUserSettings';
+import { getDisplayTitle } from './BeatmapInfoExtensions';
 
 /** A realm model containing metadata for a single beatmap difficulty. This should generally include anything which is required to be filtered on at song select, or anything pertaining to storage of beatmaps in the client. */
 export class BeatmapInfo {
@@ -100,12 +101,33 @@ export class BeatmapInfo {
     return this.id === other.id;
   }
 
+  audioEquals(other: BeatmapInfo | null): boolean {
+    return other !== null
+      && this.beatmapSet !== null
+      && other.beatmapSet !== null
+      && compareFiles(this, other, m => m.audioFile);
+  }
+
+  backgroundEquals(other: BeatmapInfo | null): boolean {
+    return other !== null
+      && this.beatmapSet !== null
+      && other.beatmapSet !== null
+      && compareFiles(this, other, m => m.backgroundFile);
+  }
+
   /** The filename of this difficulty's .osu file. */
   get path(): string | null {
     return this.file?.filename ?? null;
   }
 
   toString(): string {
-    return `${this.metadata} [${this.difficultyName}]`;
+    return getDisplayTitle(this);
   }
+}
+
+function compareFiles(x: BeatmapInfo, y: BeatmapInfo, getFilename: (metadata: BeatmapMetadata) => string): boolean {
+  const fileHashX = x.beatmapSet!.getFile(getFilename(x.metadata))?.file.hash;
+  const fileHashY = y.beatmapSet!.getFile(getFilename(y.metadata))?.file.hash;
+
+  return fileHashX === fileHashY;
 }

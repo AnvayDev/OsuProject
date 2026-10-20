@@ -1,4 +1,4 @@
-// Ported from osu.Framework/Logging/Logger.cs (Log(message, target, level) only; entries go to the browser console instead of log files).
+// Ported from osu.Framework/Logging/Logger.cs (Log and Error only; entries go to the browser console instead of log files).
 
 export enum LogLevel {
   /** Log-level for debugging-related log-messages. This is the lowest level (highest verbosity). Please note that this will log input events, including keypresses when entering a password. */
@@ -52,5 +52,10 @@ export const Logger = {
         console.debug(line);
         break;
     }
+  },
+
+  /** Log an error and its exception (Logger.Error(Exception, string, LoggingTarget)). */
+  error(e: unknown, description: string, target = LoggingTarget.Runtime): void {
+    console.error(`[${LoggingTarget[target].toLowerCase()}] ${description}`, e);
   },
 };

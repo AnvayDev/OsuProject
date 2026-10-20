@@ -1,4 +1,5 @@
-// Ported from osu.Framework/Audio/Track/TrackStore.cs (and ITrackStore.cs). get() is asynchronous: resources are fetched.
+// Ported from osu.Framework/Audio/Track/TrackStore.cs (and ITrackStore.cs). get() is asynchronous: resources are fetched (getSync() hands out the
+// track first).
 
 import { AdjustableAudioComponent } from '../AudioComponent';
 import { AudioCollectionManager } from '../AudioCollectionManager';
@@ -40,6 +41,22 @@ export class TrackStore extends AudioCollectionManager<AdjustableAudioComponent>
       return null;
 
     const track = new TrackWeb(data, name);
+
+    this.mixer.add(track);
+    this.addItem(track);
+
+    return track;
+  }
+
+  /**
+   * C#'s synchronous Get(name), for callers that already know the resource exists (BeatmapManagerWorkingBeatmap resolves files from the
+   * in-memory set). The data arrives asynchronously: the track loads once it does, and fails if the store returns nothing.
+   */
+  getSync(name: string): Track {
+    if (this.isDisposed)
+      throw new Error(`Cannot access a disposed ${this.constructor.name}.`);
+
+    const track = new TrackWeb(this.store.get(name), name);
 
     this.mixer.add(track);
     this.addItem(track);
