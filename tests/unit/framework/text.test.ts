@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { FontStore, GlyphStore } from '@fw/text/FontStore';
