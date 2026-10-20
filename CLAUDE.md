@@ -1,7 +1,8 @@
 # osu!lazer web portfolio
 
 Read `docs/ARCHITECTURE.md` before writing code. Specs with exact constants live in `docs/spec/`; real-client screenshots in `docs/reference/real/`.
-Source of truth for behaviour: `_reference/osu`, `_reference/osu-framework`, `_reference/osu-resources` (read-only).
+Source of truth for behaviour: `_reference/osu`, `_reference/osu-framework`, `_reference/osu-resources` (read-only), pinned to the user's
+client: osu **2026.1005.0-lazer** → osu-framework **2026.921.1**, osu-resources **2026.918.0** (versions from osu.Game.csproj). Never use master.
 
 ## Coding guidelines (Karpathy, required)
 
@@ -30,9 +31,12 @@ against `docs/reference/real/`). Loop until they pass. Report honestly what was 
 ```bash
 npm install
 npx playwright install chromium
-mkdir -p _reference && cd _reference && git clone --depth 1 https://github.com/ppy/osu.git && git clone --depth 1 https://github.com/ppy/osu-framework.git && git clone --depth 1 https://github.com/ppy/osu-resources.git
+mkdir -p _reference && cd _reference && git clone --depth 1 --branch 2026.1005.0-lazer https://github.com/ppy/osu.git && git clone --depth 1 --branch 2026.921.1 https://github.com/ppy/osu-framework.git && git clone --depth 1 --branch 2026.918.0 https://github.com/ppy/osu-resources.git
 ```
 
 No computer use / real-client access in cloud sessions: use `docs/reference/real/` screenshots and the source.
-Status (2026-10-19): specs done = carousel, intro, main-menu; partial = controls-overlays-common. Not started: framework,
-game-shell, song-select, toolbar-music, settings-listing, assets-formats, web-visual-references; no src/ code yet.
+Status (2026-10-20): specs done = carousel, intro, main-menu, framework, assets-formats; partial = controls-overlays-common. Not started:
+game-shell, song-select, toolbar-music, settings-listing, web-visual-references. src/framework is done and tested (docs/spec/framework.md §1);
+only mixer effects remain, to port when first needed. Game layer: beatmap model + .osu decoder (control points, hit objects, slider paths)
+done and tested (docs/spec/assets-formats.md §3); import/storage, star rating, downloads and all UI are next.
+Cloud screenshots: `PW_CHROMIUM=/opt/pw-browsers/chromium node scripts/shot.mjs ...` (dev server running). Recordings: docs/reference/recordings/web/*.mp4 (ffmpeg available).

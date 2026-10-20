@@ -4,10 +4,14 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "assets": "node scripts/prepare-assets.mjs",
+    "predev": "node scripts/prepare-assets.mjs",
+    "prebuild": "node scripts/prepare-assets.mjs",
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "typecheck": "tsc --noEmit",
+    "pretest": "node scripts/prepare-assets.mjs",
     "test": "vitest run",
     "e2e": "playwright test",
     "shot": "node scripts/shot.mjs"

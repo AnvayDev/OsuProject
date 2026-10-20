@@ -1,5 +1,10 @@
 # Spec: common UI controls, sounds and generic overlays
 
+> **Version (2026-10-20 audit):** behaviour now targets the user's client, **osu! 2026.1005.0-lazer** (osu-framework 2026.921.1,
+> osu-resources 2026.918.0), which is what `_reference/` is pinned to. This spec was first written from master (2026-10-19), so some
+> `file:line` citations may be a few lines off. Where master behaved differently, the text below states the 2026.1005 behaviour.
+
+
 Source: osu!lazer master (2026-10-19) at `_reference/osu`, osu!framework at `_reference/osu-framework`, assets at
 `_reference/osu-resources/osu.Game.Resources/`. The real client is 2026.1005.0-lazer.
 
@@ -284,8 +289,9 @@ onMouseDown() { content.scaleTo(0.9, 2000, OutQuint); return true }
 onMouseUp()   { content.scaleTo(1, 1000, OutElastic) }
 ```
 
-Footer appear/disappear (IScreenFooterButton, :202-250). These animate `Content` (the masked inner container), not the
-button itself:
+Footer appear/disappear. In 2026.1005 these live on `ScreenFooterButton` (`osu/osu.Game/Screens/Footer/ScreenFooterButton.cs:258-298`), not on
+ShearedButton (master later moved them into an `IScreenFooterButton` interface implemented by both). The 2026.1005 versions **do not touch `Enabled`**,
+so ignore the `enabled = ...` statements below. They animate `Content` (the masked inner container), not the button itself:
 
 ```ts
 appearFromLeft(delay)    { enabled = action != null; content.finishTransforms();

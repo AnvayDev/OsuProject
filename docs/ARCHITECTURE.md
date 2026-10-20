@@ -30,7 +30,7 @@ Ground truth, in priority order:
   Track = `HTMLAudioElement` (object URL) → `MediaElementAudioSourceNode` → track gain → `AnalyserNode` (FFT 512 → 256 bins, smoothing 0, used as `CurrentAmplitudes`) → master gain → destination.
   Samples = decoded `AudioBuffer`s played through `AudioBufferSourceNode`s → effect gain → master gain.
 - Storage: IndexedDB (via `idb`) for imported beatmaps (content-addressed file blobs + set records). `localStorage` only for config (`OsuConfigManager`).
-- Archives: `fflate` (unzip), parsing: `osu-parsers`, star rating: `osu-standard-stable` / `osu-taiko-stable` / `osu-catch-stable` / `osu-mania-stable`. Heavy work runs in a Web Worker.
+- Archives: `fflate` (unzip), parsing: our port of `LegacyBeatmapDecoder` (`src/game/beatmaps/formats`), star rating: `osu-standard-stable` / `osu-taiko-stable` / `osu-catch-stable` / `osu-mania-stable`. Heavy work runs in a Web Worker.
 - Online: beatmap search + download from community mirrors with CORS (`https://catboy.best` primary, `https://osu.direct` fallback). Same-origin proxy fallbacks
   exist at `/mirror/catboy/*` and `/mirror/osudirect/*` (vercel.json rewrites + vite dev proxy). Covers from `assets.ppy.sh`, previews from `b.ppy.sh` (no CORS: use `<img>`/`<audio>` only, never canvas/WebAudio analysis on them).
 - Hosting: Vercel static build (`npm run build` → `dist/`).
