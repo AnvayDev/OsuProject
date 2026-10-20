@@ -1060,9 +1060,14 @@ update() {
 Framework source: `fw/Audio/BassAmplitudeProcessor.cs:32-52`, `fw/Audio/Track/ChannelAmplitudes.cs`.
 - `LeftChannel`/`RightChannel` = BASS `ChannelGetLevel` over the last **1/60 s**, stereo, 0..1 (peak level). `Maximum = max(L, R)`. If the channel is not playing, `Empty` (all zero).
 - `FrequencyAmplitudes` = BASS `FFT512` → 256 magnitude bins (linear, 0..~1, ≈86 Hz each at 44.1 kHz; the comment says ~78 Hz).
-- WebAudio: `ChannelSplitterNode` → two `AnalyserNode`s (fftSize ≥ 1024 samples ≈ 1/43 s; use the last `sampleRate/60` samples of `getFloatTimeDomainData`, peak `|x|`)
-  for L/R. A mono-mix `AnalyserNode` with `fftSize = 512`, `smoothingTimeConstant = 0` gives 256 bins of `getFloatFrequencyData` (dB) → `10^(dB/20)`.
-  BASS applies a Hann window and different normalisation. Calibrate a gain factor so a typical track gives bar lengths/levels like the real client (see §17 Q4).
+- **Measured against BASS 2.4 (2026-10-20, libbass.so with known test signals; max error 2e-8):** `FFT512[k] = |rfft(x · w)[k]| · 4/512` for k = 1…255
+  and `· 2/512` for k = 0. Here `w[n] = 0.5 − 0.5·cos(2πn/512)` (periodic Hann) and `x` = the mono mix `(L+R)/2` of the 512 samples at the channel
+  position. A full-scale sine at a bin centre reads exactly 1.0 (neighbours 0.5); DC 0.5 reads 0.5 in bin 0 and 0.5 in bin 1. Levels are per-channel
+  peak `|x|` (not RMS) over 1/60 s: a 0.5-amplitude sine reads 0.5.
+- WebAudio: `ChannelSplitterNode` → two `AnalyserNode`s (fftSize 1024 ≥ 1/60 s). Use the last `round(sampleRate/60)` samples of
+  `getFloatTimeDomainData`, peak `|x|`, for L/R. A mono-mix `AnalyserNode` (its input is down-mixed to (L+R)/2) with `fftSize = 512`:
+  `getFloatTimeDomainData` → our own FFT with the formula above. Don't use `getFloatFrequencyData`: it uses a Blackman window, 1/N scaling and
+  smoothing. No calibration factor is needed.
 
 ---
 
@@ -1386,8 +1391,8 @@ Open questions / uncertainties:
    Option (a) matches the user's desktop client visually.
 2. **Logo proxy z-order in the DOM** (§1.1). The logo must be drawn between the button layer and the side flashes, without inheriting `MainMenu`'s alpha (it fades separately).
 3. **`buttonArea.Alpha * 150`** (§3.7) is always 150 in practice. `ButtonArea` itself is never faded (its inner container is). Port it as written.
-4. **Amplitude calibration** (§7.3). BASS FFT/level scaling differs from WebAudio. The constants in §5, §6, §8 assume BASS ranges (level 0..1 peak; FFT magnitudes rarely > 0.5).
-   This needs an empirical gain match against `docs/reference/real/01c-mainmenu-initial-visualiser.jpg`.
+4. ~~Amplitude calibration~~ **Resolved (2026-10-20):** BASS's FFT/level formulas were measured exactly (§7.3). Computing them from WebAudio
+   time-domain data needs no gain factor.
 5. **Linear-colour side flashes** (§8). Whether the framework blends vertex colours in linear space affects the exact on-screen hue. `#2298FF` α0.6 is the literal value.
 6. **Tip length** for the display duration uses `LocalisableString.ToString()` of the formatted English tip (with keybind names substituted). Small differences only shift timing by 80 ms per character.
 7. **Exit outro overlap**: the delayed (150 ms) `ButtonSystem` logo move to the centre (800 OutExpo) and `IntroScreen.LogoArriving` (350 OutQuint + rotate/fade) both act on the logo after
