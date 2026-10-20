@@ -40,7 +40,8 @@ easy to get wrong, the DOM mapping decisions, and known limitations.
 | ScrollContainer (+BasicScrollContainer), PlatformAction/PlatformActionContainer (per-OS bindings via RuntimeInfo), FrameworkColour | done, tested | `graphics/containers/ScrollContainer.ts`, `input/PlatformAction*.ts`, `platform/MacOSGameHost.ts`, `RuntimeInfo.ts` |
 | BufferedContainer (blur, cached frame buffers, group colour), Utils/Blur | done, tested (DrawOriginal/grayscale throw) | `graphics/containers/BufferedContainer.ts`, `utils/Blur.ts` |
 | Screen, ScreenStack, IScreen/ScreenExtensions, screen events | done, tested | `screens/*` |
-| Audio, ProxyDrawable, DecouplingFramedClock/InterpolatingFramedClock | **not started** | |
+| ProxyDrawable (draw-order relocation, proxy-of-proxy) | done, tested | `graphics/ProxyDrawable.ts` |
+| Audio, DecouplingFramedClock/InterpolatingFramedClock | **not started** | |
 
 Verification: `npm test` (transforms, primitives, layout: 43 tests) and `tests/visual/framework-scene.html`, a scene that exercises masking, borders, edge effects, additive blending and per-leaf alpha.
 
@@ -144,6 +145,10 @@ Limitation: CSS stacking contexts isolate blending. To keep that rare, drawables
 - `IScreen` extension methods (`this.Push`, `this.Exit`, `this.MakeCurrent`, `this.IsCurrentScreen`, …) are methods on `Screen`, backed by
   `ScreenExtensions.*`. ScreenStack's internal `Push(source, screen)` and `Exit(source)` are `pushFrom` and `exitScreen`. Its C# events are
   `screenPushed` and `screenExited` (Signals carrying `[last, next]`). ScreenStack logging is omitted.
+- ProxyDrawable: the proxy's element adopts the original's element, so the original is drawn at the proxy's place in DOM order, inside the
+  proxy's ancestors' masking. Its position is its own `DrawInfo` re-expressed in the proxy's space. As with `ProxyDrawNode`, it is shown only
+  on frames where its own tree walked it (alive, present, not masked away, ancestors drawn). The check runs as a pass after the root element
+  walk (`Drawable.elementFrame`).
 - `RuntimeInfo.OS` comes from `navigator` (iPadOS reports Mac + touch → iOS). It picks `GameHost.platformKeyBindings`: macOS/iOS use
   `MacOSGameHost.KeyBindings` (Cmd = Super), Windows adds Alt+F4 → Exit, and everything else uses the base list. FrameworkActionContainer
   (debug overlays) is not ported.

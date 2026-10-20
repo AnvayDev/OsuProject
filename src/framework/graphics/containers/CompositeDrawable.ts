@@ -22,6 +22,8 @@ import { ColourInfo } from '../ColourInfo';
 import { EdgeEffectParameters, EdgeEffectType } from '../DrawInfo';
 import { edgeEffectCss } from './EdgeEffectStyle';
 import { Drawable } from '../Drawable';
+// Registers Drawable.proxyFactory (ProxyDrawable extends Drawable, so Drawable.ts cannot import it).
+import '../ProxyDrawable';
 
 enum ChildLifeStateChange {
   None = 0,
@@ -407,6 +409,10 @@ export abstract class CompositeDrawable extends Drawable {
 
   /** Keeps DOM order equal to internalChildren order (draw order). */
   private insertChildElement(drawable: Drawable, index: number): void {
+    // Proxied drawables' elements live in their proxy's element.
+    if (drawable.hasProxy)
+      return;
+
     const next = index + 1 < this.internalChildrenList.count ? this.internalChildrenList.get(index + 1).element : this.borderElement;
     const container = this.childElementContainer;
 
@@ -719,28 +725,53 @@ export abstract class CompositeDrawable extends Drawable {
 
   /** @internal Walks the drawn subtree (as addFromComposite does) and re-applies element state where invalidated. */
   validateElementSubTree(): void {
-    this.validateElement();
+    const isRoot = CompositeDrawable.elementValidationDepth++ === 0;
+    if (isRoot)
+      Drawable.elementFrame++;
 
-    const children = this.internalChildrenList;
+    try {
+      this.validateElement();
 
-    for (let i = 0; i < children.count; ++i) {
-      const drawable = children.get(i);
+      const children = this.internalChildrenList;
 
-      const drawn = drawable.isAlive && drawable.isLoaded && (drawable.isProxy || (drawable.isPresent && !drawable.isMaskedAway)) && !drawable.hasProxy;
+      for (let i = 0; i < children.count; ++i) {
+        const drawable = children.get(i);
 
-      const display = drawn ? '' : 'none';
-      if (drawable.element.style.display !== display)
-        drawable.element.style.display = display;
+        const drawn = drawable.isAlive && drawable.isLoaded && (drawable.isProxy || (drawable.isPresent && !drawable.isMaskedAway));
 
-      if (!drawn)
-        continue;
+        // Proxied drawables have their elements drawn (shown and positioned) by their proxy, if validated here this frame.
+        if (drawable.hasProxy) {
+          if (drawn) {
+            this.validateChildElement(drawable);
+            drawable.validateProxyDrawNode();
+          }
 
-      if (drawable instanceof CompositeDrawable)
-        drawable.validateElementSubTree();
-      else
-        drawable.validateElement();
+          continue;
+        }
+
+        const display = drawn ? '' : 'none';
+        if (drawable.element.style.display !== display)
+          drawable.element.style.display = display;
+
+        if (drawn)
+          this.validateChildElement(drawable);
+      }
+    } finally {
+      CompositeDrawable.elementValidationDepth--;
     }
+
+    if (isRoot)
+      Drawable.flushProxies?.();
   }
+
+  private validateChildElement(drawable: Drawable): void {
+    if (drawable instanceof CompositeDrawable)
+      drawable.validateElementSubTree();
+    else
+      drawable.validateElement();
+  }
+
+  private static elementValidationDepth = 0;
 
   /** Where children's elements are inserted: the mask element when masking, else our own element. */
   protected get childElementContainer(): HTMLElement {
@@ -765,8 +796,10 @@ export abstract class CompositeDrawable extends Drawable {
     mask.style.pointerEvents = 'none';
 
     // move existing children into the mask.
-    for (const c of this.internalChildrenList.toArray())
-      mask.appendChild(c.element);
+    for (const c of this.internalChildrenList.toArray()) {
+      if (!c.hasProxy)
+        mask.appendChild(c.element);
+    }
 
     this.element.appendChild(mask);
     this.maskElement = mask;

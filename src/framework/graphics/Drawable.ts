@@ -1038,7 +1038,7 @@ export abstract class Drawable extends Transformable {
   private _lifetimeEnd = MAX_VALUE;
 
   /** @internal Invoked after lifetimeStart or lifetimeEnd has changed. */
-  lifetimeChanged: ((d: Drawable) => void) | null = null;
+  readonly lifetimeChanged = new Signal<Drawable>();
 
   /** The time at which this drawable becomes valid (and is considered for drawing). */
   get lifetimeStart(): number {
@@ -1049,7 +1049,7 @@ export abstract class Drawable extends Transformable {
     if (this._lifetimeStart === value) return;
 
     this._lifetimeStart = value;
-    this.lifetimeChanged?.(this);
+    this.lifetimeChanged.emit(this);
   }
 
   /** The time at which this drawable is no longer valid (and is considered for disposal). */
@@ -1061,7 +1061,7 @@ export abstract class Drawable extends Transformable {
     if (this._lifetimeEnd === value) return;
 
     this._lifetimeEnd = value;
-    this.lifetimeChanged?.(this);
+    this.lifetimeChanged.emit(this);
   }
 
   /** @internal Whether this drawable should currently be alive. This is queried by the framework to decide the IsAlive state of this drawable for the next frame. */
@@ -1153,6 +1153,17 @@ export abstract class Drawable extends Transformable {
 
   /** @internal Set by ProxyDrawable.ts to avoid an import cycle. */
   static proxyFactory: ((original: Drawable) => Drawable) | null = null;
+
+  /** @internal The DOM "draw frame": incremented once per root validateElementSubTree(). */
+  static elementFrame = 0;
+
+  /** @internal Set by ProxyDrawable.ts: shows/positions proxied elements after the root element walk. */
+  static flushProxies: (() => void) | null = null;
+
+  /** @internal Marks this drawable's element as drawn this frame for its proxy (ValidateProxyDrawNode). */
+  validateProxyDrawNode(): void {
+    this.proxy!.validateProxyDrawNode();
+  }
 
   // #endregion
 
@@ -1440,9 +1451,8 @@ export abstract class Drawable extends Transformable {
     const top = isTranslationOnly ? m.m32 : 0;
     const transformCss = isTranslationOnly ? '' : m.toCss();
 
-    if (left !== this.lastLeft) style.left = `${this.lastLeft = left}px`;
-    if (top !== this.lastTop) style.top = `${this.lastTop = top}px`;
-    if (transformCss !== this.lastTransformCss) style.transform = this.lastTransformCss = transformCss;
+    if (!this.hasProxy)
+      this.writeElementPosition(left, top, transformCss);
 
     const size = this.drawSize;
     if (size.x !== this.lastWidth) style.width = `${this.lastWidth = size.x}px`;
@@ -1450,6 +1460,18 @@ export abstract class Drawable extends Transformable {
 
     const blendMode = this.blending === BlendingParameters.Additive ? 'plus-lighter' : this.blending === BlendingParameters.Inherit ? '' : 'normal';
     if (blendMode !== this.lastBlendMode) style.mixBlendMode = this.lastBlendMode = blendMode;
+  }
+
+  private writeElementPosition(left: number, top: number, transformCss: string): void {
+    const style = this.element.style;
+    if (left !== this.lastLeft) style.left = `${this.lastLeft = left}px`;
+    if (top !== this.lastTop) style.top = `${this.lastTop = top}px`;
+    if (transformCss !== this.lastTransformCss) style.transform = this.lastTransformCss = transformCss;
+  }
+
+  /** @internal Positions this (proxied) drawable's element inside its proxy's element: our DrawInfo in the proxy's space. */
+  applyProxiedElementPosition(proxy: Drawable): void {
+    this.writeElementPosition(0, 0, this.drawInfo.matrix.multiply(proxy.drawInfo.matrixInverse).toCss());
   }
 
   // #endregion
