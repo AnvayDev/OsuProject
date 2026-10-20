@@ -64,14 +64,15 @@ export enum Key {
   Slash = 128,
   BackSlash = 129,
   NonUSBackSlash = 130,
-  // media keys (osu!framework additions)
-  Mute = 131,
-  PlayPause = 132,
-  Stop = 133,
-  VolumeUp = 134,
-  VolumeDown = 135,
-  TrackPrevious = 136,
-  TrackNext = 137,
+  LastKey = 131,
+  // media keys (osu!framework's osuTK fork; values equal InputKey's so KeyCombination.FromKey can cast)
+  Mute = 256,
+  PlayPause = 257,
+  Stop = 258,
+  VolumeUp = 259,
+  VolumeDown = 260,
+  TrackPrevious = 261,
+  TrackNext = 262,
 }
 
 const codeMap: Record<string, Key> = {
