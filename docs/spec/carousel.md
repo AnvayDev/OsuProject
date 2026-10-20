@@ -1,5 +1,10 @@
 # Spec: song select beatmap carousel (lazer "SelectV2" design)
 
+> **Version (2026-10-20 audit):** behaviour now targets the user's client, **osu! 2026.1005.0-lazer** (osu-framework 2026.921.1,
+> osu-resources 2026.918.0), which is what `_reference/` is pinned to. This spec was first written from master (2026-10-19), so some
+> `file:line` citations may be a few lines off. Where master behaved differently, the text below states the 2026.1005 behaviour.
+
+
 Scope: `Graphics/Carousel/*` (generic virtualised carousel) and the beatmap specialisation in `Screens/Select/`
 (`BeatmapCarousel`, filters, all `Panel*` drawables, `NoResultsPlaceholder`), plus the bits of `SongSelect.cs`
 that drive the carousel. No gameplay.
@@ -333,6 +338,7 @@ The real code reads the screen quad from the previous frame's layout. Using the 
 - `ScrollTo` (through `UserTrackingScrollContainer`) sets `UserScrolling = false` (`osu/osu.Game/Graphics/Containers/UserTrackingScrollContainer.cs:56-60`).
   Wheel, drag, scrollbar and absolute scroll set it true.
 - Framework scroll physics (`fw/Graphics/Containers/ScrollContainer.cs`). The full model lives in `framework.md`. The constants:
+  Alt+wheel is not handled by the carousel in 2026.1005 (`OsuScrollContainer.OnScroll` returns false when Alt is held, `OsuScrollContainer.cs:60-68`), so it falls through to song select's `GlobalScrollAdjustsVolume` and changes the volume.
   `ScrollDistance = 80` per wheel notch (`:83`); `ClampExtension = 500` (`:90`); `DistanceDecayDrag = 0.0035` (`:100`); `DistanceDecayScroll = 0.01` (`:105`);
   `DistanceDecayJump = 0.01` (`:110`), used by ScrollTo; precise (trackpad) wheel decay `0.05` (`:411`); `distance_decay_clamping = 0.012` (`:95`).
   Per frame: `current = lerp(target, current, exp(−decay·dt))` (`:555`). The overscroll spring is at `:535-552`. The drag flick velocity is
@@ -343,7 +349,8 @@ The real code reads the screen quad from the previous frame's layout. Using the 
   (`osu/osu.Game/Graphics/Containers/OsuScrollContainer.cs:65-73`). `ScrollContainer.ReceivePositionalInputAt` is always true (`Carousel.ScrollContainer.cs:51`),
   so a right-drag works anywhere on screen that is not covered by something else.
 - When the mouse enters the left wedge area (minus 40 units of right padding), the carousel runs an animated `ScrollToSelection()`. Plain wheel scrolls
-  there are swallowed (`osu/osu.Game/Screens/Select/LeftSideInteractionContainer.cs:30-56`, `SongSelect.cs:228-237`).
+  there are swallowed (`osu/osu.Game/Screens/Select/LeftSideInteractionContainer.cs:30-56`, `SongSelect.cs:228-237`). In 2026.1005 it
+  also blocks mouse down (`OnMouseDown => true`, `LeftSideInteractionContainer.cs:32`), so clicks on the empty left area don't reach anything behind it.
 
 ### 3.8 Scrollbar (`Carousel.ScrollContainer.cs:104-125, 237-341`)
 - Container size: `SCROLL_BAR_WIDTH·2 = 20` wide (`OsuScrollContainer.cs:32`), left and right margin 3. It holds a `Circle` anchored TopRight with relative width **0.5** (10 units).
@@ -444,18 +451,13 @@ updateSelectedState(animated = true) {
 `PulsatingBox` is a `BeatSyncedContainer` with `EarlyActivationMilliseconds = 40`. Its inner Box alpha starts at 1:
 ```ts
 onNewBeat(beatIndex, timingPoint) {           // runs inside beginDelayedSequence(-timeSinceLastBeat), so transforms start AT the beat time
-  if (beatIndex % flashInterval(timingPoint.timeSignatureNumerator, this.depthLayer) !== 0) return;
+  if (beatIndex % Math.pow(2, this.flashOffset) !== 0) return;   // 2026.1005: FlashOffset = -Item.DepthLayer (Panel.cs:194,246)
   let length = timingPoint.beatLength; while (length < 250) length *= 2;
   this.box.fadeTo(0.8, 40, Easing.Out).then().fadeTo(0.4, length, Easing.Out);  // each beat restarts the chain (interrupts the previous)
 }
-flashInterval(beatsPerBar, depthLayer) {     // Panel.cs:219-251
-  let beatsPerFlash = 1, remaining = beatsPerBar;
-  for (let i = 0; i < depthLayer; i++) {
-    let f = smallestPrimeFactor(remaining); if (f <= 1) f = 2;
-    beatsPerFlash *= f; if (remaining % f === 0) remaining /= f;
-  }
-  return beatsPerFlash;   // 4/4: diff 1, set 2, group 4. 3/4: diff 1, set 3, group 6
-}
+// DepthLayer: difficulty 0, set -1, group -2 (BeatmapCarouselFilterGrouping.cs:85,114), so a difficulty flashes every beat,
+// a set every 2 beats and a group every 4, for every time signature. (Master later switched to a bar-aligned prime-factor
+// interval, which gives 3/6 beats in 3/4. That is NOT in the user's 2026.1005 client.)
 ```
 When the track is not running, the BeatSyncedContainer uses `TimingControlPoint.DEFAULT` (60000/60 = 1000 ms beat) on the local clock
 (`osu/osu.Game/Graphics/Containers/BeatSyncedContainer.cs:118-126`). See the beat-sync spec for details.

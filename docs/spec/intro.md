@@ -1,5 +1,10 @@
 # Startup + intro sequences (spec)
 
+> **Version (2026-10-20 audit):** behaviour now targets the user's client, **osu! 2026.1005.0-lazer** (osu-framework 2026.921.1,
+> osu-resources 2026.918.0), which is what `_reference/` is pinned to. This spec was first written from master (2026-10-19), so some
+> `file:line` citations may be a few lines off. Where master behaved differently, the text below states the 2026.1005 behaviour.
+
+
 Area owner: startup path `OsuGame → Loader → IntroScreen (Triangles | Circles | Welcome | Christmas) → MainMenu`, plus the exit ("seeya") path back through the intro.
 
 All citations are relative to `/Users/anvay/OSUWebProj/_reference/`. `osu/` = osu!lazer game, `osu-framework/` = framework, `osu-resources/` = assets (`osu-resources/osu.Game.Resources/…`).
@@ -123,7 +128,7 @@ Both Loader and the intros inherit:
 
 IntroScreen adds `AllowGlobalTrackControl => false` (`IntroScreen.cs:100`), which blocks music keys and the now-playing overlay.
 
-**No input skips an intro.** IntroScreen has no click or key handlers. The only input handler is `ScrollAdjustsVolume`, so the wheel changes volume **without** Alt (`IntroScreen.cs:187`; `osu/osu.Game/Overlays/Volume/ScrollAdjustsVolume.cs:33-50`).
+**No input skips an intro.** IntroScreen has no click or key handlers. The only input handler is `GlobalScrollAdjustsVolume` (2026.1005 name; master renamed it `ScrollAdjustsVolume`), so the wheel changes volume **without** Alt (`IntroScreen.cs:187`; `osu/osu.Game/Overlays/Volume/GlobalScrollAdjustsVolume.cs`; was cited as `osu/osu.Game/Overlays/Volume/ScrollAdjustsVolume.cs:33-50`).
 
 ### 2.3 Loader (`osu/osu.Game/Screens/Loader.cs`)
 - `ValidForResume = false` (`:28`).

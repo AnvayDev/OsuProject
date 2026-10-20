@@ -1,5 +1,10 @@
 # Main menu spec (osu!lazer → web port)
 
+> **Version (2026-10-20 audit):** behaviour now targets the user's client, **osu! 2026.1005.0-lazer** (osu-framework 2026.921.1,
+> osu-resources 2026.918.0), which is what `_reference/` is pinned to. This spec was first written from master (2026-10-19), so some
+> `file:line` citations may be a few lines off. Where master behaved differently, the text below states the 2026.1005 behaviour.
+
+
 This spec covers the main menu screen of osu!lazer (`MainMenu`) and everything drawn on it: the button system, the osu! logo, the logo
 visualiser, side flashes, kiai fountains, song ticker, menu tips, supporter display, online banner, hold-to-exit and the exit sequence.
 It also covers the beat sync model these components rely on. Implement against this file; every constant cites its source.
@@ -93,7 +98,7 @@ idleTracker (GameIdleTracker(6000))
 |---|---|---|---|
 | 0 | `HoldToExitGameOverlay` | full screen | Only when `host.CanExit`. Gets input here; it is **drawn** via its proxy at #11 — `MainMenu.cs:131-139,218` |
 | 1 | `MainMenuSeasonalLighting` or `Empty()` | — | `SeasonalUIConfig.ENABLED = false` — `osu/osu.Game/Seasonal/SeasonalUIConfig.cs:14`. Skip. |
-| 2 | `ScrollAdjustsVolume` | full screen | Mouse wheel anywhere → `VolumeOverlay.Adjust(IncreaseVolume, delta.Y, isPrecise)` — `osu/osu.Game/Overlays/Volume/ScrollAdjustsVolume.cs` |
+| 2 | `GlobalScrollAdjustsVolume` | full screen | Mouse wheel anywhere (delta.Y ≠ 0) → `VolumeOverlay.Adjust(IncreaseVolume, delta.Y, isPrecise)` — `osu/osu.Game/Overlays/Volume/GlobalScrollAdjustsVolume.cs` (2026.1005 has no global Alt-only `ScrollAdjustsVolume` in OsuGame; that was added later on master) |
 | 3 | `buttonsContainer` = `ParallaxContainer { ParallaxAmount = 0.01 }` → `ButtonSystem` | full screen | `MainMenu.cs:145-180` |
 | 4 | `logoTarget` (Container, RelativeSizeAxes.Both) | full screen | receives the logo proxy — `MainMenu.cs:181` |
 | 5 | `MenuSideFlashes` | full screen | `MainMenu.cs:182` |
@@ -1042,7 +1047,8 @@ update() {
 
 - Defaults: `TimingControlPoint.DEFAULT`: `BeatLength = 60000/60 = 1000` ms (60 BPM), `Time = 0`, 4/4, no omit — `osu/osu.Game/Beatmaps/ControlPoints/TimingControlPoint.cs:27,31-40`.
   `EffectControlPoint.DEFAULT`: kiai off — `EffectControlPoint.cs:13-17`.
-- `MISTIMED_ALLOWANCE = 16` ms; `MinimumBeatLength = 50` ms — `:49,72`.
+- `MISTIMED_ALLOWANCE = 16` ms; `MinimumBeatLength` defaults to **0** in 2026.1005 (`BeatSyncedContainer.cs:69`; master later changed the default to 50).
+  No menu component sets it, so a beat length is never doubled in the menu (only `OsuTextBox` sets 300).
 - Early activation per component: OsuLogo 60 ms (`OsuLogo.cs:103,111`), MenuSideFlashes 65 ms (`MenuSideFlashes.cs:41,52`), MainMenuButton 0, KiaiMenuFountains 0.
   The event fires `early` ms before the beat. Transforms are back-dated by `timeSinceLastBeat` so they start exactly `early` ms before the beat.
 - The beat sequence restarts per timing point (`lastTimingPoint` reference change ⇒ new event even if the index repeats).

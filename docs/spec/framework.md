@@ -1,6 +1,11 @@
 # osu!framework port (spec)
 
 Area owner: `src/framework/**`. Citations are relative to `_reference/` (`osu-framework/osu.Framework/…`, `osu/osu.Game/…`).
+
+**Versions:** the user's client is **osu! 2026.1005.0-lazer**, whose `osu.Game.csproj` references **ppy.osu.Framework 2026.921.1** and
+**ppy.osu.Game.Resources 2026.918.0**. `_reference/` and `scripts/prepare-assets.mjs` are pinned to exactly these tags. Code that differs on
+master must be ported as it is in these versions, bugs included. For example, in 2026.921.1 `Interpolation.ValueAt(RectangleF)` lerps the height
+toward `val2.X` (`Utils/Interpolation.cs:390`). Port that as-is when RectangleF transforms are needed.
 The ported TS files carry `// Ported from <path>.cs` headers. The C# source is the real spec; this file records the facts that are
 easy to get wrong, the DOM mapping decisions, and known limitations.
 
@@ -28,7 +33,10 @@ easy to get wrong, the DOM mapping decisions, and known limitations.
 | Scheduler/ScheduledDelegate, StopwatchClock, FramedClock, ManualClock | done | `timing/*` |
 | DependencyContainer (no reflection) | done | `allocation/*` |
 | DrawSizePreservingFillContainer, Game, GameHost (rAF loop) | done | `graphics/containers/…`, `Game.ts`, `platform/GameHost.ts` |
-| Bindables, InputManager + events, SpriteText/fonts, FillFlowContainer, GridContainer, BufferedContainer (blur), ScrollContainer, ScreenStack, Audio, ProxyDrawable, DecouplingFramedClock/InterpolatingFramedClock | **not started** | |
+| Bindables (Bindable, Leased, Bool, WithCurrent, Number/Float/Double/Int/Long) | done, tested | `bindables/*` |
+| InputManager, PassThrough/UserInputManager, mouse/key event managers, events, DOM handler, KeyBindingContainer | done, tested | `input/**` |
+| Fonts (BMFont atlases → JSON), FontStore/GlyphStore, TextBuilder (+multiline/truncating), SpriteText | in progress | `text/*`, `graphics/sprites/SpriteText.ts` |
+| FillFlowContainer, GridContainer, BufferedContainer (blur), ScrollContainer, ScreenStack, Audio, ProxyDrawable, DecouplingFramedClock/InterpolatingFramedClock | **not started** | |
 
 Verification: `npm test` (transforms, primitives, layout: 43 tests) and `tests/visual/framework-scene.html`, a scene that exercises masking, borders, edge effects, additive blending and per-leaf alpha.
 
@@ -116,3 +124,22 @@ Limitation: CSS stacking contexts isolate blending. To keep that rare, drawables
 - Bilinear four-corner gradients (neither horizontal nor vertical) are approximated by a vertical gradient through the column midpoints.
 - Values are JS doubles; osu! uses float32. Differences are sub-pixel.
 - `MaskingSmoothness` (1 px anti-alias) is the browser's own edge AA.
+
+## 12. Text (`IO/Stores/GlyphStore.cs`, `FontStore.cs`, `Text/TextBuilder*.cs`, `Graphics/Sprites/SpriteText*.cs`)
+
+- Fonts are the same BMFont atlases osu! uses. They are generated from osu-resources/osu-framework by `scripts/build-fonts.mjs`, which writes JSON
+  metrics plus the PNG pages. All fonts are rendered at **size 100 px** (`FontStore` `scaleAdjust = 100`, the raw pixel height). A glyph of w px is
+  `w / 100 × FontUsage.Size` units wide.
+- Store order sets the fallback lookups: FontAwesome (Solid, Regular, Brands), Torus, Torus-Alternate, Inter, Noto (Basic, Bopomofo, CJK-Basic,
+  CJK-Compatibility, Hangul, Thai), Venera. Roboto and RobotoCondensed sit in a nested store and are searched last. A lookup tries `FontName`
+  (e.g. `Torus-Bold`), then `FontNameNoFamily` (`-Bold`, any family), then any font, then the fallback character.
+  SpriteText's fallback character is `•`; TextBuilder's default is `?`.
+- Quirk (ported): kerning is scaled by 1/100 but **not by the font size** (`TextBuilderGlyph.GetKerning` doesn't multiply by `textSize`), so kerning
+  is effectively a fixed few hundredths of a unit.
+- Height: with `UseFullGlyphHeight` (default) a line is `FontUsage.Size` tall and glyphs sit at `YOffset × size`. Otherwise the line is as tall as
+  its tallest glyph.
+- Shadow (`SpriteText.DrawNode`): drawn per glyph right before the glyph. It is offset by `ShadowOffset × Font.Size` (default (0, 0.06)).
+  Its colour is `DrawColour.ApplyChild(ShadowColour (default black α0.2) × α·max(r,g,b)²)`, where the max is taken from the average draw colour.
+- Gradient colours apply **per glyph quad** (each glyph gets the full ColourInfo), not across the whole text.
+- Strings are processed per UTF-16 code unit, as C#'s `foreach (char c in text)` does.
+- Some osu-resources `.bin` files (Noto) declare a BMFont info block one byte too long. SharpFNT reads sequentially, and so does the converter.

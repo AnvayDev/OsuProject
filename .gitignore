@@ -8,3 +8,4 @@ test-results/
 playwright-report/
 docs/reference/recordings/s*.mp4
 docs/reference/recordings/frames/
+public/assets/
