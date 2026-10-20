@@ -12,7 +12,8 @@ const width = Number(args.w ?? 1389);
 const height = Number(args.h ?? 868);
 const out = args.out ?? 'shot.png';
 
-const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
+// PW_CHROMIUM lets cloud sessions use the preinstalled browser when the playwright package pins a different build.
+const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'], ...(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {}) });
 const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: Number(args.dpr ?? 1) });
 const logs = [];
 page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
