@@ -12,7 +12,7 @@ const pins = {
 };
 
 const stampFile = path.resolve('public/assets/.stamp');
-const generatorVersion = '1'; // bump when the generated layout changes
+const generatorVersion = '2'; // bump when the generated layout changes
 const stamp = JSON.stringify({ generatorVersion, pins });
 
 if (fs.existsSync(stampFile) && fs.readFileSync(stampFile, 'utf8') === stamp && !process.argv.includes('--force')) {

@@ -11,6 +11,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "typecheck": "tsc --noEmit",
+    "pretest": "node scripts/prepare-assets.mjs",
     "test": "vitest run",
     "e2e": "playwright test",
     "shot": "node scripts/shot.mjs"

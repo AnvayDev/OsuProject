@@ -10,10 +10,13 @@ import { BlendingParameters, EdgeEffectParameters, EdgeEffectType } from '@fw/gr
 import { Anchor, Axes } from '@fw/layout/Enums';
 import { Vector2 } from '@fw/layout/Vector2';
 import { Easing } from '@fw/transforms/Easing';
+import { SpriteText } from '@fw/graphics/sprites/SpriteText';
+import { FontUsage } from '@fw/text/FontUsage';
 
 class SceneGame extends Game {
-  constructor() {
-    super();
+  // Like osu! games, content is added in LoadComplete: children added in the constructor would load before Game.load caches the FontStore.
+  protected override loadComplete(): void {
+    super.loadComplete();
 
     const pink = Colour4.fromHex('#ff66aa');
 
@@ -46,12 +49,15 @@ class SceneGame extends Game {
             new Box().with({ position: new Vector2(75, 75), size: new Vector2(150, 150), colour: Colour4.Cyan }),
           ],
         }),
+        new SpriteText().with({ position: new Vector2(800, 100), text: 'Torus Regular 24', font: new FontUsage('Torus', 24, 'Regular') }),
+        new SpriteText().with({ position: new Vector2(800, 140), text: 'Torus Bold 32 — osu!', font: new FontUsage('Torus', 32, 'Bold'), shadow: true }),
+        new SpriteText().with({ position: new Vector2(800, 190), text: 'VENERA BLACK', font: new FontUsage('Venera', 28, 'Black'), colour: pink }),
+        new SpriteText().with({ position: new Vector2(800, 240), text: 'Gradient text 日本語 한국어', font: new FontUsage('Torus', 28, 'SemiBold'),
+          colour: ColourInfo.gradientVertical(Colour4.White, pink) }),
+        new SpriteText().with({ position: new Vector2(800, 290), width: 200, truncate: true, text: 'A very long truncated beatmap title that keeps going', font: new FontUsage('Torus', 20, 'Regular') }),
+        new SpriteText().with({ position: new Vector2(800, 330), text: '\uf001 \uf004 \uf013', font: new FontUsage('FontAwesome', 30, 'Solid') }),
       ],
     }));
-  }
-
-  protected override loadComplete(): void {
-    super.loadComplete();
   }
 }
 

@@ -41,6 +41,8 @@ interface FontJson {
   scaleW: number;
   scaleH: number;
   pages: string[];
+  /** Actual [width, height] of each page image (may be trimmed smaller than scaleW/scaleH). */
+  pageSizes: [number, number][];
   /** [id, x, y, width, height, xoffset, yoffset, xadvance, page] */
   chars: [number, number, number, number, number, number, number, number, number][];
   /** [first, second, amount] */
@@ -111,8 +113,8 @@ export class GlyphStore {
 
     return {
       pageUrl: this.baseUrl + this.font.pages[c[8]],
-      pageWidth: this.font.scaleW,
-      pageHeight: this.font.scaleH,
+      pageWidth: this.font.pageSizes[c[8]][0],
+      pageHeight: this.font.pageSizes[c[8]][1],
       x: c[1],
       y: c[2],
       width: c[3],

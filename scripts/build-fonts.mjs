@@ -95,13 +95,20 @@ for (const name of fonts) {
   // GlyphStore.GetFilenameForPage: {AssetName}_{page padded to the digit count of (pageCount - 1)}.png
   const digits = String(Math.max(0, font.pages.length - 1)).length;
   const pageFiles = font.pages.map((_, i) => `${path.basename(name)}_${String(i).padStart(digits, '0')}.png`);
-  for (const f of pageFiles)
-    fs.copyFileSync(path.join(path.dirname(binPath), f), path.join(dir, f));
+  // Page PNGs may be trimmed smaller than common.scaleW/H (GlyphStore.LoadCharacter: "the spritesheet may have unused pixels trimmed"),
+  // so record each page's real size: glyph rectangles index into the image as-is.
+  const pageSizes = [];
+  for (const f of pageFiles) {
+    const from = path.join(path.dirname(binPath), f);
+    const png = fs.readFileSync(from);
+    pageSizes.push([png.readUInt32BE(16), png.readUInt32BE(20)]);
+    fs.copyFileSync(from, path.join(dir, f));
+  }
 
   const json = {
     // chars: [id, x, y, width, height, xoffset, yoffset, xadvance, page]
     size: font.info.size, base: font.common.base, lineHeight: font.common.lineHeight, scaleW: font.common.scaleW, scaleH: font.common.scaleH,
-    pages: pageFiles, chars: font.chars, kernings: font.kernings,
+    pages: pageFiles, pageSizes, chars: font.chars, kernings: font.kernings,
   };
   fs.writeFileSync(path.join(out, `${name}.json`), JSON.stringify(json));
   index.push(name);
