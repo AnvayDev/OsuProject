@@ -20,7 +20,16 @@ export class FramedClock implements IFrameBasedClock {
 
   jitter = 0;
 
-  currentTime = 0;
+  private _currentTime = 0;
+
+  /** The current time, as of the last processFrame (C#: virtual, with a protected setter). */
+  get currentTime(): number {
+    return this._currentTime;
+  }
+
+  set currentTime(value: number) {
+    this._currentTime = value;
+  }
 
   protected lastFrameTime = 0;
 

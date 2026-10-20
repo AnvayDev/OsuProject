@@ -16,6 +16,20 @@ export function lerp(start: number, final: number, amount: number): number {
   return start + (final - start) * amount;
 }
 
+/** Interpolates between 2 values with an exponential falloff: lerp(start, final, 1 - base^exponent). Interpolation.Damp */
+export function damp(start: number, final: number, base: number, exponent: number): number {
+  if (base < 0 || base > 1)
+    throw new RangeError(`base has to lie in [0,1], but is ${base}.`);
+
+  return lerp(start, final, 1 - Math.pow(base, exponent));
+}
+
+/** Interpolates current towards target such that the remaining difference halves every halfTime. Interpolation.DampContinuously */
+export function dampContinuously(current: number, target: number, halfTime: number, elapsedTime: number): number {
+  const exponent = elapsedTime / halfTime;
+  return damp(current, target, 0.5, exponent);
+}
+
 export function valueAtNumber(time: number, val1: number, val2: number, startTime: number, endTime: number, easing: IEasingFunction): number {
   if (val1 === val2)
     return val1;

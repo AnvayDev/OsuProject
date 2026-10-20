@@ -4,8 +4,9 @@ import { Signal } from '../../bindables/Signal';
 import { AdjustableAudioComponent, AdjustableProperty } from '../AudioComponent';
 import type { AudioMixer, IAudioChannel } from '../mixing/AudioMixer';
 import { ChannelAmplitudes } from './ChannelAmplitudes';
+import type { IAdjustableClock } from '../../timing/IClock';
 
-export abstract class Track extends AdjustableAudioComponent implements IAudioChannel {
+export abstract class Track extends AdjustableAudioComponent implements IAudioChannel, IAdjustableClock {
   /** Invoked when the track has completed playback. */
   readonly completed = new Signal();
 
@@ -109,6 +110,10 @@ export abstract class Track extends AdjustableAudioComponent implements IAudioCh
   /** Overall playback rate (1 is 100%, -1 is reversed at 100%). */
   get rate(): number {
     return this.aggregateFrequency.value * this.aggregateTempo.value;
+  }
+
+  set rate(_value: number) {
+    throw new Error('Setting Rate directly on a Track is not supported. Set Tempo or Frequency instead.');
   }
 
   get isReversed(): boolean {

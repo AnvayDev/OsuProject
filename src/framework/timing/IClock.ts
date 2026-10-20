@@ -44,6 +44,15 @@ export interface IAdjustableClock extends IClock {
   resetSpeedAdjustments(): void;
 }
 
+/** A clock which can be given a new source. */
+export interface ISourceChangeableClock extends IClock {
+  /** The source clock. */
+  readonly source: IClock | null;
+
+  /** Change the source clock. */
+  changeSource(source: IClock | null): void;
+}
+
 export interface FrameTimeInfo {
   /** Elapsed time during last frame in milliseconds. */
   elapsed: number;
