@@ -45,6 +45,7 @@ easy to get wrong, the DOM mapping decisions, and known limitations.
 | ResourceStore/NamespacedResourceStore/UrlResourceStore/OnlineStore; osu-resources Samples/Tracks/Textures copy + manifest | done | `io/ResourceStore.ts`, `scripts/copy-resources.mjs` |
 | DecouplingFramedClock, InterpolatingFramedClock, OffsetClock/FramedOffsetClock, Interpolation.Damp/DampContinuously | done, tested | `timing/*` |
 | BindableList | done, tested | `bindables/BindableList.ts` |
+| PathApproximator (bezier/B-spline/catmull/circular arc/linear) + CircularArcProperties, float32-exact Vector2F, .NET semantics (Math.Round half-even, invariant parsing, char.IsWhiteSpace trims), Logger (console) | done, tested | `utils/PathApproximator.ts`, `utils/CircularArcProperties.ts`, `layout/Vector2F.ts`, `utils/DotNet.ts`, `logging/Logger.ts` |
 | Mixer effects (AudioFilter/BQF) | **not started** (port when first needed) | |
 
 Verification: `npm test` (transforms, primitives, layout: 43 tests) and `tests/visual/framework-scene.html`, a scene that exercises masking, borders, edge effects, additive blending and per-leaf alpha.

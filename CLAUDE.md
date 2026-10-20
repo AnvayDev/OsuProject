@@ -35,8 +35,8 @@ mkdir -p _reference && cd _reference && git clone --depth 1 --branch 2026.1005.0
 ```
 
 No computer use / real-client access in cloud sessions: use `docs/reference/real/` screenshots and the source.
-Status (2026-10-20): specs done = carousel, intro, main-menu, framework; partial = controls-overlays-common. Not started: game-shell,
-song-select, toolbar-music, settings-listing, assets-formats, web-visual-references. src/framework is done and tested (docs/spec/framework.md §1):
-transforms, layout, Drawable/Container, Sprite/Box, text, bindables, input/key bindings, flow/grid/scroll/buffered containers, proxies, screens,
-clocks, audio (Web Audio, BASS-exact amplitudes), resource stores. Only BindableList and mixer effects remain, to port when first needed. No game layer yet.
+Status (2026-10-20): specs done = carousel, intro, main-menu, framework, assets-formats; partial = controls-overlays-common. Not started:
+game-shell, song-select, toolbar-music, settings-listing, web-visual-references. src/framework is done and tested (docs/spec/framework.md §1);
+only mixer effects remain, to port when first needed. Game layer: beatmap model + .osu decoder (control points, hit objects, slider paths)
+done and tested (docs/spec/assets-formats.md §3); import/storage, star rating, downloads and all UI are next.
 Cloud screenshots: `PW_CHROMIUM=/opt/pw-browsers/chromium node scripts/shot.mjs ...` (dev server running). Recordings: docs/reference/recordings/web/*.mp4 (ffmpeg available).

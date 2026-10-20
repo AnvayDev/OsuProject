@@ -80,7 +80,12 @@ Source: osu! 2026.1005.0-lazer (`_reference/osu`), osu-framework 2026.921.1. Pat
   non-timing changes override timing-point ones (`flushPendingPoints`).
 - `[HitObjects]` → `ConvertHitObjectParser` (`Rulesets/Objects/Legacy/ConvertHitObjectParser.cs`). After parsing, objects are stably sorted by
   start time, breaks force new combos, then `ApplyDefaults` and samples are applied.
-- `[Colours]`: `Combo1..8` → combo colours; other keys → custom colours.
+- `[Colours]`: `Combo1..8` → combo colours; other keys → custom colours. `Beatmap` implements neither colour interface, so the beatmap decoder only
+  validates these lines; the colours are read by `LegacySkinDecoder` (beatmap skin).
+- Port status: done and tested (`src/game/beatmaps/{Beatmap,formats/*}.ts`, `src/game/rulesets/objects/**`; tests port
+  `LegacyBeatmapDecoderTest`/`ParsingTest` with osu!'s own resources in `tests/fixtures/osu-tests/`, and every bundled `.osz` decodes without
+  a failed line). Not ported: `JsonBeatmapDecoder`, `LegacyStoryboardDecoder`, `LegacyDifficultyCalculatorBeatmapDecoder`, UTF-32 byte
+  order marks (UTF-8/UTF-16 are handled like `StreamReader`).
 
 ## 4. Post-import processing (`Beatmaps/BeatmapUpdater.cs`, `BeatmapInfoExtensions.cs:18-24`, `IBeatmap.cs:157-210`, `Beatmap.cs:80-120`)
 
