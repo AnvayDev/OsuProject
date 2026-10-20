@@ -25,7 +25,7 @@ export enum InputKey {
   Up = 45, Down, Left, Right,
   Enter = 49, Escape, Space, Tab, BackSpace, Insert, Delete, PageUp, PageDown, Home, End, CapsLock, ScrollLock, PrintScreen, Pause, NumLock, Clear, Sleep,
   Keypad0 = 67, Keypad1, Keypad2, Keypad3, Keypad4, Keypad5, Keypad6, Keypad7, Keypad8, Keypad9,
-  KeypadDivide = 77, KeypadMultiply, KeypadSubtract, KeypadAdd, KeypadDecimal, KeypadEnter,
+  KeypadDivide = 77, KeypadMultiply, KeypadSubtract, KeypadMinus = 79, KeypadAdd = 80, KeypadPlus = 80, KeypadDecimal, KeypadEnter,
   A = 83, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
   Number0 = 109, Number1, Number2, Number3, Number4, Number5, Number6, Number7, Number8, Number9,
   Tilde = 119, Minus, Plus, BracketLeft, BracketRight, Semicolon, Quote, Comma, Period, Slash, BackSlash, NonUSBackSlash,

@@ -12,6 +12,9 @@ import { Vector2 } from '@fw/layout/Vector2';
 import { Easing } from '@fw/transforms/Easing';
 import { SpriteText } from '@fw/graphics/sprites/SpriteText';
 import { FontUsage } from '@fw/text/FontUsage';
+import { BasicScrollContainer } from '@fw/graphics/containers/BasicScrollContainer';
+import { FillFlowContainer } from '@fw/graphics/containers/FillFlowContainer';
+import { FillDirection } from '@fw/layout/Enums';
 
 class SceneGame extends Game {
   // Like osu! games, content is added in LoadComplete: children added in the constructor would load before Game.load caches the FontStore.
@@ -56,6 +59,20 @@ class SceneGame extends Game {
           colour: ColourInfo.gradientVertical(Colour4.White, pink) }),
         new SpriteText().with({ position: new Vector2(800, 290), width: 200, truncate: true, text: 'A very long truncated beatmap title that keeps going', font: new FontUsage('Torus', 20, 'Regular') }),
         new SpriteText().with({ position: new Vector2(800, 330), text: '\uf001 \uf004 \uf013', font: new FontUsage('FontAwesome', 30, 'Solid') }),
+        // scroll container (masked, BasicScrollbar) over a vertical fill flow
+        new BasicScrollContainer().with({
+          position: new Vector2(800, 400), size: new Vector2(250, 300),
+          child: new FillFlowContainer().with({
+            direction: FillDirection.Vertical, relativeSizeAxes: Axes.X, autoSizeAxes: Axes.Y, spacing: new Vector2(0, 5),
+            children: Array.from({ length: 12 }, (_, i) => new Container().with({
+              relativeSizeAxes: Axes.X, height: 40,
+              children: [
+                new Box().with({ relativeSizeAxes: Axes.Both, colour: Colour4.fromHSV(i / 12, 0.5, 0.6) }),
+                new SpriteText().with({ anchor: Anchor.CentreLeft, origin: Anchor.CentreLeft, x: 10, text: `item ${i}`, font: new FontUsage('Torus', 20, 'SemiBold') }),
+              ],
+            })),
+          }),
+        }),
       ],
     }));
   }

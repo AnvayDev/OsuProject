@@ -12,6 +12,11 @@ export class Vector2 implements IInterpolable<Vector2> {
   static readonly UnitX = new Vector2(1, 0);
   static readonly UnitY = new Vector2(0, 1);
 
+  /** osuTK's `this[int index]` (0 = X, 1 = Y). */
+  get(index: number): number {
+    return index === 0 ? this.x : this.y;
+  }
+
   add(v: Vector2): Vector2 {
     return new Vector2(this.x + v.x, this.y + v.y);
   }

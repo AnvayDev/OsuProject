@@ -2,7 +2,7 @@
 // plus the generic (non-Drawable) helpers of osu.Framework/Graphics/TransformableExtensions.cs as methods.
 
 import { InvokeOnDisposal } from '../allocation/InvokeOnDisposal';
-import type { IFrameBasedClock } from '../timing/IClock';
+import type { FrameTimeInfo, IFrameBasedClock } from '../timing/IClock';
 import { DefaultEasingFunction, Easing, type IEasingFunction } from './Easing';
 import { TargetGroupingTransformTracker } from './TargetGroupingTransformTracker';
 import type { Transform } from './Transform';
@@ -33,6 +33,11 @@ export class AbsoluteSequenceSender implements Disposable {
 export abstract class Transformable {
   /** The clock that is used to provide the timing for this object's transforms. */
   abstract get clock(): IFrameBasedClock | null;
+
+  /** The current frame's time as observed by this class's transforms. */
+  get time(): FrameTimeInfo {
+    return { elapsed: this.clock!.elapsedFrameTime, current: this.clock!.currentTime };
+  }
 
   /** The current frame's time as observed by this class's transforms. */
   get timeCurrent(): number {

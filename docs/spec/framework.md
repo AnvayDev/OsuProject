@@ -37,7 +37,8 @@ easy to get wrong, the DOM mapping decisions, and known limitations.
 | InputManager, PassThrough/UserInputManager, mouse/key event managers, events, DOM handler, KeyBindingContainer | done, tested | `input/**` |
 | Fonts (BMFont atlases → JSON), FontStore/GlyphStore, TextBuilder (+multiline/truncating), SpriteText | done, tested | `text/*`, `graphics/sprites/SpriteText.ts` |
 | FlowContainer, FillFlowContainer, GridContainer (+GridContainerContent, ObservableArray, Cached) | done, tested | `graphics/containers/*`, `lists/ObservableArray.ts`, `caching/Cached.ts` |
-| BufferedContainer (blur), ScrollContainer, ScreenStack, Audio, ProxyDrawable, DecouplingFramedClock/InterpolatingFramedClock | **not started** | |
+| ScrollContainer (+BasicScrollContainer), PlatformAction/PlatformActionContainer (per-OS bindings via RuntimeInfo), FrameworkColour | done, tested | `graphics/containers/ScrollContainer.ts`, `input/PlatformAction*.ts`, `platform/MacOSGameHost.ts`, `RuntimeInfo.ts` |
+| BufferedContainer (blur), ScreenStack, Audio, ProxyDrawable, DecouplingFramedClock/InterpolatingFramedClock | **not started** | |
 
 Verification: `npm test` (transforms, primitives, layout: 43 tests) and `tests/visual/framework-scene.html`, a scene that exercises masking, borders, edge effects, additive blending and per-leaf alpha.
 
@@ -127,6 +128,11 @@ Limitation: CSS stacking contexts isolate blending. To keep that rare, drawables
 - `MaskingSmoothness` (1 px anti-alias) is the browser's own edge AA.
 - C# indexers become methods: `ObservableArray[i]` → `.get(i)` / `.set(i, v)`, so `grid.Content[0][1] = d` is `grid.content!.get(0)!.set(1, d)`.
   `GridContainer.content` accepts a plain `(Drawable | null)[][]`, matching C#'s implicit conversion to `GridContainerContent`.
+- Case-only overloads are renamed: ScrollContainer's private `scrollTo` is `scrollToInternal`. `ScrollbarContainer.ResizeTo(float, int, Easing)`
+  (abstract) is `resizeScrollbarTo`; `resizeTo(number)` on a scrollbar forwards to it, as C# overload resolution does.
+- `RuntimeInfo.OS` comes from `navigator` (iPadOS reports Mac + touch → iOS). It picks `GameHost.platformKeyBindings`: macOS/iOS use
+  `MacOSGameHost.KeyBindings` (Cmd = Super), Windows adds Alt+F4 → Exit, and everything else uses the base list. FrameworkActionContainer
+  (debug overlays) is not ported.
 
 ## 12. Text (`IO/Stores/GlyphStore.cs`, `FontStore.cs`, `Text/TextBuilder*.cs`, `Graphics/Sprites/SpriteText*.cs`)
 

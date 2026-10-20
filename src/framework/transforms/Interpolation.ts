@@ -11,6 +11,11 @@ function isInterpolable<TValue>(value: unknown): value is IInterpolable<TValue> 
   return typeof value === 'object' && value !== null && typeof (value as IInterpolable<TValue>).valueAt === 'function';
 }
 
+/** Interpolates between 2 values (start and final) using a given base and exponent. Interpolation.Lerp */
+export function lerp(start: number, final: number, amount: number): number {
+  return start + (final - start) * amount;
+}
+
 export function valueAtNumber(time: number, val1: number, val2: number, startTime: number, endTime: number, easing: IEasingFunction): number {
   if (val1 === val2)
     return val1;

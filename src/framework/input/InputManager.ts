@@ -698,4 +698,4 @@ export class UserInputManager extends PassThroughInputManager {
   }
 }
 
-Drawable.containingInputStateResolver = d => d.findClosestParent(InputManager)?.currentState ?? null;
+Drawable.containingInputManagerResolver = d => d.findClosestParent(InputManager);

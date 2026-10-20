@@ -32,6 +32,7 @@ import { MouseButton } from '../input/Key';
 import { ColourInfo } from './ColourInfo';
 import { BlendingParameters, DrawColourInfo, DrawInfo } from './DrawInfo';
 import type { CompositeDrawable } from './containers/CompositeDrawable';
+import type { InputManager } from '../input/InputManager';
 
 type ColourLike = Colour4 | ColourInfo;
 
@@ -1081,7 +1082,7 @@ export abstract class Drawable extends Transformable {
   // #region Parenting (scene graph operations, including ProxyDrawable)
 
   /** Find the closest parent of a specified type (DrawableExtensions.FindClosestParent). */
-  findClosestParent<T>(type: abstract new (...args: never[]) => T): T | null {
+  findClosestParent<T>(type: Function & { prototype: T }): T | null {
     let p: Drawable | null = this._parent;
 
     while (p !== null) {
@@ -1556,11 +1557,16 @@ export abstract class Drawable extends Transformable {
 
   /** Triggers a left click event for this Drawable. */
   triggerClick(): boolean {
-    return this.triggerEvent(new ClickEvent(Drawable.containingInputStateResolver?.(this) ?? new InputState(), MouseButton.Left));
+    return this.triggerEvent(new ClickEvent(this.getContainingInputManager()?.currentState ?? new InputState(), MouseButton.Left));
   }
 
-  /** @internal Set by InputManager.ts to resolve the containing input manager's state without an import cycle. */
-  static containingInputStateResolver: ((d: Drawable) => InputState | null) | null = null;
+  /** Retrieve the first parent in the tree which derives from InputManager. As this is performing an upward tree traversal, avoid calling every frame. */
+  getContainingInputManager(): InputManager | null {
+    return Drawable.containingInputManagerResolver?.(this) ?? null;
+  }
+
+  /** @internal Set by InputManager.ts to resolve the containing input manager without an import cycle. */
+  static containingInputManagerResolver: ((d: Drawable) => InputManager | null) | null = null;
 
   // #region Individual event handlers
 

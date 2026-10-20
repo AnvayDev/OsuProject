@@ -3,11 +3,16 @@
 
 import { DependencyContainer } from '../allocation/DependencyContainer';
 import { Container } from '../graphics/containers/Container';
+import { InputKey, KeyBinding } from '../input/bindings/KeyBindings';
 import { DomInputHandler } from '../input/handlers/DomInputHandler';
 import { InputHandler, UserInputManager } from '../input/InputManager';
+import { PlatformAction } from '../input/PlatformAction';
+import { PlatformActionContainer } from '../input/PlatformActionContainer';
 import type { Game } from '../Game';
 import { Axes } from '../layout/Enums';
 import { Vector2 } from '../layout/Vector2';
+import { Platform, RuntimeInfo } from '../RuntimeInfo';
+import { macOSKeyBindings } from './MacOSGameHost';
 import { FramedClock } from '../timing/FramedClock';
 import type { IFrameBasedClock } from '../timing/IClock';
 import { StopwatchClock } from '../timing/StopwatchClock';
@@ -42,7 +47,10 @@ export class GameHost {
 
   private bootstrapSceneGraph(game: Game): void {
     const root = this.createRoot(game);
-    root.child = new Container().with({ relativeSizeAxes: Axes.Both, child: game });
+    root.child = new PlatformActionContainer().with({
+      // (FrameworkActionContainer, which only drives debug overlays, is not ported.) The plain container stands in for SafeAreaDefiningContainer.
+      child: new Container().with({ relativeSizeAxes: Axes.Both, child: game }),
+    });
 
     this.dependencies.cache(root);
     this.dependencies.cacheAs(GameHost, this);
@@ -86,6 +94,21 @@ export class GameHost {
     root.validateElementSubTree();
   }
 
+  /** GameHost.PlatformKeyBindings, with the overrides of MacOSGameHost/IOSGameHost and WindowsGameHost selected by RuntimeInfo.OS. */
+  get platformKeyBindings(): KeyBinding[] {
+    switch (RuntimeInfo.OS) {
+      case Platform.macOS:
+      case Platform.iOS:
+        return macOSKeyBindings();
+
+      case Platform.Windows:
+        return [...defaultPlatformKeyBindings(), new KeyBinding([InputKey.Alt, InputKey.F4], PlatformAction.Exit)];
+
+      default:
+        return defaultPlatformKeyBindings();
+    }
+  }
+
   exit(): void {
     cancelAnimationFrame(this.rafHandle);
     this.domInput?.dispose();
@@ -93,3 +116,52 @@ export class GameHost {
     this.root = null;
   }
 }
+
+const defaultPlatformKeyBindings = (): KeyBinding[] => [
+  new KeyBinding([InputKey.Control, InputKey.X], PlatformAction.Cut),
+  new KeyBinding([InputKey.Control, InputKey.C], PlatformAction.Copy),
+  new KeyBinding([InputKey.Control, InputKey.V], PlatformAction.Paste),
+  new KeyBinding([InputKey.Shift, InputKey.Delete], PlatformAction.Cut),
+  new KeyBinding([InputKey.Control, InputKey.Insert], PlatformAction.Copy),
+  new KeyBinding([InputKey.Shift, InputKey.Insert], PlatformAction.Paste),
+  new KeyBinding([InputKey.Control, InputKey.A], PlatformAction.SelectAll),
+  new KeyBinding(InputKey.Left, PlatformAction.MoveBackwardChar),
+  new KeyBinding(InputKey.Right, PlatformAction.MoveForwardChar),
+  new KeyBinding(InputKey.BackSpace, PlatformAction.DeleteBackwardChar),
+  new KeyBinding(InputKey.Delete, PlatformAction.DeleteForwardChar),
+  new KeyBinding([InputKey.Shift, InputKey.Left], PlatformAction.SelectBackwardChar),
+  new KeyBinding([InputKey.Shift, InputKey.Right], PlatformAction.SelectForwardChar),
+  new KeyBinding([InputKey.Shift, InputKey.BackSpace], PlatformAction.DeleteBackwardChar),
+  new KeyBinding([InputKey.Control, InputKey.Left], PlatformAction.MoveBackwardWord),
+  new KeyBinding([InputKey.Control, InputKey.Right], PlatformAction.MoveForwardWord),
+  new KeyBinding([InputKey.Control, InputKey.BackSpace], PlatformAction.DeleteBackwardWord),
+  new KeyBinding([InputKey.Control, InputKey.Delete], PlatformAction.DeleteForwardWord),
+  new KeyBinding([InputKey.Control, InputKey.Shift, InputKey.Left], PlatformAction.SelectBackwardWord),
+  new KeyBinding([InputKey.Control, InputKey.Shift, InputKey.Right], PlatformAction.SelectForwardWord),
+  new KeyBinding(InputKey.Home, PlatformAction.MoveBackwardLine),
+  new KeyBinding(InputKey.End, PlatformAction.MoveForwardLine),
+  new KeyBinding([InputKey.Shift, InputKey.Home], PlatformAction.SelectBackwardLine),
+  new KeyBinding([InputKey.Shift, InputKey.End], PlatformAction.SelectForwardLine),
+  new KeyBinding([InputKey.Control, InputKey.PageUp], PlatformAction.DocumentPrevious),
+  new KeyBinding([InputKey.Control, InputKey.PageDown], PlatformAction.DocumentNext),
+  new KeyBinding([InputKey.Control, InputKey.Tab], PlatformAction.DocumentNext),
+  new KeyBinding([InputKey.Control, InputKey.Shift, InputKey.Tab], PlatformAction.DocumentPrevious),
+  new KeyBinding([InputKey.Control, InputKey.W], PlatformAction.DocumentClose),
+  new KeyBinding([InputKey.Control, InputKey.F4], PlatformAction.DocumentClose),
+  new KeyBinding([InputKey.Control, InputKey.N], PlatformAction.DocumentNew),
+  new KeyBinding([InputKey.Control, InputKey.T], PlatformAction.TabNew),
+  new KeyBinding([InputKey.Control, InputKey.Shift, InputKey.T], PlatformAction.TabRestore),
+  new KeyBinding([InputKey.Control, InputKey.S], PlatformAction.Save),
+  new KeyBinding(InputKey.Home, PlatformAction.MoveToListStart),
+  new KeyBinding(InputKey.End, PlatformAction.MoveToListEnd),
+  new KeyBinding([InputKey.Control, InputKey.Z], PlatformAction.Undo),
+  new KeyBinding([InputKey.Control, InputKey.Y], PlatformAction.Redo),
+  new KeyBinding([InputKey.Control, InputKey.Shift, InputKey.Z], PlatformAction.Redo),
+  new KeyBinding(InputKey.Delete, PlatformAction.Delete),
+  new KeyBinding([InputKey.Control, InputKey.Plus], PlatformAction.ZoomIn),
+  new KeyBinding([InputKey.Control, InputKey.KeypadPlus], PlatformAction.ZoomIn),
+  new KeyBinding([InputKey.Control, InputKey.Minus], PlatformAction.ZoomOut),
+  new KeyBinding([InputKey.Control, InputKey.KeypadMinus], PlatformAction.ZoomOut),
+  new KeyBinding([InputKey.Control, InputKey.Number0], PlatformAction.ZoomDefault),
+  new KeyBinding([InputKey.Control, InputKey.Keypad0], PlatformAction.ZoomDefault),
+];
