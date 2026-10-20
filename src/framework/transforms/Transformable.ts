@@ -2,7 +2,7 @@
 // plus the generic (non-Drawable) helpers of osu.Framework/Graphics/TransformableExtensions.cs as methods.
 
 import { InvokeOnDisposal } from '../allocation/InvokeOnDisposal';
-import type { IFrameBasedClock } from '../timing/IFrameBasedClock';
+import type { IFrameBasedClock } from '../timing/IClock';
 import { DefaultEasingFunction, Easing, type IEasingFunction } from './Easing';
 import { TargetGroupingTransformTracker } from './TargetGroupingTransformTracker';
 import type { Transform } from './Transform';
@@ -291,7 +291,8 @@ export abstract class Transformable {
   }
 
   /** Populates a newly created transform with necessary values. All transforms must be populated by this method prior to being used. */
-  populateTransform<TValue, TTransform extends Transform<TValue, this>>(transform: TTransform, newValue: TValue, duration = 0,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  populateTransform<TValue, TTransform extends Transform<TValue, any>>(transform: TTransform, newValue: TValue, duration = 0,
                                                                          easing: Easing | IEasingFunction = Easing.None): TTransform {
     if (typeof newValue === 'number' && !Number.isFinite(newValue))
       throw new RangeError(`newValue must be finite, but is ${newValue}.`);

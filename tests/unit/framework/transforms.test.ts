@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { Easing, applyEasing } from '@fw/transforms/Easing';
 import { Transformable } from '@fw/transforms/Transformable';
-import type { IFrameBasedClock } from '@fw/timing/IFrameBasedClock';
+import type { IFrameBasedClock } from '@fw/timing/IClock';
 
 class ManualClock implements IFrameBasedClock {
   currentTime = 0;
+  rate = 1;
+  isRunning = true;
+  elapsedFrameTime = 0;
+  framesPerSecond = 0;
+  processFrame() {}
 }
 
 /** Minimal stand-in for a Drawable: one transformable member, updated like Drawable.UpdateSubTree does. */
