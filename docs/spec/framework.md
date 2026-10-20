@@ -39,7 +39,8 @@ easy to get wrong, the DOM mapping decisions, and known limitations.
 | FlowContainer, FillFlowContainer, GridContainer (+GridContainerContent, ObservableArray, Cached) | done, tested | `graphics/containers/*`, `lists/ObservableArray.ts`, `caching/Cached.ts` |
 | ScrollContainer (+BasicScrollContainer), PlatformAction/PlatformActionContainer (per-OS bindings via RuntimeInfo), FrameworkColour | done, tested | `graphics/containers/ScrollContainer.ts`, `input/PlatformAction*.ts`, `platform/MacOSGameHost.ts`, `RuntimeInfo.ts` |
 | BufferedContainer (blur, cached frame buffers, group colour), Utils/Blur | done, tested (DrawOriginal/grayscale throw) | `graphics/containers/BufferedContainer.ts`, `utils/Blur.ts` |
-| ScreenStack, Audio, ProxyDrawable, DecouplingFramedClock/InterpolatingFramedClock | **not started** | |
+| Screen, ScreenStack, IScreen/ScreenExtensions, screen events | done, tested | `screens/*` |
+| Audio, ProxyDrawable, DecouplingFramedClock/InterpolatingFramedClock | **not started** | |
 
 Verification: `npm test` (transforms, primitives, layout: 43 tests) and `tests/visual/framework-scene.html`, a scene that exercises masking, borders, edge effects, additive blending and per-leaf alpha.
 
@@ -140,6 +141,9 @@ Limitation: CSS stacking contexts isolate blending. To keep that rare, drawables
   second moment of sh_Blur.fs's truncated, linearly-tapped kernel. Deviations: CSS blur fades to transparent at the edges, while osu! clamps to
   the edge texel (it only shows on blurred full-bleed content; song-select blur defaults off in 2026.1005). It is also isotropic: anisotropic σ
   and BlurRotation use max(σx, σy). DrawOriginal and GrayscaleStrength are not ported and throw.
+- `IScreen` extension methods (`this.Push`, `this.Exit`, `this.MakeCurrent`, `this.IsCurrentScreen`, …) are methods on `Screen`, backed by
+  `ScreenExtensions.*`. ScreenStack's internal `Push(source, screen)` and `Exit(source)` are `pushFrom` and `exitScreen`. Its C# events are
+  `screenPushed` and `screenExited` (Signals carrying `[last, next]`). ScreenStack logging is omitted.
 - `RuntimeInfo.OS` comes from `navigator` (iPadOS reports Mac + touch → iOS). It picks `GameHost.platformKeyBindings`: macOS/iOS use
   `MacOSGameHost.KeyBindings` (Cmd = Super), Windows adds Alt+F4 → Exit, and everything else uses the base list. FrameworkActionContainer
   (debug overlays) is not ported.
