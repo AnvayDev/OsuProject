@@ -38,7 +38,8 @@ easy to get wrong, the DOM mapping decisions, and known limitations.
 | Fonts (BMFont atlases → JSON), FontStore/GlyphStore, TextBuilder (+multiline/truncating), SpriteText | done, tested | `text/*`, `graphics/sprites/SpriteText.ts` |
 | FlowContainer, FillFlowContainer, GridContainer (+GridContainerContent, ObservableArray, Cached) | done, tested | `graphics/containers/*`, `lists/ObservableArray.ts`, `caching/Cached.ts` |
 | ScrollContainer (+BasicScrollContainer), PlatformAction/PlatformActionContainer (per-OS bindings via RuntimeInfo), FrameworkColour | done, tested | `graphics/containers/ScrollContainer.ts`, `input/PlatformAction*.ts`, `platform/MacOSGameHost.ts`, `RuntimeInfo.ts` |
-| BufferedContainer (blur), ScreenStack, Audio, ProxyDrawable, DecouplingFramedClock/InterpolatingFramedClock | **not started** | |
+| BufferedContainer (blur, cached frame buffers, group colour), Utils/Blur | done, tested (DrawOriginal/grayscale throw) | `graphics/containers/BufferedContainer.ts`, `utils/Blur.ts` |
+| ScreenStack, Audio, ProxyDrawable, DecouplingFramedClock/InterpolatingFramedClock | **not started** | |
 
 Verification: `npm test` (transforms, primitives, layout: 43 tests) and `tests/visual/framework-scene.html`, a scene that exercises masking, borders, edge effects, additive blending and per-leaf alpha.
 
@@ -130,6 +131,15 @@ Limitation: CSS stacking contexts isolate blending. To keep that rare, drawables
   `GridContainer.content` accepts a plain `(Drawable | null)[][]`, matching C#'s implicit conversion to `GridContainerContent`.
 - Case-only overloads are renamed: ScrollContainer's private `scrollTo` is `scrollToInternal`. `ScrollbarContainer.ResizeTo(float, int, Easing)`
   (abstract) is `resizeScrollbarTo`; `resizeTo(number)` on a scrollbar forwards to it, as C# overload resolution does.
+- BufferedContainer has no framebuffer. Its element is an isolated group clipped to `ScreenSpaceDrawQuad.AABBFloat`, filled with
+  `BackgroundColour` and drawn with the frame-buffer colour (`opacity`; a grey tint is `brightness()`, any other tint an SVG `feColorMatrix`) and
+  `DrawEffectBlending`. Children draw white (osu!'s `DrawColourInfo` override). A cached frame buffer stops updating and re-rendering its
+  children until the draw version changes, as in osu!.
+  Blur: osu! renders at full pixel density (SDL `HIGH_PIXEL_DENSITY`), so `BlurSigma` is in device pixels × `FrameBufferScale`. The CSS sigma is
+  `effectiveKernelSigma(KernelSize(σ), σ) / FrameBufferScale / devicePixelRatio / (local→screen scale)`. Here `effectiveKernelSigma` (≈0.9σ) is the
+  second moment of sh_Blur.fs's truncated, linearly-tapped kernel. Deviations: CSS blur fades to transparent at the edges, while osu! clamps to
+  the edge texel (it only shows on blurred full-bleed content; song-select blur defaults off in 2026.1005). It is also isotropic: anisotropic σ
+  and BlurRotation use max(σx, σy). DrawOriginal and GrayscaleStrength are not ported and throw.
 - `RuntimeInfo.OS` comes from `navigator` (iPadOS reports Mac + touch → iOS). It picks `GameHost.platformKeyBindings`: macOS/iOS use
   `MacOSGameHost.KeyBindings` (Cmd = Super), Windows adds Alt+F4 → Exit, and everything else uses the base list. FrameworkActionContainer
   (debug overlays) is not ported.
