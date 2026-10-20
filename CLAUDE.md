@@ -34,5 +34,7 @@ mkdir -p _reference && cd _reference && git clone --depth 1 https://github.com/p
 ```
 
 No computer use / real-client access in cloud sessions: use `docs/reference/real/` screenshots and the source.
-Status (2026-10-19): specs done = carousel, intro, main-menu; partial = controls-overlays-common. Not started: framework,
-game-shell, song-select, toolbar-music, settings-listing, assets-formats, web-visual-references; no src/ code yet.
+Status (2026-10-20): specs done = carousel, intro, main-menu, framework; partial = controls-overlays-common. Not started: game-shell,
+song-select, toolbar-music, settings-listing, assets-formats, web-visual-references. src/framework: transforms, layout, Drawable/Container,
+Sprite/Box, clocks, scheduler, host done (see docs/spec/framework.md §1); bindables, input, text, flow/scroll, screens, audio pending.
+Cloud screenshots: `PW_CHROMIUM=/opt/pw-browsers/chromium node scripts/shot.mjs ...` (dev server running). Recordings: docs/reference/recordings/web/*.mp4 (ffmpeg available).
