@@ -1,7 +1,7 @@
 // Ported from osu.Game/Screens/Backgrounds/BackgroundScreenDefault.cs
 // There is no online API, so the user is never a supporter and the skin is always a default one: the MenuBackgroundSource branches and
-// SkinBackground never apply, and SeasonalBackgroundLoader (an API lookup) is not ported. Storyboard backgrounds are not ported either. What
-// remains is the default rotation, which is what a logged-out lazer client shows.
+// SkinBackground never apply. Storyboard backgrounds are not ported. Seasonal backgrounds come first, as in C# (SeasonalBackgroundLoader, with a
+// bundled list), then the default rotation.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { Bindable } from '@fw/bindables/Bindable';
@@ -12,6 +12,8 @@ import type { WorkingBeatmap } from '../../beatmaps/WorkingBeatmap';
 import { IntroSequence } from '../../configuration/IntroSequence';
 import { OsuConfigManager, OsuSetting } from '../../configuration/OsuConfigManager';
 import { Background } from '../../graphics/backgrounds/Background';
+import { SeasonalBackgroundLoader } from '../../graphics/backgrounds/SeasonalBackgroundLoader';
+import { RNG } from '@fw/utils/RNG';
 import { BackgroundScreen } from '../BackgroundScreen';
 
 export class BackgroundScreenDefault extends BackgroundScreen {
@@ -21,6 +23,8 @@ export class BackgroundScreenDefault extends BackgroundScreen {
   private static readonly background_count = 8;
 
   private introSequence!: Bindable<IntroSequence>;
+
+  private readonly seasonalBackgroundLoader = new SeasonalBackgroundLoader();
 
   private beatmap!: Bindable<WorkingBeatmap>;
 
@@ -39,6 +43,8 @@ export class BackgroundScreenDefault extends BackgroundScreen {
     this.beatmap = dependencies.resolve(Bindable<WorkingBeatmap>, 'WorkingBeatmap').getBoundCopy();
     this.introSequence = dependencies.resolve(OsuConfigManager).getBindable<IntroSequence>(OsuSetting.IntroSequence);
 
+    this.addInternal(this.seasonalBackgroundLoader);
+
     return r;
   }
 
@@ -50,8 +56,9 @@ export class BackgroundScreenDefault extends BackgroundScreen {
 
     this.beatmap.valueChanged.add(() => this.scheduler.addOnce(next));
     this.introSequence.valueChanged.add(() => this.scheduler.addOnce(next));
+    this.seasonalBackgroundLoader.seasonalBackgroundChanged.add(() => this.scheduler.addOnce(next));
 
-    this.currentDisplay = Math.floor(Math.random() * BackgroundScreenDefault.background_count);
+    this.currentDisplay = RNG.next(0, BackgroundScreenDefault.background_count);
 
     this.next();
   }
@@ -93,10 +100,17 @@ export class BackgroundScreenDefault extends BackgroundScreen {
   }
 
   private createBackground(): Background {
-    // (C#'s "equivalent background is currently being shown" check only applies to the seasonal and supporter backgrounds, so the default
-    // rotation always yields a new instance: every beatmap change advances it.)
-    const newBackground = new Background(this.getBackgroundTextureName());
+    // seasonal background loading gets highest priority.
+    let newBackground: Background | null = this.seasonalBackgroundLoader.loadNextBackground();
 
+    // (the supporter-only MenuBackgroundSource branches would go here; the user is never a supporter.)
+
+    // this method is called in many cases where the background might not necessarily need to change.
+    // if an equivalent background is currently being shown, we don't want to load it again.
+    if (newBackground?.equals(this.background) === true)
+      return this.background!;
+
+    newBackground ??= new Background(this.getBackgroundTextureName());
     newBackground.depth = this.currentDisplay;
 
     return newBackground;

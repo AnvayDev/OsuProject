@@ -24,6 +24,7 @@ import { BeatmapUpdater } from './beatmaps/BeatmapUpdater';
 import { DummyWorkingBeatmap } from './beatmaps/DummyWorkingBeatmap';
 import type { WorkingBeatmap } from './beatmaps/WorkingBeatmap';
 import { OsuConfigManager } from './configuration/OsuConfigManager';
+import { SessionStatics } from './configuration/SessionStatics';
 import { RealmAccess } from './database/RealmAccess';
 import { OsuColour } from './graphics/OsuColour';
 import { MusicController } from './overlays/MusicController';
@@ -47,6 +48,8 @@ export class OsuGameBase extends Game {
   protected musicController!: MusicController;
 
   protected colours!: OsuColour;
+
+  protected sessionStatics!: SessionStatics;
 
   protected realm!: RealmAccess;
 
@@ -105,6 +108,7 @@ export class OsuGameBase extends Game {
 
     this.beatmapManager.processBeatmap = (beatmapSet, scope) => this.beatmapUpdater.process(beatmapSet, scope);
 
+    this.osuDependencies.cache(this.sessionStatics = new SessionStatics());
     this.osuDependencies.cache(this.colours = new OsuColour());
 
     // Add after all the above cache operations as it depends on them.

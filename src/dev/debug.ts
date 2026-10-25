@@ -6,7 +6,7 @@ import type { OsuGame } from '@game/OsuGame';
 import { BackgroundScreenBeatmap } from '@game/screens/backgrounds/BackgroundScreenBeatmap';
 import { BackgroundScreenDefault } from '@game/screens/backgrounds/BackgroundScreenDefault';
 import type { OsuScreenStack } from '@game/screens/OsuScreenStack';
-import { BackgroundPreviewScreen } from './BackgroundPreviewScreen';
+import { BackgroundPreviewScreen } from '../BackgroundPreviewScreen';
 
 interface DebugHook {
   readonly game: OsuGame;

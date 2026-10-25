@@ -1,0 +1,137 @@
+// Stands in for GetSeasonalBackgroundsRequest (osu.Game/Online/API/Requests/GetSeasonalBackgroundsRequest.cs): the osu! API needs OAuth and has no
+// CORS, so the web build bundles the response instead. The list is the main-menu finalists of six osu! art contests (2025-2026), taken from the
+// results posts in ppy/osu-wiki (news/2025 and news/2026, "*-contest-results.md"), shuffled once so consecutive backgrounds come from
+// different seasons. The images stay on assets.ppy.sh. ends_at is unbounded, so SeasonalBackgroundMode.Sometimes treats the list as in season.
+
+import type { APISeasonalBackgrounds } from '../../online/api/requests/responses/APISeasonalBackgrounds';
+
+export const BUNDLED_SEASONAL_BACKGROUNDS: APISeasonalBackgrounds = {
+  endDate: new Date(8.64e15),
+  backgrounds: [
+    { url: 'https://assets.ppy.sh/contests/242/winners/SuperSSun.png' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/h3p0.png' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/LeeNarie.jpg' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/Triantafyllia.png' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/Raybean.png' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/mewpt.png' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/Porukana.png' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/mugcake.png' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/elawa.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/soncak.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/Nemururin.jpeg' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/Dreamxiety.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/Kourihase%20%2813298982%29.png' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/Melu%2Dchan%20%2839513434%29.png' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/Senkoru%20%2836753677%29.png' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/xootynator.png' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/soncak.png' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/izo001.png' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/Sey10.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/sardines.png' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/Bajan%20Canadian%20%2812595640%29.png' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/Christi_Anna.png' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/XETTE%20%2839304029%29.jpg' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/leeian.png' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/Ikarii.png' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/KAITO%20thighs.png' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/Ka1mon_.PNG' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/Pyo.png' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/mewpt.png' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/Triantafyllia%20%2817084594%29.jpg' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/AngelBerryCake%20%289228064%29.png' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/MinMin_9s.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/Shiratori-P.jpeg' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/Ch3rryL%20%2820272150%29.jpg' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/KAITO%20thighs.png' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/tehfire.png' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/h3p0.PNG' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/h3p0.png' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/-northern-.png' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/serr.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/Triantafyllia.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/X-ill.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/Treamudomshabu.png' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/%2D%20Y%20u%20m%20i%20J%20i%2D%20%287656048%29.jpg' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/acolta.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/Christi_Anna.png' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/LeeNarie.jpg' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/SNOWCATO.png' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/1ufu9hfnhf9h.png' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/puykka.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/Le%20Phuong%20Linh%20%2834027290%29.png' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/Vayntail.png' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/aquapoki.png' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/1%20zero.PNG' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/Bayki.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/Kwms024.png' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/maynare.jpg' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/Maqmoon.jpg' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/1%20zero.PNG' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/MeowMiaw.png' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/JlNN%20%2822499692%29.png' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/KotobaT.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/Triantafyllia.png' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/Foodmageddon%20%2825005197%29.png' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/HKC-.png' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/Selithrarion.jpg' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/Amplui.png' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/cx-112.png' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/Triantafyllia.png' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/Tokharya.png' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/AyoLie.png' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/Deemuru.png' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/Partyu%20%2812659629%29.png' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/KerbBerb.png' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/Arehandotsu.png' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/X%2Dill%20%2821771922%29.png' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/Terazc.png' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/ZunK.jpg' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/Kourihase.png' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/zynnu%20%2819421965%29.png' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/mewpt.png' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/Ferineon.jpg' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/konchaan.png' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/maynare.jpg' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/Arushii.jpg' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/LeeNarie.jpg' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/Raybean%20%2816676388%29.png' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/h3p0.jpg' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/ProMovesCS.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/Porukana.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/KAITO%20thighs.png' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/year-bear.png' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/meowcherry.png' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/Foodmageddon.png' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/Krybytes.png' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/Porukana.png' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/FizzyGummi.png' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/leeian.png' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/ceroux.png' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/TESTER%20KIPUATKA.png' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/broken-bun.png' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/Dreamxiety%20%2813103233%29.jpg' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/-%20Y%20u%20m%20i%20J%20i-.jpg' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/LeeNarie.jpg' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/Berinjela%20Chan.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/YellowX21.jpg' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/hurbruh.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/Ferineon.jpg' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/wiwit.png' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/Seras56.png' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/Kourihase.png' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/sardines.jpg' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/-%20Y%20u%20m%20i%20J%20i-.jpg' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/muclyhere.png' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/Sey10%20%285843837%29.jpg' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/242/winners/Son%20Goku.png' }, // Springtime Showdown Art Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/wxyz%20%2814954732%29.png' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/konchaan.png' }, // Midnight Moment Art Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/Porukana%20%2812992775%29.png' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/285/winners/PEALEERD_TAK.jpg' }, // Outer Worlds Art Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/year-bear.png' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/296/winners/yasyrus%20%2814856576%29.png' }, // Halloween 2026 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/260/winners/Arushii.jpg' }, // Halloween 2025 Fanart Contest
+    { url: 'https://assets.ppy.sh/contests/249/winners/Triantafyllia.png' }, // Fantasy World Art Contest
+    { url: 'https://assets.ppy.sh/contests/226/winners/JlNN.png' }, // Midnight Moment Art Contest
+  ],
+};

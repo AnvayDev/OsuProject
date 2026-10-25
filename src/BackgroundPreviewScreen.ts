@@ -1,4 +1,5 @@
-// Dev only (not a port): a screen that only shows a background screen, for checking the shell before the intro/menu/song select exist.
+// Not a port: a temporary first screen that only shows a background screen, until the loader/intro/main menu are ported (main.ts) and for the
+// dev states (src/dev/debug.ts).
 
 import type { BackgroundScreen } from '@game/screens/BackgroundScreen';
 import { OsuScreen } from '@game/screens/OsuScreen';
