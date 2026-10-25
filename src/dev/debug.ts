@@ -1,8 +1,9 @@
 // Dev only: the window.__osu hook scripts/shot.mjs drives (see docs/ARCHITECTURE.md, Verification tools).
 
 import type { BeatmapManager } from '@game/beatmaps/BeatmapManager';
-import { Anchor } from '@fw/layout/Enums';
+import type { BeatmapSetInfo } from '@game/beatmaps/BeatmapSetInfo';
 import { ImportTask } from '@game/database/ImportTask';
+import { type ButtonSystem, ButtonSystemState } from '@game/screens/menu/ButtonSystem';
 import type { OsuLogo } from '@game/screens/menu/OsuLogo';
 import type { OsuGame } from '@game/OsuGame';
 import { BackgroundScreenBeatmap } from '@game/screens/backgrounds/BackgroundScreenBeatmap';
@@ -22,6 +23,9 @@ declare global {
     __osu?: DebugHook;
   }
 }
+
+/** The bundled theme beatmap of the triangles intro. */
+const theme_set = '/assets/osu.Game.Resources/Tracks/triangles.osz';
 
 /** The fixture set used by the dev states (it has a background image). */
 const fixture_set = '/tests/fixtures/osu-tests/241526 Soleily - Renatus_virtual_quick.osz';
@@ -73,15 +77,33 @@ export function installDebugHook(game: OsuGame): void {
           break;
         }
 
-        case 'logo': {
-          push(new BackgroundPreviewScreen(() => new BackgroundScreenDefault()));
+        // The game boots into the main menu (main.ts); these states drive its ButtonSystem.
+        case 'mainmenu':
+          break;
 
+        case 'mainmenu-toplevel':
+        case 'mainmenu-play': {
+          // Wait for the menu to receive the logo (ButtonSystem.setOsuLogo assigns its action), then click it like a user.
           const logo = (game as unknown as { osuLogo: OsuLogo }).osuLogo;
-          logo.anchor = Anchor.Centre;
-          logo.action = () => true;
-          logo.triangles = true;
-          logo.ripple = true;
-          logo.fadeIn(300);
+          while (logo.action === null)
+            await new Promise(r => requestAnimationFrame(r));
+
+          logo.triggerClick();
+
+          if (state === 'mainmenu-play')
+            (internals.screenStack.currentScreen as unknown as { buttons: ButtonSystem }).buttons.state = ButtonSystemState.Play;
+          break;
+        }
+
+        // Plays the bundled "triangles" theme beatmap (what the triangles intro would leave playing).
+        case 'mainmenu-music': {
+          const isTheme = (s: BeatmapSetInfo) => s.beatmaps[0]?.metadata.title === 'triangles' && s.beatmaps[0]?.metadata.artist === 'cYsmix';
+          if (internals.beatmapManager.queryBeatmapSet(isTheme) === null)
+            await importUrl(theme_set);
+
+          const set = internals.beatmapManager.queryBeatmapSet(isTheme)!;
+          game.beatmap.value = internals.beatmapManager.getWorkingBeatmap(set.beatmaps[0]);
+          game.beatmap.value.track.start();
           break;
         }
 

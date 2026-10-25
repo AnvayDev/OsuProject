@@ -33,6 +33,7 @@ import { OsuConfigManager } from './configuration/OsuConfigManager';
 import { SessionStatics } from './configuration/SessionStatics';
 import { RealmAccess } from './database/RealmAccess';
 import { OsuColour } from './graphics/OsuColour';
+import { OsuIconStore } from './graphics/OsuIcon';
 import { MusicController } from './overlays/MusicController';
 import { type RulesetInfo, RulesetStore } from './rulesets/RulesetInfo';
 
@@ -44,6 +45,9 @@ export class OsuGameBase extends Game {
   private static readonly global_track_volume_adjust = 0.8;
 
   static readonly SAMPLE_CONCURRENCY = 6;
+
+  /** The minimum delay in milliseconds between any two hover sounds (HoverSampleDebounceComponent). */
+  static readonly SAMPLE_DEBOUNCE_TIME = 20;
 
   protected localConfig!: OsuConfigManager;
 
@@ -102,6 +106,9 @@ export class OsuGameBase extends Game {
     await super.load(dependencies);
 
     this.resources.addStore(await UrlResourceStore.fromManifest(`${ASSET_ROOT}/osu.Game.Resources`));
+
+    // (fonts are registered by Game.load from Fonts/index.json, in the order osu! adds them.)
+    this.fonts.addStore(new OsuIconStore(this.textures));
 
     this.osuDependencies.cache(this.realm = await RealmAccess.open());
 

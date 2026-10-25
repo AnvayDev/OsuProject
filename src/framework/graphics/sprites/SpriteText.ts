@@ -18,6 +18,10 @@ import { colourInfoToCss } from './Sprite';
 
 const default_never_fixed_width_characters = ['.', ',', ':', ' ', ' ', ' '];
 
+/** Transparent padding around narrow glyph elements, and the width below which it is applied (see applyElementState). */
+const glyph_element_padding = 2;
+const min_unpadded_glyph_width = 3;
+
 /** A container for simple text rendering purposes. If more complex text rendering is required, use TextFlowContainer instead. */
 export class SpriteText extends Drawable {
   private store: FontStore | null = null;
@@ -461,6 +465,8 @@ export class SpriteText extends Drawable {
         el.style.top = '0';
         el.style.setProperty('mask-repeat', 'no-repeat');
         el.style.setProperty('-webkit-mask-repeat', 'no-repeat');
+        el.style.setProperty('mask-clip', 'content-box');
+        el.style.setProperty('-webkit-mask-clip', 'content-box');
         this.element.appendChild(el);
         this.glyphElements.push(el);
       }
@@ -480,10 +486,15 @@ export class SpriteText extends Drawable {
       const sy = rect.height / tex.height;
       const mask = `url("${tex.pageUrl}")`;
       const maskSize = `${tex.pageWidth * sx}px ${tex.pageHeight * sy}px`;
-      const maskPos = `${-tex.x * sx}px ${-tex.y * sy}px`;
+      // Chrome skips painting masked elements narrower than ~2 device pixels inside the scaled scene graph (e.g. a 14px "!"), so narrow glyph
+      // elements get a transparent padding: the mask is offset by the padding and clipped to the content box, which is the glyph rectangle.
+      // (Only narrow ones: the clip is snapped to device pixels, which can cut into wider glyphs.)
+      const pad = rect.width < min_unpadded_glyph_width ? glyph_element_padding : 0;
+      const maskPos = `${-tex.x * sx + pad}px ${-tex.y * sy + pad}px`;
 
       const place = (el: HTMLElement, dx: number, dy: number, bg: string) => {
-        el.style.transform = `translate(${rect.x + dx}px, ${rect.y + dy}px)`;
+        el.style.transform = `translate(${rect.x + dx - pad}px, ${rect.y + dy - pad}px)`;
+        el.style.padding = `${pad}px`;
         el.style.width = `${rect.width}px`;
         el.style.height = `${rect.height}px`;
         el.style.background = bg;

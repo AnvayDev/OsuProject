@@ -16,6 +16,8 @@ import { OverlayActivation } from './overlays/OverlayActivation';
 import { OsuScreen } from './screens/OsuScreen';
 import { OsuScreenStack } from './screens/OsuScreenStack';
 import { OsuLogo } from './screens/menu/OsuLogo';
+import { GameIdleTracker } from './input/GameIdleTracker';
+import { IdleTracker } from './input/IdleTracker';
 
 /** The full osu! experience. Builds on top of OsuGameBase to add menus and binding logic for the screen stack. */
 export class OsuGame extends OsuGameBase {
@@ -36,6 +38,8 @@ export class OsuGame extends OsuGameBase {
   private rightFloatingOverlayContent!: Container;
 
   private topMostOverlayContent!: Container;
+
+  private idleTracker!: IdleTracker;
 
   private footerBasedOverlayContent!: Container;
 
@@ -78,6 +82,9 @@ export class OsuGame extends OsuGameBase {
 
     this.beatmap.bindValueChanged(b => this.beatmapChanged(b), true);
 
+    // (The session idle tracker, which resets SessionStatics after 5 minutes of inactivity, is not ported yet.)
+    this.osuDependencies.cacheAs(IdleTracker, this.idleTracker = new GameIdleTracker(6000));
+
     this.addRange([
       this.screenOffsetContainer = new Container().with({
         relativeSizeAxes: Axes.Both,
@@ -106,6 +113,7 @@ export class OsuGame extends OsuGameBase {
         ],
       }),
       this.topMostOverlayContent = new Container().with({ relativeSizeAxes: Axes.Both }),
+      this.idleTracker,
     ]);
 
     this.screenStack.screenPushed.add(([lastScreen, newScreen]) => this.screenPushed(lastScreen, newScreen));

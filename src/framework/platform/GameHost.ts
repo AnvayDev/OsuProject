@@ -2,6 +2,7 @@
 // One requestAnimationFrame callback runs UpdateFrame (update + masking) followed by the DOM "draw" (element validation).
 
 import { DependencyContainer } from '../allocation/DependencyContainer';
+import { BindableBool } from '../bindables/Bindable';
 import { Container } from '../graphics/containers/Container';
 import { InputKey, KeyBinding } from '../input/bindings/KeyBindings';
 import { DomInputHandler } from '../input/handlers/DomInputHandler';
@@ -36,6 +37,18 @@ export class GameHost {
   /** The DOM element the scene graph is mounted into (defaults to document.body). */
   constructor(private readonly mount: HTMLElement = document.body) {}
 
+  /** Whether the game window is active (focused): the browser window has focus and the page is visible. */
+  readonly isActive = new BindableBool(true);
+
+  private readonly updateIsActive = (): void => {
+    this.isActive.value = document.visibilityState === 'visible' && document.hasFocus();
+  };
+
+  /** Whether the host can exit (desktop hosts can; the web port keeps the desktop behaviour). */
+  get canExit(): boolean {
+    return true;
+  }
+
   /** The input handlers available to the root UserInputManager. */
   readonly availableInputHandlers: InputHandler[] = [];
 
@@ -66,6 +79,11 @@ export class GameHost {
 
     this.mount.appendChild(root.element);
     root.element.style.overflow = 'hidden';
+
+    window.addEventListener('focus', this.updateIsActive);
+    window.addEventListener('blur', this.updateIsActive);
+    document.addEventListener('visibilitychange', this.updateIsActive);
+    this.updateIsActive();
 
     //publish bootstrapped scene graph to all threads.
     this.root = root;
@@ -116,8 +134,16 @@ export class GameHost {
     }
   }
 
+  /** Opens a URL in a new browser tab (GameHost.OpenUrlExternally). */
+  openUrlExternally(url: string): void {
+    window.open(url, '_blank', 'noopener');
+  }
+
   exit(): void {
     cancelAnimationFrame(this.rafHandle);
+    window.removeEventListener('focus', this.updateIsActive);
+    window.removeEventListener('blur', this.updateIsActive);
+    document.removeEventListener('visibilitychange', this.updateIsActive);
     this.domInput?.dispose();
     this.root?.dispose();
     this.root = null;

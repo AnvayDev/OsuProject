@@ -2,14 +2,13 @@
 
 import { GameHost } from '@fw/platform/GameHost';
 import { OsuGame } from '@game/OsuGame';
-import { BackgroundScreenDefault } from '@game/screens/backgrounds/BackgroundScreenDefault';
+import { MainMenu } from '@game/screens/menu/MainMenu';
 import type { OsuScreen } from '@game/screens/OsuScreen';
-import { BackgroundPreviewScreen } from './BackgroundPreviewScreen';
 
-// Temporary: until the loader, intro and main menu are ported, the first screen only shows the main menu background.
+// Temporary: until the loader and intro are ported, the game starts at the main menu (C#'s Loader → IntroScreen → MainMenu).
 class WebOsuGame extends OsuGame {
   protected override createLoader(): OsuScreen | null {
-    return new BackgroundPreviewScreen(() => new BackgroundScreenDefault());
+    return new MainMenu();
   }
 }
 

@@ -1,17 +1,18 @@
 // Ported from osu.Game/Screens/OsuScreen.cs (and IOsuScreen.cs)
-// Not ported yet: the OsuLogo hooks (LogoArriving/LogoExiting/LogoSuspending, added with the main menu), the footer (with song select),
-// user activity and mods (online and gameplay features).
+// Not ported yet: the footer (with song select), user activity and mods (online and gameplay features).
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { AudioManager } from '@fw/audio/AudioManager';
 import type { Sample } from '@fw/audio/sample/Sample';
 import { Bindable } from '@fw/bindables/Bindable';
-import { Anchor } from '@fw/layout/Enums';
+import { Easing } from '@fw/transforms/Easing';
+import { Anchor, Axes } from '@fw/layout/Enums';
 import type { ScreenExitEvent, ScreenTransitionEvent } from '@fw/screens/IScreen';
 import { Screen } from '@fw/screens/Screen';
 import type { WorkingBeatmap } from '../beatmaps/WorkingBeatmap';
 import { MusicController } from '../overlays/MusicController';
 import { OverlayActivation } from '../overlays/OverlayActivation';
+import { OsuLogo } from './menu/OsuLogo';
 import type { RulesetInfo } from '../rulesets/RulesetInfo';
 import type { BackgroundScreen } from './BackgroundScreen';
 import { BackgroundScreenStack } from './BackgroundScreenStack';
@@ -150,6 +151,8 @@ export abstract class OsuScreen extends Screen {
 
   private backgroundStack: BackgroundScreenStack | null = null;
 
+  private logo: OsuLogo | null = null;
+
   protected constructor() {
     super();
 
@@ -165,6 +168,7 @@ export abstract class OsuScreen extends Screen {
 
     this.musicController = dependencies.resolve(MusicController);
     this.backgroundStack = dependencies.get(BackgroundScreenStack);
+    this.logo = dependencies.get(OsuLogo);
 
     // [BackgroundDependencyLoader(true)]: the sample arrives asynchronously.
     void dependencies.get(AudioManager)?.samples.get('UI/screen-back').then(s => this.sampleExit = s);
@@ -184,6 +188,8 @@ export abstract class OsuScreen extends Screen {
   }
 
   override onResuming(e: ScreenTransitionEvent): void {
+    this.applyArrivingDefaults(true);
+
     // it's feasible to resume to a screen if the target screen never loaded successfully.
     // in such a case there's no need to restore this value.
     if (this.modTrackAdjustmentStateAtSuspend !== null)
@@ -199,9 +205,13 @@ export abstract class OsuScreen extends Screen {
 
     this.modTrackAdjustmentStateAtSuspend = this.musicController.applyModTrackAdjustments;
     this.globalMusicControlStateAtSuspend = this.musicController.allowTrackControl.value;
+
+    this.onSuspendingLogo();
   }
 
   override onEntering(e: ScreenTransitionEvent): void {
+    this.applyArrivingDefaults(false);
+
     if (this.applyModTrackAdjustments !== null)
       this.musicController.applyModTrackAdjustments = this.applyModTrackAdjustments;
 
@@ -228,6 +238,9 @@ export abstract class OsuScreen extends Screen {
     if (this.validForResume && this.playExitSound && arrivingAtFinalDestination)
       this.sampleExit?.play();
 
+    if (this.validForResume && this.logo !== null)
+      this.onExitingLogo();
+
     if (super.onExiting(e))
       return true;
 
@@ -235,6 +248,45 @@ export abstract class OsuScreen extends Screen {
       this.backgroundStack?.exit();
 
     return false;
+  }
+
+  /** Fired when this screen was entered or resumed and the logo state is required to be adjusted. */
+  protected logoArriving(logo: OsuLogo, _resuming: boolean): void {
+    logo.action = null;
+    logo.fadeOut(300, Easing.OutQuint);
+
+    logo.origin = Anchor.Centre;
+
+    logo.changeAnchor(Anchor.TopLeft);
+    logo.relativePositionAxes = Axes.Both;
+
+    logo.triangles = true;
+    logo.ripple = true;
+  }
+
+  private applyArrivingDefaults(isResuming: boolean): void {
+    const logo = this.logo;
+    logo?.appendAnimatingAction(() => {
+      if (this.isCurrentScreen()) this.logoArriving(logo, isResuming);
+    }, true);
+  }
+
+  private onExitingLogo(): void {
+    const logo = this.logo;
+    logo?.appendAnimatingAction(() => this.logoExiting(logo), false);
+  }
+
+  /** Fired when this screen was exited to add any outwards transition to the logo. */
+  protected logoExiting(_logo: OsuLogo): void {
+  }
+
+  private onSuspendingLogo(): void {
+    const logo = this.logo;
+    logo?.appendAnimatingAction(() => this.logoSuspending(logo), false);
+  }
+
+  /** Fired when this screen was suspended to add any outwards transition to the logo. */
+  protected logoSuspending(_logo: OsuLogo): void {
   }
 
   /**
