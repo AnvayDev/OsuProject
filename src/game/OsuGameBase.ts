@@ -19,7 +19,13 @@ import { Axes } from '@fw/layout/Enums';
 import { Logger } from '@fw/logging/Logger';
 import type { GameHost } from '@fw/platform/GameHost';
 import type { ValueChangedEvent } from '@fw/bindables/Bindable';
+import { ChannelAmplitudes } from '@fw/audio/track/ChannelAmplitudes';
+import type { IClock } from '@fw/timing/IClock';
 import { BeatmapManager } from './beatmaps/BeatmapManager';
+import type { ControlPointInfo } from './beatmaps/controlPoints/ControlPointInfo';
+import { FramedBeatmapClock } from './beatmaps/FramedBeatmapClock';
+import { IBeatSyncProvider } from './beatmaps/IBeatSyncProvider';
+import { GlobalActionContainer } from './input/bindings/GlobalActionContainer';
 import { BeatmapUpdater } from './beatmaps/BeatmapUpdater';
 import { DummyWorkingBeatmap } from './beatmaps/DummyWorkingBeatmap';
 import type { WorkingBeatmap } from './beatmaps/WorkingBeatmap';
@@ -70,6 +76,12 @@ export class OsuGameBase extends Game {
 
   private readonly globalTrackVolumeAdjust = new BindableDouble(OsuGameBase.global_track_volume_adjust);
 
+  /**
+   * For now, this is used as a source specifically for beat synced components.
+   * Going forward, it could potentially be used as the single source-of-truth for beatmap timing.
+   */
+  private readonly beatmapClock = new FramedBeatmapClock(true, false);
+
   constructor() {
     super();
 
@@ -79,8 +91,9 @@ export class OsuGameBase extends Game {
   protected override createChildDependencies(parent: IReadOnlyDependencyContainer): IReadOnlyDependencyContainer {
     this.osuDependencies = new DependencyContainer(super.createChildDependencies(parent));
 
-    // [Cached(typeof(OsuGameBase))]
+    // [Cached(typeof(OsuGameBase))], and IBeatSyncProvider is a [Cached] interface.
     this.osuDependencies.cacheAs(OsuGameBase, this);
+    this.osuDependencies.cacheAs(IBeatSyncProvider, this.beatSyncProvider);
 
     return this.osuDependencies;
   }
@@ -122,9 +135,19 @@ export class OsuGameBase extends Game {
     super.content.add(this.musicController = new MusicController());
     this.osuDependencies.cacheAs(MusicController, this.musicController);
 
+    this.musicController.trackChanged.add(([beatmap]) => this.onTrackChanged(beatmap));
+    super.content.add(this.beatmapClock);
+
+    let globalBindings: GlobalActionContainer;
+
     const scalingContainer = this.createScalingContainer();
-    scalingContainer.add(this.osuContent = new Container().with({ relativeSizeAxes: Axes.Both }));
+    scalingContainer.add(globalBindings = new GlobalActionContainer(this).with({
+      relativeSizeAxes: Axes.Both,
+      child: this.osuContent = new Container().with({ relativeSizeAxes: Axes.Both }),
+    }));
     super.content.add(scalingContainer);
+
+    this.osuDependencies.cache(globalBindings);
 
     this.ruleset.bindValueChanged(r => this.onRulesetChanged(r));
     this.beatmap.bindValueChanged(b => this.onBeatmapChanged(b));
@@ -150,6 +173,34 @@ export class OsuGameBase extends Game {
 
     this.localConfig ??= new OsuConfigManager(window.localStorage);
   }
+
+  private onTrackChanged(beatmap: WorkingBeatmap): void {
+    this.beatmapClock.changeSource(beatmap.track);
+  }
+
+  /**
+   * OsuGameBase's explicit IBeatSyncProvider implementation. Its Clock member would collide with Drawable.clock, so the implementation is an
+   * object of its own, cached as IBeatSyncProvider.
+   */
+  private readonly beatSyncProvider = new (class extends IBeatSyncProvider {
+    constructor(private readonly game: OsuGameBase) {
+      super();
+    }
+
+    get controlPoints(): ControlPointInfo | null {
+      const beatmap = this.game.beatmap.value;
+      return beatmap.beatmapLoaded ? beatmap.beatmap!.controlPointInfo : null;
+    }
+
+    get clock(): IClock {
+      return this.game.beatmapClock;
+    }
+
+    get currentAmplitudes(): ChannelAmplitudes {
+      const beatmap = this.game.beatmap.value;
+      return beatmap.trackLoaded ? beatmap.track.currentAmplitudes : ChannelAmplitudes.Empty;
+    }
+  })(this);
 
   private onBeatmapChanged(beatmap: ValueChangedEvent<WorkingBeatmap>): void {
     Logger.log(`Game-wide working beatmap updated to ${beatmap.newValue}`);

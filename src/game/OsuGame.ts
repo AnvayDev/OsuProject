@@ -3,7 +3,8 @@
 // key bindings. They will be added to the containers below as they are ported. The first screen is supplied by createLoader().
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
-import { Bindable } from '@fw/bindables/Bindable';
+import { Bindable, type ValueChangedEvent } from '@fw/bindables/Bindable';
+import type { WorkingBeatmap } from './beatmaps/WorkingBeatmap';
 import { Container } from '@fw/graphics/containers/Container';
 import { Anchor, Axes } from '@fw/layout/Enums';
 import { Vector2 } from '@fw/layout/Vector2';
@@ -65,6 +66,8 @@ export class OsuGame extends OsuGameBase {
   protected override loadComplete(): void {
     super.loadComplete();
 
+    this.beatmap.bindValueChanged(b => this.beatmapChanged(b), true);
+
     this.addRange([
       this.screenOffsetContainer = new Container().with({
         relativeSizeAxes: Axes.Both,
@@ -103,6 +106,16 @@ export class OsuGame extends OsuGameBase {
     if (loader !== null)
       this.screenStack.push(loader.with({ relativeSizeAxes: Axes.Both }));
   }
+
+  // #region Beatmap progression
+
+  private beatmapChanged(beatmap: ValueChangedEvent<WorkingBeatmap>): void {
+    beatmap.oldValue?.cancelAsyncLoad();
+    beatmap.newValue?.beginAsyncLoad();
+    // (updateWindowTitle: there is no host window title to update.)
+  }
+
+  // #endregion
 
   protected screenChanged(current: OsuScreen | null, newScreen: OsuScreen | null): void {
     if (current !== null)

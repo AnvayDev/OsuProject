@@ -27,6 +27,7 @@ export class OsuConfigManager extends IniConfigManager<OsuSetting> {
     this.setDefaultBool(OsuSetting.MenuVoice, true);
     this.setDefaultBool(OsuSetting.MenuMusic, true);
     this.setDefaultBool(OsuSetting.MenuTips, true);
+    this.setDefaultDouble(OsuSetting.AudioOffset, 0, -500.0, 500.0, 1);
 
     // Graphics
     this.setDefaultBool(OsuSetting.ShowStoryboard, true);
