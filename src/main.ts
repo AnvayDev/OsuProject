@@ -2,17 +2,26 @@
 
 import { GameHost } from '@fw/platform/GameHost';
 import { OsuGame } from '@game/OsuGame';
-import { MainMenu } from '@game/screens/menu/MainMenu';
+import { Loader } from '@game/screens/Loader';
 import type { OsuScreen } from '@game/screens/OsuScreen';
+import { AudioUnlockScreen } from './AudioUnlockScreen';
 
-// Temporary: until the loader and intro are ported, the game starts at the main menu (C#'s Loader → IntroScreen → MainMenu).
 class WebOsuGame extends OsuGame {
+  // The intro needs audio, so the Loader comes after the first user gesture (AudioUnlockScreen).
   protected override createLoader(): OsuScreen | null {
-    return new MainMenu();
+    return new AudioUnlockScreen(() => new Loader());
   }
 }
 
-const host = new GameHost(document.body);
+class WebGameHost extends GameHost {
+  // A browser tab can't close itself: after the "see ya" outro the page stays black, and a click starts the game again.
+  protected override performExit(): void {
+    super.performExit();
+    window.addEventListener('pointerdown', () => location.reload(), { once: true });
+  }
+}
+
+const host = new WebGameHost(document.body);
 const game = new WebOsuGame();
 
 host.run(game);

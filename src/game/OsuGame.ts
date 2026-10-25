@@ -156,5 +156,8 @@ export class OsuGame extends OsuGameBase {
 
   private screenExited(lastScreen: IScreen, newScreen: IScreen | null): void {
     this.screenChanged(lastScreen as OsuScreen, newScreen as OsuScreen | null);
+
+    if (newScreen === null)
+      this.exit();
   }
 }

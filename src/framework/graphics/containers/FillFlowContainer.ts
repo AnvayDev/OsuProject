@@ -3,6 +3,8 @@
 import { Anchor, Axes, FillDirection, FillMode } from '../../layout/Enums';
 import { FLOAT_MAX, Precision } from '../../layout/Primitives';
 import { Vector2 } from '../../layout/Vector2';
+import { Easing, type IEasingFunction } from '../../transforms/Easing';
+import type { TransformSequence } from '../../transforms/TransformSequence';
 import type { Drawable } from '../Drawable';
 import { FlowContainer } from './FlowContainer';
 
@@ -36,6 +38,11 @@ export class FillFlowContainer<T extends Drawable = Drawable> extends FlowContai
 
     this._spacing = value;
     this.invalidateLayout();
+  }
+
+  /** Smoothly adjusts spacing over time (TransformableExtensions.TransformSpacingTo). */
+  transformSpacingTo(newSpacing: Vector2, duration = 0, easing: Easing | IEasingFunction = Easing.None): TransformSequence<this> {
+    return this.transformTo('spacing', newSpacing, duration, easing);
   }
 
   private spacingFactor(c: Drawable): Vector2 {

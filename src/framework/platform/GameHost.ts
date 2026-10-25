@@ -94,7 +94,9 @@ export class GameHost {
 
     const loop = () => {
       this.updateFrame();
-      this.rafHandle = requestAnimationFrame(loop);
+
+      if (!this.exitRequested)
+        this.rafHandle = requestAnimationFrame(loop);
     };
 
     this.rafHandle = requestAnimationFrame(loop);
@@ -106,17 +108,25 @@ export class GameHost {
     if (root === null) return;
 
     this.frameCount++;
+    this.inFrame = true;
 
-    this.audioThread.onNewFrame();
+    try {
+      this.audioThread.onNewFrame();
 
-    this.sceneGraphClock.processFrame();
+      this.sceneGraphClock.processFrame();
 
-    root.size = Vector2.componentMax(Vector2.One, new Vector2(this.mount.clientWidth || window.innerWidth, this.mount.clientHeight || window.innerHeight));
+      root.size = Vector2.componentMax(Vector2.One, new Vector2(this.mount.clientWidth || window.innerWidth, this.mount.clientHeight || window.innerHeight));
 
-    root.updateSubTree();
-    root.updateSubTreeMasking();
+      root.updateSubTree();
+      root.updateSubTreeMasking();
 
-    root.validateElementSubTree();
+      root.validateElementSubTree();
+    } finally {
+      this.inFrame = false;
+    }
+
+    if (this.exitRequested)
+      this.performExit();
   }
 
   /** GameHost.PlatformKeyBindings, with the overrides of MacOSGameHost/IOSGameHost and WindowsGameHost selected by RuntimeInfo.OS. */
@@ -139,7 +149,18 @@ export class GameHost {
     window.open(url, '_blank', 'noopener');
   }
 
+  private inFrame = false;
+  private exitRequested = false;
+
   exit(): void {
+    this.exitRequested = true;
+
+    // An exit requested during a frame (e.g. by a screen exiting) takes effect once that frame has completed.
+    if (!this.inFrame)
+      this.performExit();
+  }
+
+  protected performExit(): void {
     cancelAnimationFrame(this.rafHandle);
     window.removeEventListener('focus', this.updateIsActive);
     window.removeEventListener('blur', this.updateIsActive);

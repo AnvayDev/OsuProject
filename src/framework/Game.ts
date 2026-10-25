@@ -37,7 +37,7 @@ export abstract class Game extends Container {
   private gameDependencies!: DependencyContainer;
 
   /** The resources of this game. The game layer adds its stores (e.g. osu-resources); framework stores namespace into it. */
-  protected resources!: ResourceStore<Blob>;
+  resources!: ResourceStore<Blob>;
 
   textures!: TextureStore;
 
@@ -107,6 +107,14 @@ export abstract class Game extends Container {
 
   protected override addInternal(_drawable: Drawable): void {
     throw new Error('Use add or content instead.');
+  }
+
+  /** Force-closes the game (Game.Exit). */
+  exit(): void {
+    if (this.host === null)
+      throw new Error('Attempted to exit a game which has not yet been run');
+
+    this.host.exit();
   }
 
   /** @internal */
