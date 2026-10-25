@@ -15,6 +15,7 @@ import { OsuGameBase } from './OsuGameBase';
 import { OverlayActivation } from './overlays/OverlayActivation';
 import { OsuScreen } from './screens/OsuScreen';
 import { OsuScreenStack } from './screens/OsuScreenStack';
+import { OsuLogo } from './screens/menu/OsuLogo';
 
 /** The full osu! experience. Builds on top of OsuGameBase to add menus and binding logic for the screen stack. */
 export class OsuGame extends OsuGameBase {
@@ -40,6 +41,8 @@ export class OsuGame extends OsuGameBase {
 
   private logoContainer!: Container;
 
+  private osuLogo!: OsuLogo;
+
   /** Whether overlays should be able to be opened game-wide. Value is sourced from the current active screen. */
   readonly overlayActivationMode = new Bindable<OverlayActivation>(OverlayActivation.All);
 
@@ -61,6 +64,13 @@ export class OsuGame extends OsuGameBase {
     this.osuDependencies.cacheAs(OsuGame, this);
 
     return dependencies;
+  }
+
+  protected override async load(dependencies: IReadOnlyDependencyContainer): Promise<void> {
+    await super.load(dependencies);
+
+    // (SeasonalUIConfig.ENABLED is false, so the logo is never OsuLogoChristmas.)
+    this.osuDependencies.cacheAs(OsuLogo, this.osuLogo = new OsuLogo().with({ alpha: 0 }));
   }
 
   protected override loadComplete(): void {
@@ -101,10 +111,16 @@ export class OsuGame extends OsuGameBase {
     this.screenStack.screenPushed.add(([lastScreen, newScreen]) => this.screenPushed(lastScreen, newScreen));
     this.screenStack.screenExited.add(([lastScreen, newScreen]) => this.screenExited(lastScreen, newScreen));
 
-    const loader = this.createLoader();
+    // loadComponentSingleFile(osuLogo, ...)
+    void this.loadComponentAsync(this.osuLogo, () => {
+      this.osuLogo.setupDefaultContainer(this.logoContainer);
 
-    if (loader !== null)
-      this.screenStack.push(loader.with({ relativeSizeAxes: Axes.Both }));
+      // Loader has to be created after the logo has finished loading as Loader performs logo transformations on entering.
+      const loader = this.createLoader();
+
+      if (loader !== null)
+        this.screenStack.push(loader.with({ relativeSizeAxes: Axes.Both }));
+    });
   }
 
   // #region Beatmap progression

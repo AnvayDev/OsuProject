@@ -1,7 +1,9 @@
 // Dev only: the window.__osu hook scripts/shot.mjs drives (see docs/ARCHITECTURE.md, Verification tools).
 
 import type { BeatmapManager } from '@game/beatmaps/BeatmapManager';
+import { Anchor } from '@fw/layout/Enums';
 import { ImportTask } from '@game/database/ImportTask';
+import type { OsuLogo } from '@game/screens/menu/OsuLogo';
 import type { OsuGame } from '@game/OsuGame';
 import { BackgroundScreenBeatmap } from '@game/screens/backgrounds/BackgroundScreenBeatmap';
 import { BackgroundScreenDefault } from '@game/screens/backgrounds/BackgroundScreenDefault';
@@ -68,6 +70,18 @@ export function installDebugHook(game: OsuGame): void {
           const set = internals.beatmapManager.queryBeatmapSet(s => s.onlineID === 241526)!;
           game.beatmap.value = internals.beatmapManager.getWorkingBeatmap(set.beatmaps[0]);
           push(new BackgroundPreviewScreen(() => new BackgroundScreenBeatmap(game.beatmap.value)));
+          break;
+        }
+
+        case 'logo': {
+          push(new BackgroundPreviewScreen(() => new BackgroundScreenDefault()));
+
+          const logo = (game as unknown as { osuLogo: OsuLogo }).osuLogo;
+          logo.anchor = Anchor.Centre;
+          logo.action = () => true;
+          logo.triangles = true;
+          logo.ripple = true;
+          logo.fadeIn(300);
           break;
         }
 
