@@ -1,11 +1,10 @@
 // Ported from osu.Game/Screens/Select/FilterControl.cs
-// Not ported yet: the difficulty range slider and the sort / group / collection dropdowns, whose framework controls (SliderBar, Dropdown)
-// are still to come. Until then their Current bindables exist without a drawable and the criteria read them as C# does (the slider's bounds
-// and the sort / group modes are bound to their settings). Collections, the online user and ruleset filter criteria aren't ported (offline,
-// and no ruleset instances).
+// Not ported yet: the difficulty range slider, whose framework control (SliderBar) is still to come. Until then its bounds exist without a
+// drawable and the criteria read them as C# does (bound to their settings). Collections, the online user and ruleset filter criteria aren't
+// ported (offline, and no ruleset instances): GroupModeDropdown offers the osu! ruleset's modes (one gameplay variant: no Variant mode).
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
-import { Bindable } from '@fw/bindables/Bindable';
+import { Bindable, type ValueChangedEvent } from '@fw/bindables/Bindable';
 import type { BindableNumber } from '@fw/bindables/BindableNumber';
 import { Container } from '@fw/graphics/containers/Container';
 import { Dimension, GridContainer, GridSizeMode } from '@fw/graphics/containers/GridContainer';
@@ -28,8 +27,10 @@ import type { RulesetInfo } from '../../rulesets/RulesetInfo';
 import { InnerFilterTextBox, ShearedFilterTextBox } from '../../graphics/userInterface/ShearedFilterTextBox';
 import type { InnerSearchTextBox } from '../../graphics/userInterface/ShearedSearchTextBox';
 import { GlobalAction } from '../../input/bindings/GlobalAction';
-import { GroupMode } from './filter/GroupMode';
-import { SortMode } from './filter/SortMode';
+import { ShearedDropdown } from '../../graphics/userInterfaceV2/ShearedDropdown';
+import { CollectionDropdown } from './CollectionDropdown';
+import { GroupMode, getGroupModeDescription } from './filter/GroupMode';
+import { SortMode, getSortModeDescription } from './filter/SortMode';
 import { FilterCriteria } from './FilterCriteria';
 import { applyQueries } from './FilterQueryParser';
 import { ScopedBeatmapSetDisplay } from './FilterControl.ScopedBeatmapSetDisplay';
@@ -50,9 +51,8 @@ export class FilterControl extends OverlayContainer {
   /** (DifficultyRangeSlider.LowerBound / UpperBound) */
   private lowerBound!: BindableNumber;
   private upperBound!: BindableNumber;
-  /** (sortDropdown.Current / groupDropdown.Current) */
-  private readonly sortMode = new Bindable<SortMode>(SortMode.Title);
-  private readonly groupMode = new Bindable<GroupMode>(GroupMode.None);
+  private sortDropdown!: ShearedDropdown<SortMode>;
+  private groupDropdown!: GroupModeDropdown;
   private readonly configCollectionFilter = new Bindable<string>('');
 
   /** An optional method which can force certain criteria adjustments. */
@@ -148,6 +148,36 @@ export class FilterControl extends OverlayContainer {
                   ],
                 ],
               }),
+              new GridContainer().with({
+                relativeSizeAxes: Axes.X,
+                height: 30,
+                shear: OsuGame.SHEAR.neg(),
+                rowDimensions: [new Dimension(GridSizeMode.AutoSize)],
+                columnDimensions: [
+                  new Dimension(GridSizeMode.Distributed, 0, 0, 180),
+                  new Dimension(GridSizeMode.Absolute, 5),
+                  new Dimension(GridSizeMode.Distributed, 0, 0, 180),
+                  new Dimension(GridSizeMode.Absolute, 5),
+                  new Dimension(),
+                  new Dimension(GridSizeMode.AutoSize),
+                ],
+                content: [
+                  [
+                    this.sortDropdown = new SortModeDropdown('Sort').with({
+                      relativeSizeAxes: Axes.X,
+                      items: Object.values(SortMode),
+                    }),
+                    emptyDrawable(),
+                    this.groupDropdown = new GroupModeDropdown('Group').with({
+                      relativeSizeAxes: Axes.X,
+                    }),
+                    emptyDrawable(),
+                    new CollectionDropdown().with({
+                      relativeSizeAxes: Axes.X,
+                    }),
+                  ],
+                ],
+              }),
             ],
           }),
           scopedDisplay,
@@ -166,9 +196,8 @@ export class FilterControl extends OverlayContainer {
     this.lowerBound = this.config.getBindable<number>(OsuSetting.DisplayStarsMinimum) as BindableNumber;
     this.upperBound = this.config.getBindable<number>(OsuSetting.DisplayStarsMaximum) as BindableNumber;
     this.config.bindWith(OsuSetting.ShowConvertedBeatmaps, this.showConvertedBeatmapsButton.active);
-    this.config.bindWith(OsuSetting.SongSelectSortingMode, this.sortMode);
+    this.config.bindWith(OsuSetting.SongSelectSortingMode, this.sortDropdown.current);
     this.config.bindWith(OsuSetting.SongSelectCollectionFilter, this.configCollectionFilter);
-    this.config.bindWith(OsuSetting.SongSelectGroupMode, this.groupMode);
 
     this.ruleset.bindValueChanged(() => this.updateCriteria());
 
@@ -187,8 +216,8 @@ export class FilterControl extends OverlayContainer {
     this.upperBound.bindValueChanged(() => debouncedUpdateCriteria());
 
     this.showConvertedBeatmapsButton.active.bindValueChanged(() => this.updateCriteria());
-    this.sortMode.bindValueChanged(() => this.updateCriteria());
-    this.groupMode.bindValueChanged(() => this.updateCriteria());
+    this.sortDropdown.current.bindValueChanged(() => this.updateCriteria());
+    this.groupDropdown.current.bindValueChanged(() => this.updateCriteria());
     this.configCollectionFilter.bindValueChanged(() => this.updateCriteria());
 
     this.scopedBeatmapSet.bindValueChanged(() => this.updateCriteria(false));
@@ -202,8 +231,8 @@ export class FilterControl extends OverlayContainer {
 
     const criteria = Object.assign(new FilterCriteria(), {
       selectedBeatmapSet: this.scopedBeatmapSet.value,
-      sort: this.sortMode.value,
-      group: this.groupMode.value ?? GroupMode.None,
+      sort: this.sortDropdown.current.value,
+      group: this.groupDropdown.current.value?.value ?? GroupMode.None,
       allowConvertedBeatmaps: this.showConvertedBeatmapsButton.active.value,
       ruleset: this.ruleset.value,
     });
@@ -303,5 +332,101 @@ class SongSelectInnerTextBox extends InnerFilterTextBox {
       return false;
 
     return super.onPlatformActionPressed(e);
+  }
+}
+
+/** (ShearedDropdown<SortMode>: its items' [LocalisableDescription]) */
+class SortModeDropdown extends ShearedDropdown<SortMode> {
+  protected override generateItemText(item: SortMode): string {
+    return getSortModeDescription(item);
+  }
+}
+
+/** (FilterControl.GroupModeDropdownItem) */
+interface GroupModeDropdownItem {
+  readonly value: GroupMode;
+  readonly text: string;
+}
+
+/** (FilterControl.GroupModeDropdown) */
+class GroupModeDropdown extends ShearedDropdown<GroupModeDropdownItem> {
+  private ruleset!: Bindable<RulesetInfo>;
+
+  private readonly configGroupMode = new Bindable<GroupMode>(GroupMode.None);
+
+  protected override load(dependencies: IReadOnlyDependencyContainer): Promise<void> | void {
+    const r = super.load(dependencies);
+
+    this.ruleset = dependencies.resolve(Bindable<RulesetInfo>, 'RulesetInfo').getBoundCopy();
+    dependencies.resolve(OsuConfigManager).bindWith(OsuSetting.SongSelectGroupMode, this.configGroupMode);
+
+    return r;
+  }
+
+  protected override loadAsyncComplete(): void {
+    // Bindings set up intentionally in `loadAsyncComplete()` rather than `loadComplete()` as normal
+    // to avoid double-filter on entering song select with the "variant" group mode engaged.
+    this.ruleset.bindValueChanged(() => {
+      this.updateAvailableItems();
+      this.updateCurrentFromConfig();
+    }, true);
+    this.configGroupMode.bindValueChanged(() => this.updateCurrentFromConfig());
+    this.current.bindValueChanged(this.currentChanged);
+
+    // Ordering important - base call must run *after* the above bindings
+    // because the bindings set up `items`, and the base call is responsible for calling `generateItemText()`.
+    super.loadAsyncComplete();
+  }
+
+  private updateAvailableItems(): void {
+    const items: GroupModeDropdownItem[] = [];
+
+    for (const item of Object.values(GroupMode)) {
+      switch (item) {
+        default:
+          items.push({ value: item, text: getGroupModeDescription(item) });
+          break;
+
+        case GroupMode.Variant:
+          // (the osu! ruleset has a single gameplay variant)
+          break;
+      }
+    }
+
+    this.items = items;
+  }
+
+  private synchronisingBindables = false;
+
+  private updateCurrentFromConfig(): void {
+    if (this.synchronisingBindables)
+      return;
+
+    this.synchronisingBindables = true;
+    // Only rulesets that actually have variants expose and support the "variant" grouping mode.
+    // If it's missing, default to no grouping.
+    this.current.value = this.items.find(i => i.value === this.configGroupMode.value) ?? this.items.find(i => i.value === GroupMode.None)!;
+    this.synchronisingBindables = false;
+  }
+
+  private readonly currentChanged = (current: ValueChangedEvent<GroupModeDropdownItem>): void => {
+    if (this.synchronisingBindables)
+      return;
+
+    // Only rulesets that actually have variants expose and support the "variant" grouping mode.
+    // If it's missing, code above will revert to no grouping, which also incurs a `current` change.
+    // However, for better user experience, don't write the new value out to config in this scenario
+    // so that the variant grouping is re-engaged on switching to a ruleset that has variant support
+    // (this also persists across game restarts).
+    if (current.oldValue?.value === GroupMode.Variant && this.items.every(i => i.value !== GroupMode.Variant))
+      return;
+
+    this.synchronisingBindables = true;
+    this.configGroupMode.value = current.newValue.value;
+    this.synchronisingBindables = false;
+  };
+
+  protected override generateItemText(item: GroupModeDropdownItem): string {
+    return item.text;
   }
 }

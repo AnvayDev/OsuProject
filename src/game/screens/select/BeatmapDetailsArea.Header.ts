@@ -1,6 +1,4 @@
 // Ported from osu.Game/Screens/Select/BeatmapDetailsArea.Header.cs
-// Not ported yet: the sort and scope dropdowns (ShearedDropdown), which arrive with the framework Dropdown. Until then their Current bindables
-// exist without a drawable and are read and written as C# does.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { Bindable } from '@fw/bindables/Bindable';
@@ -13,8 +11,9 @@ import { Vector2 } from '@fw/layout/Vector2';
 import { Easing } from '@fw/transforms/Easing';
 import { OsuConfigManager, OsuSetting } from '../../configuration/OsuConfigManager';
 import { ShearedToggleButton } from '../../graphics/userInterface/ShearedToggleButton';
-import { LeaderboardSortMode } from '../../online/leaderboards/LeaderboardSortMode';
-import { BeatmapLeaderboardScope } from '../play/leaderboards/BeatmapLeaderboardScope';
+import { ShearedDropdown } from '../../graphics/userInterfaceV2/ShearedDropdown';
+import { getLeaderboardSortModeDescription, LeaderboardSortMode } from '../../online/leaderboards/LeaderboardSortMode';
+import { BeatmapLeaderboardScope, getBeatmapLeaderboardScopeDescription } from '../play/leaderboards/BeatmapLeaderboardScope';
 import { WedgeSelector } from './BeatmapDetailsArea.WedgeSelector';
 import { BeatmapDetailTab } from './BeatmapDetailTab';
 import { SongSelect } from './SongSelect';
@@ -31,10 +30,8 @@ export class Header extends CompositeDrawable {
   private tabControl!: WedgeSelector<HeaderSelection>;
   private leaderboardControls!: FillFlowContainer;
 
-  /** (scopeDropdown.Current) */
-  private readonly scopeCurrent = new Bindable<BeatmapLeaderboardScope>(BeatmapLeaderboardScope.Local);
-  /** (sortDropdown.Current) */
-  private readonly sortCurrent = new Bindable<LeaderboardSortMode>(LeaderboardSortMode.Score);
+  private scopeDropdown!: ScopeDropdown;
+  private sortDropdown!: SortDropdown;
   private selectedModsToggle!: ShearedToggleButton;
 
   get type(): Bindable<HeaderSelection> {
@@ -42,13 +39,13 @@ export class Header extends CompositeDrawable {
   }
 
   get scope(): Bindable<BeatmapLeaderboardScope> {
-    return this.scopeCurrent;
+    return this.scopeDropdown.current;
   }
 
   private readonly configDetailTab = new Bindable<BeatmapDetailTab>(BeatmapDetailTab.Details);
 
   get sorting(): Bindable<LeaderboardSortMode> {
-    return this.sortCurrent;
+    return this.sortDropdown.current;
   }
 
   private readonly configLeaderboardSortMode = new Bindable<LeaderboardSortMode>(LeaderboardSortMode.Score);
@@ -93,13 +90,26 @@ export class Header extends CompositeDrawable {
                 // Eyeballed to make spacing match. Because shear is silly and implemented in different ways between dropdown and button.
                 margin: MarginPadding.of({ left: -9.2 }),
               }),
+              this.sortDropdown = new SortDropdown('Sort').with({
+                anchor: Anchor.TopRight,
+                origin: Anchor.TopRight,
+                relativeSizeAxes: Axes.X,
+                width: 0.4,
+                items: Object.values(LeaderboardSortMode),
+              }),
+              this.scopeDropdown = new ScopeDropdown().with({
+                anchor: Anchor.TopRight,
+                origin: Anchor.TopRight,
+                relativeSizeAxes: Axes.X,
+                width: 0.4,
+              }),
             ],
           }),
         ],
       }),
     ];
 
-    this.scopeCurrent.value = BeatmapLeaderboardScope.Global;
+    this.scopeDropdown.current.value = BeatmapLeaderboardScope.Global;
 
     config.bindWith(OsuSetting.BeatmapDetailTab, this.configDetailTab);
     config.bindWith(OsuSetting.BeatmapLeaderboardSortMode, this.configLeaderboardSortMode);
@@ -111,8 +121,8 @@ export class Header extends CompositeDrawable {
   protected override loadComplete(): void {
     super.loadComplete();
 
-    this.scopeCurrent.value = Header.tryMapDetailTabToLeaderboardScope(this.configDetailTab.value) ?? this.scopeCurrent.value;
-    this.scopeCurrent.bindValueChanged(() => this.updateConfigDetailTab());
+    this.scopeDropdown.current.value = Header.tryMapDetailTabToLeaderboardScope(this.configDetailTab.value) ?? this.scopeDropdown.current.value;
+    this.scopeDropdown.current.bindValueChanged(() => this.updateConfigDetailTab());
 
     this.tabControl.current.value = this.configDetailTab.value === BeatmapDetailTab.Details ? HeaderSelection.Details : HeaderSelection.Ranking;
     this.tabControl.current.bindValueChanged(v => {
@@ -120,16 +130,16 @@ export class Header extends CompositeDrawable {
       this.updateConfigDetailTab();
     }, true);
 
-    this.scopeCurrent.bindValueChanged(scope => {
-      this.sortCurrent.disabled = false;
+    this.scopeDropdown.current.bindValueChanged(scope => {
+      this.sortDropdown.current.disabled = false;
 
       if (scope.newValue === BeatmapLeaderboardScope.Local) {
-        this.sortCurrent.bindTo(this.configLeaderboardSortMode);
+        this.sortDropdown.current.bindTo(this.configLeaderboardSortMode);
       } else {
         // future implementation when we have web-side support.
-        this.sortCurrent.unbindFrom(this.configLeaderboardSortMode);
-        this.sortCurrent.value = LeaderboardSortMode.Score;
-        this.sortCurrent.disabled = true;
+        this.sortDropdown.current.unbindFrom(this.configLeaderboardSortMode);
+        this.sortDropdown.current.value = LeaderboardSortMode.Score;
+        this.sortDropdown.current.disabled = true;
       }
     }, true);
   }
@@ -143,7 +153,7 @@ export class Header extends CompositeDrawable {
         return;
 
       case HeaderSelection.Ranking:
-        this.configDetailTab.value = Header.mapLeaderboardScopeToDetailTab(this.scopeCurrent.value);
+        this.configDetailTab.value = Header.mapLeaderboardScopeToDetailTab(this.scopeDropdown.current.value);
         return;
     }
   }
@@ -190,4 +200,25 @@ export class Header extends CompositeDrawable {
   }
 
   // #endregion
+}
+
+/** (ShearedDropdown<LeaderboardSortMode>: its items' [LocalisableDescription]) */
+class SortDropdown extends ShearedDropdown<LeaderboardSortMode> {
+  protected override generateItemText(item: LeaderboardSortMode): string {
+    return getLeaderboardSortModeDescription(item);
+  }
+}
+
+/** (BeatmapDetailsArea.Header.ScopeDropdown) */
+class ScopeDropdown extends ShearedDropdown<BeatmapLeaderboardScope> {
+  constructor() {
+    super('Scope');
+
+    this.items = [BeatmapLeaderboardScope.Local, BeatmapLeaderboardScope.Global, BeatmapLeaderboardScope.Country, BeatmapLeaderboardScope.Friend,
+      BeatmapLeaderboardScope.Team];
+  }
+
+  protected override generateItemText(item: BeatmapLeaderboardScope): string {
+    return getBeatmapLeaderboardScopeDescription(item);
+  }
 }
