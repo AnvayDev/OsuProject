@@ -46,7 +46,8 @@ side flashes, song ticker, tips, supporter display, idle return; framework TextF
 toolbar. Intro done (docs/spec/intro.md): Loader + LoadingSpinner, IntroScreen (theme import, watchdog, "see ya" exit), IntroTriangles;
 boot = AudioUnlockScreen (web autoplay gate, src/) → Loader. Not yet: IntroCircles, IntroWelcome. Song select in progress (no spec md): carousel +
 filter pipeline + panels, SongSelect/SoloSongSelect, footer, title wedge, details area (Details/Ranking tabs, metadata wedge, offline leaderboard
-placeholder), framework TabControl. Not yet: Dropdown/Menu (sort/group/collection/scope dropdowns), TextBox (search), SliderBar (star range),
+placeholder), framework TabControl, framework TextBox (web text input via hidden textarea) + search box + FilterQueryParser.
+Not yet: Dropdown/Menu (sort/group/collection/scope dropdowns), SliderBar (star range),
 tooltips, popovers, context menus. Then: mirror lookup, downloads.
 No gameplay is ported (user decision).
 Cloud screenshots: `PW_CHROMIUM=/opt/pw-browsers/chromium node scripts/shot.mjs ...` (dev server running). Recordings: docs/reference/recordings/web/*.mp4 (ffmpeg available).

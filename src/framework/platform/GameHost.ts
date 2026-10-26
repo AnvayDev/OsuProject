@@ -18,6 +18,9 @@ import { FramedClock } from '../timing/FramedClock';
 import type { IFrameBasedClock } from '../timing/IClock';
 import { StopwatchClock } from '../timing/StopwatchClock';
 import { AudioThread } from './AudioThread';
+import { Clipboard, DomClipboard } from './Clipboard';
+import { DomTextInputSource } from './DomTextInputSource';
+import { TextInputSource } from '../input/TextInputSource';
 
 export class GameHost {
   /** The root of the scene graph. */
@@ -62,6 +65,11 @@ export class GameHost {
     return new UserInputManager(() => this.availableInputHandlers, () => this.domInput?.cursorInWindow ?? true);
   }
 
+  /** (CreateTextInput) */
+  protected createTextInput(): TextInputSource {
+    return new DomTextInputSource(this.mount);
+  }
+
   private bootstrapSceneGraph(game: Game): void {
     const root = this.createRoot(game);
     root.child = new PlatformActionContainer().with({
@@ -72,6 +80,8 @@ export class GameHost {
     this.dependencies.cache(root);
     this.dependencies.cacheAs(Game, game);
     this.dependencies.cacheAs(GameHost, this);
+    this.dependencies.cacheAs(TextInputSource, this.createTextInput());
+    this.dependencies.cacheAs(Clipboard, new DomClipboard());
 
     game.setHost(this);
 
