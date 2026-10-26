@@ -1,5 +1,4 @@
 // Ported from osu.Game/Overlays/Toolbar/ToolbarMusicButton.cs
-// VolumeOverlay isn't ported yet, so adjustments only expand the volume bar, as they do in osu! without a volume overlay.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { AudioManager } from '@fw/audio/AudioManager';
@@ -17,6 +16,7 @@ import { Easing } from '@fw/transforms/Easing';
 import type { TransformSequence } from '@fw/transforms/TransformSequence';
 import { GlobalAction } from '../../input/bindings/GlobalAction';
 import { NowPlayingOverlay } from '../NowPlayingOverlay';
+import { VolumeOverlay } from '../VolumeOverlay';
 import { TOOLBAR_HEIGHT } from './ToolbarButton';
 import { ToolbarOverlayToggleButton } from './ToolbarOverlayToggleButton';
 
@@ -36,6 +36,8 @@ export class ToolbarMusicButton extends ToolbarOverlayToggleButton {
 
   private audio!: AudioManager;
 
+  private volume: VolumeOverlay | null = null;
+
   private globalVolume!: Bindable<number>;
   private volumeDisplay!: Container;
 
@@ -43,6 +45,7 @@ export class ToolbarMusicButton extends ToolbarOverlayToggleButton {
     const r = super.load(dependencies);
 
     this.stateContainer = dependencies.get(NowPlayingOverlay);
+    this.volume = dependencies.get(VolumeOverlay);
 
     this.audio = dependencies.resolve(AudioManager);
 
@@ -86,22 +89,26 @@ export class ToolbarMusicButton extends ToolbarOverlayToggleButton {
     switch (e.key) {
       case Key.Up:
         this.focusForAdjustment();
+        this.volume?.adjust(GlobalAction.IncreaseVolume);
         return true;
 
       case Key.Down:
         this.focusForAdjustment();
+        this.volume?.adjust(GlobalAction.DecreaseVolume);
         return true;
     }
 
     return super.onKeyDown(e);
   }
 
-  protected override onScroll(_e: ScrollEvent): boolean {
+  protected override onScroll(e: ScrollEvent): boolean {
     this.focusForAdjustment();
+    this.volume?.adjust(GlobalAction.IncreaseVolume, e.scrollDelta.y, e.isPrecise);
     return true;
   }
 
   private focusForAdjustment(): void {
+    this.volume?.focusMasterVolume();
     this.expandVolumeBarTemporarily();
   }
 

@@ -44,7 +44,8 @@ beatmap), Parallax/Scaling/UserDim containers, MusicController, OsuColour/OsuFon
 Main menu done and tested (docs/spec/main-menu.md): MainMenu, ButtonSystem/MainMenuButton, OsuLogo + TrianglesV2 + LogoVisualisation,
 side flashes, song ticker, tips, supporter display, idle return; framework TextFlowContainer. Not yet: kiai fountains, hold-to-exit.
 Toolbar done (osu.Game/Overlays/Toolbar): all buttons, ruleset selector, clock, guest user button; buttons of unported overlays show
-their names/icons but do nothing. Intro done (docs/spec/intro.md): Loader + LoadingSpinner, IntroScreen (theme import, watchdog, "see ya" exit), IntroTriangles;
+their names/icons but do nothing. Now playing done: NowPlayingOverlay + PlaylistOverlay (framework VirtualisedListContainer), VolumeOverlay
+(VolumeMeter/MasterVolumeMeter/MuteButton; framework GlowEffect via BufferedContainer.drawOriginal) and OsuGame's volume key actions. Intro done (docs/spec/intro.md): Loader + LoadingSpinner, IntroScreen (theme import, watchdog, "see ya" exit), IntroTriangles;
 boot = AudioUnlockScreen (web autoplay gate, src/) → Loader. Not yet: IntroCircles, IntroWelcome. Song select in progress (no spec md): carousel +
 filter pipeline + panels, SongSelect/SoloSongSelect, footer, title wedge, details area (Details/Ranking tabs, metadata wedge, offline leaderboard
 placeholder), framework TabControl, framework TextBox (web text input via hidden textarea) + search box + FilterQueryParser.

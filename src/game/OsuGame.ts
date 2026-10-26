@@ -24,6 +24,9 @@ import { OsuColour } from './graphics/OsuColour';
 import { BeatmapListingOverlay } from './overlays/BeatmapListingOverlay';
 import { IOverlayManager } from './overlays/IOverlayManager';
 import { NowPlayingOverlay } from './overlays/NowPlayingOverlay';
+import { VolumeOverlay } from './overlays/VolumeOverlay';
+import { GlobalAction } from './input/bindings/GlobalAction';
+import type { IKeyBindingHandler, KeyBindingPressEvent, KeyBindingReleaseEvent } from '@fw/input/bindings/KeyBindings';
 import { Toolbar } from './overlays/toolbar/Toolbar';
 import { PerformFromMenuRunner } from './PerformFromMenuRunner';
 import { isHandlePresentBeatmap } from './screens/IHandlePresentBeatmap';
@@ -45,7 +48,7 @@ import { RealmDetachedBeatmapStore } from './database/RealmDetachedBeatmapStore'
 const float_min_value = -3.4028234663852886e38;
 
 /** The full osu! experience. Builds on top of OsuGameBase to add menus and binding logic for the screen stack. */
-export class OsuGame extends OsuGameBase {
+export class OsuGame extends OsuGameBase implements IKeyBindingHandler<GlobalAction> {
   /** A common shear factor applied to most components of the game. */
   static readonly SHEAR = new Vector2(Math.fround(0.2), 0);
 
@@ -89,6 +92,8 @@ export class OsuGame extends OsuGameBase {
   private beatmapListing!: BeatmapListingOverlay;
 
   private nowPlayingOverlay!: NowPlayingOverlay;
+
+  private volume!: VolumeOverlay;
 
   /** (C#'s MainMenu menuScreen: the main menu type is PerformFromMenuRunner.mainMenuType, as importing MainMenu here would be circular) */
   private menuScreen: IScreen | null = null;
@@ -308,6 +313,8 @@ export class OsuGame extends OsuGameBase {
       },
     }), d => this.topMostOverlayContent.add(d));
 
+    this.loadComponentSingleFile(this.volume = new VolumeOverlay(), d => this.leftFloatingOverlayContent.add(d), true);
+
     this.loadComponentSingleFile(this.beatmapListing = new BeatmapListingOverlay(), d => this.gameOverlayContent.add(d), true);
 
     this.loadComponentSingleFile(this.nowPlayingOverlay = new NowPlayingOverlay().with({
@@ -408,6 +415,37 @@ export class OsuGame extends OsuGameBase {
   }
 
   // #endregion
+
+  get keyBindingActionTypes(): readonly object[] {
+    return [GlobalAction];
+  }
+
+  onPressed(e: KeyBindingPressEvent<GlobalAction>): boolean {
+    switch (e.action) {
+      case GlobalAction.DecreaseVolume:
+      case GlobalAction.IncreaseVolume:
+        return this.volume.adjust(e.action);
+    }
+
+    // All actions below this point don't allow key repeat.
+    if (e.repeat)
+      return false;
+
+    // (C# waits until the intro screen has been reached; OsuGame can't import IntroScreen here, as it would be circular)
+
+    switch (e.action) {
+      case GlobalAction.ToggleMute:
+      case GlobalAction.NextVolumeMeter:
+      case GlobalAction.PreviousVolumeMeter:
+        return this.volume.adjust(e.action);
+    }
+
+    // (the other global actions handled here in C# aren't ported yet)
+    return false;
+  }
+
+  onReleased(_e: KeyBindingReleaseEvent<GlobalAction>): void {
+  }
 
   protected override updateAfterChildren(): void {
     super.updateAfterChildren();
