@@ -164,7 +164,37 @@ export interface ITexturedGlyphLookupStore {
 }
 
 const pageLoads = new Map<string, Promise<void>>();
-const decodedPages = new Set<string>();
+/** Decoded pages (null: failed to load). */
+const decodedPages = new Map<string, HTMLImageElement | null>();
+const glyphImageUrls = new Map<string, string>();
+
+/**
+ * The URL of an image of only the glyph's rectangle of its atlas page (a data URL cropped from the decoded page, so that many glyphs can be
+ * mask layers of a single element), or null while the page isn't decoded.
+ */
+export function glyphImageUrl(tex: GlyphTexture): string | null {
+  if (tex.x === 0 && tex.y === 0 && tex.width === tex.pageWidth && tex.height === tex.pageHeight)
+    return tex.pageUrl;
+
+  const key = `${tex.pageUrl}|${tex.x},${tex.y},${tex.width},${tex.height}`;
+  let url = glyphImageUrls.get(key);
+
+  if (url === undefined) {
+    const page = decodedPages.get(tex.pageUrl);
+    if (page == null)
+      return null;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = tex.width;
+    canvas.height = tex.height;
+    canvas.getContext('2d')!.drawImage(page, -tex.x, -tex.y);
+
+    url = canvas.toDataURL();
+    glyphImageUrls.set(key, url);
+  }
+
+  return url;
+}
 
 /**
  * Ensures an atlas page image is decoded (so glyphs appear on the first frame they are shown).
@@ -179,7 +209,7 @@ export function loadPage(url: string): Promise<void> | void {
   if (p === undefined) {
     const img = new Image();
     img.src = url;
-    p = img.decode().catch(() => undefined).then(() => void decodedPages.add(url));
+    p = img.decode().then(() => void decodedPages.set(url, img), () => void decodedPages.set(url, null));
     pageLoads.set(url, p);
   }
 

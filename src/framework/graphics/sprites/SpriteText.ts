@@ -1,6 +1,7 @@
 // Ported from osu.Framework/Graphics/Sprites/SpriteText.cs and SpriteText.DrawNode.cs (localisation omitted: text is a plain string).
-// DOM: one masked div per glyph (the atlas page is the mask, the draw colour is the background), positioned at the glyph's
-// DrawRectangle. Shadows are drawn per glyph right before it, exactly as SpriteTextDrawNode.Draw interleaves them.
+// DOM: one div for all glyphs (a mask layer per glyph, an image of its rectangle of the atlas page, at the glyph's DrawRectangle; the draw
+// colour is the background), and one below it for the shadow. (One masked div per glyph made text-heavy screens composite slowly.)
+// SpriteTextDrawNode.Draw interleaves each glyph's shadow right before it, which only differs where glyphs overlap.
 
 import type { IReadOnlyDependencyContainer } from '../../allocation/DependencyContainer';
 import { BindableWithCurrent, type Bindable } from '../../bindables/Bindable';
@@ -8,7 +9,7 @@ import { Axes, Invalidation, LoadState } from '../../layout/Enums';
 import { InvalidationSource, LayoutValue, LayoutValueOf } from '../../layout/Layout';
 import { MarginPadding } from '../../layout/MarginPadding';
 import { Vector2 } from '../../layout/Vector2';
-import { FontStore, loadPage } from '../../text/FontStore';
+import { FontStore, glyphImageUrl, loadPage } from '../../text/FontStore';
 import { FontUsage } from '../../text/FontUsage';
 import { MultilineTextBuilder, TextBuilder, TruncatingTextBuilder, type TextBuilderGlyph } from '../../text/TextBuilder';
 import { Colour4 } from '../Colour4';
@@ -18,9 +19,11 @@ import { colourInfoToCss } from './Sprite';
 
 const default_never_fixed_width_characters = ['.', ',', ':', ' ', ' ', ' '];
 
-/** Transparent padding around narrow glyph elements, and the width below which it is applied (see applyElementState). */
-const glyph_element_padding = 2;
-const min_unpadded_glyph_width = 3;
+/**
+ * The glyph elements are laid out this many times larger and scaled down: Chrome snaps mask and background layer positions and sizes to
+ * whole pixels of the element's own (unscaled) space, which displaced glyphs visibly once the scene graph scales them up.
+ */
+const glyph_layer_scale = 16;
 
 /** A container for simple text rendering purposes. If more complex text rendering is required, use TextFlowContainer instead. */
 export class SpriteText extends Drawable {
@@ -430,7 +433,9 @@ export class SpriteText extends Drawable {
 
   // #region DrawNode (DOM)
 
-  private glyphElements: HTMLElement[] = [];
+  /** The glyphs of the shadow (below) and of the text. */
+  private shadowElement: HTMLElement | null = null;
+  private textElement: HTMLElement | null = null;
   private lastGlyphKey = '';
 
   protected override applyElementState(): void {
@@ -453,70 +458,88 @@ export class SpriteText extends Drawable {
 
     this.lastGlyphKey = key;
 
-    const fill = colourInfoToCss(colour, true);
-    const shadowFill = colourInfoToCss(finalShadowColour, true);
-
-    let n = 0;
-    const next = () => {
-      let el = this.glyphElements[n];
-
-      if (el === undefined) {
-        el = document.createElement('div');
-        el.style.position = 'absolute';
-        el.style.left = '0';
-        el.style.top = '0';
-        el.style.setProperty('mask-repeat', 'no-repeat');
-        el.style.setProperty('-webkit-mask-repeat', 'no-repeat');
-        el.style.setProperty('mask-clip', 'content-box');
-        el.style.setProperty('-webkit-mask-clip', 'content-box');
-        this.element.appendChild(el);
-        this.glyphElements.push(el);
-      }
-
-      n++;
-      return el;
-    };
+    // The bounds of all glyph rectangles: the element the glyphs are mask layers of.
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
 
     for (const c of characters) {
       const rect = c.drawRectangle;
-      const tex = c.texture;
-
       if (rect.width <= 0 || rect.height <= 0)
         continue;
 
-      const sx = rect.width / tex.width;
-      const sy = rect.height / tex.height;
-      const mask = `url("${tex.pageUrl}")`;
-      const maskSize = `${tex.pageWidth * sx}px ${tex.pageHeight * sy}px`;
-      // Chrome skips painting masked elements narrower than ~2 device pixels inside the scaled scene graph (e.g. a 14px "!"), so narrow glyph
-      // elements get a transparent padding: the mask is offset by the padding and clipped to the content box, which is the glyph rectangle.
-      // (Only narrow ones: the clip is snapped to device pixels, which can cut into wider glyphs.)
-      const pad = rect.width < min_unpadded_glyph_width ? glyph_element_padding : 0;
-      const maskPos = `${-tex.x * sx + pad}px ${-tex.y * sy + pad}px`;
-
-      const place = (el: HTMLElement, dx: number, dy: number, bg: string) => {
-        el.style.transform = `translate(${rect.x + dx - pad}px, ${rect.y + dy - pad}px)`;
-        el.style.padding = `${pad}px`;
-        el.style.width = `${rect.width}px`;
-        el.style.height = `${rect.height}px`;
-        el.style.background = bg;
-        el.style.setProperty('mask-image', mask);
-        el.style.setProperty('-webkit-mask-image', mask);
-        el.style.setProperty('mask-size', maskSize);
-        el.style.setProperty('-webkit-mask-size', maskSize);
-        el.style.setProperty('mask-position', maskPos);
-        el.style.setProperty('-webkit-mask-position', maskPos);
-        el.style.display = '';
-      };
-
-      if (this._shadow)
-        place(next(), shadowOffset.x, shadowOffset.y, shadowFill);
-
-      place(next(), 0, 0, fill);
+      left = Math.min(left, rect.x);
+      top = Math.min(top, rect.y);
+      right = Math.max(right, rect.x + rect.width);
+      bottom = Math.max(bottom, rect.y + rect.height);
     }
 
-    for (let i = n; i < this.glyphElements.length; i++)
-      this.glyphElements[i].style.display = 'none';
+    const masks: string[] = [];
+    const layers: string[] = [];
+
+    for (const c of characters) {
+      const rect = c.drawRectangle;
+      if (rect.width <= 0 || rect.height <= 0)
+        continue;
+
+      const url = glyphImageUrl(c.texture);
+
+      // the page isn't decoded yet (e.g. after a font change): draw again once it is.
+      if (url === null) {
+        this.lastGlyphKey = '';
+        void loadPage(c.texture.pageUrl)?.then(() => this.invalidate(Invalidation.DrawNode));
+        continue;
+      }
+
+      masks.push(`url("${url}")`);
+      const k = glyph_layer_scale;
+      layers.push(`${(rect.x - left) * k}px ${(rect.y - top) * k}px / ${rect.width * k}px ${rect.height * k}px no-repeat`);
+    }
+
+    // Each glyph quad is drawn with the whole draw colour (SpriteTextDrawNode.Draw): a non-uniform colour is a background layer per glyph.
+    const fill = (c: ColourInfo) => {
+      const css = colourInfoToCss(c, true);
+      return c.hasSingleColour ? css : layers.map(l => `${css} ${l}`).join(', ');
+    };
+
+    const place = (el: HTMLElement, dx: number, dy: number, c: ColourInfo) => {
+      if (masks.length === 0) {
+        el.style.display = 'none';
+        return;
+      }
+
+      el.style.display = '';
+      el.style.transform = `translate(${left + dx}px, ${top + dy}px) scale(${1 / glyph_layer_scale})`;
+      el.style.width = `${(right - left) * glyph_layer_scale}px`;
+      el.style.height = `${(bottom - top) * glyph_layer_scale}px`;
+      el.style.background = fill(c);
+      const mask = masks.map((m, i) => `${m} ${layers[i]}`).join(', ');
+      el.style.setProperty('mask', mask);
+      el.style.setProperty('-webkit-mask', mask);
+    };
+
+    if (this._shadow)
+      this.shadowElement ??= this.createGlyphsElement(this.textElement);
+
+    this.textElement ??= this.createGlyphsElement(null);
+
+    if (this._shadow)
+      place(this.shadowElement!, shadowOffset.x, shadowOffset.y, finalShadowColour);
+    else if (this.shadowElement !== null)
+      this.shadowElement.style.display = 'none';
+
+    place(this.textElement, 0, 0, colour);
+  }
+
+  private createGlyphsElement(before: HTMLElement | null): HTMLElement {
+    const el = document.createElement('div');
+    el.style.position = 'absolute';
+    el.style.left = '0';
+    el.style.top = '0';
+    el.style.transformOrigin = '0 0';
+    this.element.insertBefore(el, before);
+    return el;
   }
 
   // #endregion
