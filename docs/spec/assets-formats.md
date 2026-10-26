@@ -113,7 +113,9 @@ Source: osu! 2026.1005.0-lazer (`_reference/osu`), osu-framework 2026.921.1. Pat
   without it, `Status` = None ("local").
 - `Process` runs inside the import transaction (`PostImport`), so a set appears with its final values; the carousel ignores later changes
   that only touch star rating, length or BPM (`BeatmapCarousel.cs:423-474`). The web importer runs it before its write for the same reason.
-- Port status: `BeatmapUpdater.process` (statistics + the <2-objects rule) done and tested; the metadata/star-rating lookup is next.
+- Port status: `BeatmapUpdater.process` (statistics + the <2-objects rule) and the metadata/star-rating lookup (`BeatmapUpdaterMetadataLookup`
+  with `MirrorBeatmapMetadataSource`: `/api/v2/md5/{md5}` then `/api/v2/s/{setId}` for status and dates; requests spaced 200 ms for the
+  mirror's 25-per-5-s burst limit) done and tested. Sets imported before this keep their values (BackgroundDataStoreProcessor isn't ported).
 
 ## 5. Bundled sets (`Screens/Menu/IntroScreen.cs`, `IntroCircles/Triangles/Welcome.cs`)
 

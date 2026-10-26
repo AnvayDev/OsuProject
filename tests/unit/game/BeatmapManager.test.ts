@@ -14,6 +14,7 @@ import { Beatmap, BeatmapExtensions } from '@game/beatmaps/Beatmap';
 import { BeatmapManager } from '@game/beatmaps/BeatmapManager';
 import type { BeatmapSetInfo } from '@game/beatmaps/BeatmapSetInfo';
 import { BeatmapUpdater } from '@game/beatmaps/BeatmapUpdater';
+import { BeatmapUpdaterMetadataLookup } from '@game/beatmaps/BeatmapUpdaterMetadataLookup';
 import { DummyWorkingBeatmap } from '@game/beatmaps/DummyWorkingBeatmap';
 import { Decoder } from '@game/beatmaps/formats/Decoder';
 import '@game/beatmaps/formats/LegacyBeatmapDecoder';
@@ -46,7 +47,7 @@ beforeEach(async () => {
   audio = new AudioManager(new AudioThread(), new ResourceStore(), new ResourceStore(), context);
   manager = new BeatmapManager(realm, audio, new DummyWorkingBeatmap(audio, null));
 
-  const updater = new BeatmapUpdater(manager);
+  const updater = new BeatmapUpdater(manager, new BeatmapUpdaterMetadataLookup({ tryLookup: async () => null }));
   manager.processBeatmap = (set, scope) => updater.process(set, scope);
 });
 

@@ -21,6 +21,7 @@ import { Vector2 } from '@fw/layout/Vector2';
 import { AudioThread } from '@fw/platform/AudioThread';
 import { BeatmapManager } from '@game/beatmaps/BeatmapManager';
 import { BeatmapUpdater } from '@game/beatmaps/BeatmapUpdater';
+import { BeatmapUpdaterMetadataLookup } from '@game/beatmaps/BeatmapUpdaterMetadataLookup';
 import { DummyWorkingBeatmap } from '@game/beatmaps/DummyWorkingBeatmap';
 import '@game/beatmaps/formats/LegacyBeatmapDecoder';
 import type { WorkingBeatmap } from '@game/beatmaps/WorkingBeatmap';
@@ -66,7 +67,7 @@ async function setup() {
   const audio = new AudioManager(new AudioThread(), new ResourceStore(), new ResourceStore(), context);
   const defaultBeatmap = new DummyWorkingBeatmap(audio, null);
   const manager = new BeatmapManager(realm, audio, defaultBeatmap);
-  const updater = new BeatmapUpdater(manager);
+  const updater = new BeatmapUpdater(manager, new BeatmapUpdaterMetadataLookup({ tryLookup: async () => null }));
   manager.processBeatmap = (set, scope) => updater.process(set, scope);
 
   const config = new OsuConfigManager(new MemoryStorage());

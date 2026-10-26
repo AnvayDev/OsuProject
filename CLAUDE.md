@@ -48,6 +48,6 @@ boot = AudioUnlockScreen (web autoplay gate, src/) → Loader. Not yet: IntroCir
 filter pipeline + panels, SongSelect/SoloSongSelect, footer, title wedge, details area (Details/Ranking tabs, metadata wedge, offline leaderboard
 placeholder), framework TabControl, framework TextBox (web text input via hidden textarea) + search box + FilterQueryParser.
 framework Menu/Dropdown/SearchContainer + OsuDropdown/ShearedDropdown (sort/group/collection/scope), framework SliderBar + star rating DifficultyRangeSlider.
-Not yet: tooltips, popovers, context menus, mod select. Then: mirror lookup, downloads.
+Not yet: tooltips, popovers, context menus, mod select. Mirror metadata lookup done (status, dates, star ratings at import). Next: downloads.
 No gameplay is ported (user decision).
 Cloud screenshots: `PW_CHROMIUM=/opt/pw-browsers/chromium node scripts/shot.mjs ...` (dev server running). Recordings: docs/reference/recordings/web/*.mp4 (ffmpeg available).
