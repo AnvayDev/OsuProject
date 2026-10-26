@@ -164,15 +164,22 @@ export interface ITexturedGlyphLookupStore {
 }
 
 const pageLoads = new Map<string, Promise<void>>();
+const decodedPages = new Set<string>();
 
-/** Ensures an atlas page image is decoded (so glyphs appear on the first frame they are shown). */
-export function loadPage(url: string): Promise<void> {
+/**
+ * Ensures an atlas page image is decoded (so glyphs appear on the first frame they are shown).
+ * Returns nothing once the page is decoded, so loads of drawables using it stay synchronous, as osu! gets cached glyph textures.
+ */
+export function loadPage(url: string): Promise<void> | void {
+  if (decodedPages.has(url))
+    return;
+
   let p = pageLoads.get(url);
 
   if (p === undefined) {
     const img = new Image();
     img.src = url;
-    p = img.decode().catch(() => undefined);
+    p = img.decode().catch(() => undefined).then(() => void decodedPages.add(url));
     pageLoads.set(url, p);
   }
 

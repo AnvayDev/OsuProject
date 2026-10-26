@@ -44,6 +44,9 @@ beatmap), Parallax/Scaling/UserDim containers, MusicController, OsuColour/OsuFon
 Main menu done and tested (docs/spec/main-menu.md): MainMenu, ButtonSystem/MainMenuButton, OsuLogo + TrianglesV2 + LogoVisualisation,
 side flashes, song ticker, tips, supporter display, idle return; framework TextFlowContainer. Not yet: kiai fountains, hold-to-exit,
 toolbar. Intro done (docs/spec/intro.md): Loader + LoadingSpinner, IntroScreen (theme import, watchdog, "see ya" exit), IntroTriangles;
-boot = AudioUnlockScreen (web autoplay gate, src/) → Loader. Not yet: IntroCircles, IntroWelcome. Next: song select, mirror lookup, downloads.
+boot = AudioUnlockScreen (web autoplay gate, src/) → Loader. Not yet: IntroCircles, IntroWelcome. Song select in progress (no spec md): carousel +
+filter pipeline + panels, SongSelect/SoloSongSelect, footer, title wedge, details area (Details/Ranking tabs, metadata wedge, offline leaderboard
+placeholder), framework TabControl. Not yet: Dropdown/Menu (sort/group/collection/scope dropdowns), TextBox (search), SliderBar (star range),
+tooltips, popovers, context menus. Then: mirror lookup, downloads.
 No gameplay is ported (user decision).
 Cloud screenshots: `PW_CHROMIUM=/opt/pw-browsers/chromium node scripts/shot.mjs ...` (dev server running). Recordings: docs/reference/recordings/web/*.mp4 (ffmpeg available).

@@ -33,6 +33,7 @@ import type { BeatmapSetInfo } from '../../beatmaps/BeatmapSetInfo';
 import type { WorkingBeatmap } from '../../beatmaps/WorkingBeatmap';
 import { OsuConfigManager, OsuSetting } from '../../configuration/OsuConfigManager';
 import type { CarouselItem } from '../../graphics/carousel/CarouselItem';
+import { ShearAligningWrapper } from '../../graphics/containers/ShearAligningWrapper';
 import { GlobalAction } from '../../input/bindings/GlobalAction';
 import { OsuGame } from '../../OsuGame';
 import { DuckParameters, MusicController, type TrackChangeDirection } from '../../overlays/MusicController';
@@ -43,6 +44,8 @@ import { ScreenWithBeatmapBackground } from '../play/ScreenWithBeatmapBackground
 import { ScreenFooter } from '../footer/ScreenFooter';
 import type { ScreenFooterButton } from '../footer/ScreenFooterButton';
 import { BeatmapCarousel } from './BeatmapCarousel';
+import { BeatmapDetailsArea } from './BeatmapDetailsArea';
+import { BeatmapTitleWedge } from './BeatmapTitleWedge';
 import { FooterButtonMods } from './FooterButtonMods';
 import { FooterButtonOptions } from './FooterButtonOptions';
 import { FooterButtonRandom } from './FooterButtonRandom';
@@ -111,6 +114,8 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
     return this._filterControl;
   }
 
+  private titleWedge!: BeatmapTitleWedge;
+  private detailsArea!: BeatmapDetailsArea;
   private wedgesContainer!: FillFlowContainer;
   private rightGradientBackground!: Box;
   private mainContent!: Container;
@@ -202,6 +207,12 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
                       relativeSizeAxes: Axes.Both,
                       spacing: new Vector2(0, 4),
                       direction: FillDirection.Vertical,
+                      children: [
+                        new ShearAligningWrapper(this.titleWedge = new BeatmapTitleWedge().with({
+                          topPadding: this.topPadding,
+                        })),
+                        new ShearAligningWrapper(this.detailsArea = new BeatmapDetailsArea()),
+                      ],
                     }),
                   ],
                 }),
@@ -311,6 +322,8 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
 
   protected override update(): void {
     super.update();
+
+    this.detailsArea.height = this.wedgesContainer.childSize.y - this.titleWedge.layoutSize.y - 4;
 
     const widescreenBonusWidth = Math.max(0, Math.fround(this.drawWidth / this.drawHeight) - 2);
 
@@ -562,6 +575,8 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
 
     this.ensureGlobalBeatmapValid();
 
+    this.detailsArea.refresh();
+
     if (this.controlGlobalMusic) {
       // restart playback on returning to song select, regardless.
       // not sure this should be a permanent thing (we may want to leave a user pause paused even on returning)
@@ -681,10 +696,15 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
     if (!this._carouselItemsPresented && !this.checkBeatmapValidForSelection(this.beatmap.value.beatmapInfo))
       return;
 
-    if (this.carousel.visuallyFocusSelected)
+    if (this.carousel.visuallyFocusSelected) {
+      this.titleWedge.hide();
+      this.detailsArea.hide();
       this.filterControl.hide();
-    else
+    } else {
+      this.titleWedge.show();
+      this.detailsArea.show();
       this.filterControl.show();
+    }
   }
 
   private updateBackgroundDim(): void {
@@ -879,6 +899,14 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
     }
 
     return super.onKeyDown(e);
+  }
+
+  // #endregion
+
+  // #region Implementation of ISongSelect
+
+  addToSearch(query: string): void {
+    this.filterControl.addToSearch(query);
   }
 
   // #endregion

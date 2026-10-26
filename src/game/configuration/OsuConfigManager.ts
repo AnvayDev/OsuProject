@@ -9,6 +9,8 @@ import { IntroSequence } from './IntroSequence';
 import { RandomSelectAlgorithm } from './RandomSelectAlgorithm';
 import { ScalingMode } from './ScalingMode';
 import { SeasonalBackgroundMode } from './SeasonalBackgroundMode';
+import { LeaderboardSortMode } from '../online/leaderboards/LeaderboardSortMode';
+import { BeatmapDetailTab } from '../screens/select/BeatmapDetailTab';
 import { GroupMode } from '../screens/select/filter/GroupMode';
 import { SortMode } from '../screens/select/filter/SortMode';
 
@@ -19,6 +21,10 @@ export class OsuConfigManager extends IniConfigManager<OsuSetting> {
 
   protected override initialiseDefaults(): void {
     // UI/selection defaults
+    this.setDefault(OsuSetting.BeatmapDetailTab, BeatmapDetailTab.Local);
+    this.setDefault(OsuSetting.BeatmapLeaderboardSortMode, LeaderboardSortMode.Score);
+    this.setDefaultBool(OsuSetting.BeatmapDetailModsFilter, false);
+
     this.setDefaultBool(OsuSetting.ShowConvertedBeatmaps, true);
     this.setDefaultDouble(OsuSetting.DisplayStarsMinimum, 0.0, 0, 10, 0.1);
     this.setDefaultDouble(OsuSetting.DisplayStarsMaximum, 10.1, 0, 10.1, 0.1);

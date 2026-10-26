@@ -16,18 +16,24 @@ import { colourInfoToCss } from './Sprite';
 export class SpriteIcon extends Drawable {
   private store: FontStore = null!;
 
-  protected override async load(dependencies: IReadOnlyDependencyContainer): Promise<void> {
+  protected override load(dependencies: IReadOnlyDependencyContainer): Promise<void> | void {
     super.load(dependencies);
 
     this.store = dependencies.resolve(FontStore);
 
     // DOM: wait for texture-backed glyphs (OsuIcon) and the glyph's atlas page so the icon shows on its first frame (osu! gets the glyph
-    // texture synchronously).
-    await this.store.getAsync(this._icon.fontName, this._icon.icon);
-    this.updateTexture();
+    // texture synchronously). Both are skipped when already available, keeping the load synchronous.
+    if (this.store.get(this._icon.fontName, this._icon.icon) !== null) {
+      this.updateTexture();
+      return this.texture !== null ? loadPage(this.texture.pageUrl) : undefined;
+    }
 
-    if (this.texture !== null)
-      await loadPage(this.texture.pageUrl);
+    return this.store.getAsync(this._icon.fontName, this._icon.icon).then(() => {
+      this.updateTexture();
+
+      if (this.texture !== null)
+        return loadPage(this.texture.pageUrl);
+    });
   }
 
   // default(IconUsage)

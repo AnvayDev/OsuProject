@@ -12,8 +12,12 @@ export abstract class ISongSelect {
     return typeof instance === 'object' && instance !== null
       && typeof (instance as ISongSelect).scopeToBeatmapSet === 'function'
       && typeof (instance as ISongSelect).unscopeBeatmapSet === 'function'
+      && typeof (instance as ISongSelect).addToSearch === 'function'
       && 'scopedBeatmapSet' in instance;
   }
+
+  /** Add provided string to the current filter text query. */
+  abstract addToSearch(query: string): void;
 
   /** Temporarily bypasses filters and shows all difficulties of the given beatmapset. */
   abstract scopeToBeatmapSet(beatmapSet: BeatmapSetInfo): void;

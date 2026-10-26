@@ -58,8 +58,10 @@ export class SpriteText extends Drawable {
       if (glyph !== null) pages.add(glyph.texture.pageUrl);
     }
 
-    if (pages.size > 0)
-      return Promise.all([...pages].map(loadPage)).then(() => undefined);
+    const pending = [...pages].map(loadPage).filter(p => p !== undefined);
+
+    if (pending.length > 0)
+      return Promise.all(pending).then(() => undefined);
   }
 
   protected override loadComplete(): void {
