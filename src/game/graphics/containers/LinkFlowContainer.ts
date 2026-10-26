@@ -1,6 +1,7 @@
 // Ported from osu.Game/Graphics/Containers/LinkFlowContainer.cs
-// Only external links are ported (there is no ILinkHandler / OsuGame link handling, user links or chat link parsing yet), so a link either runs
-// its custom action or opens its URL in a new tab, as C#'s fallback without a link handler does.
+// Only external links are ported (there is no ILinkHandler / OsuGame link handling or chat link parsing yet), so a link either runs its
+// custom action or opens its URL in a new tab, as C#'s fallback without a link handler does. A user link (OpenUserProfile, shown by the user
+// profile overlay in C#) opens the user's osu-web profile.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { InnerFlow, type ITextPart, type TextFlowContainer, TextPart } from '@fw/graphics/containers/TextFlowContainer';
@@ -8,6 +9,7 @@ import type { Drawable } from '@fw/graphics/Drawable';
 import type { SpriteText } from '@fw/graphics/sprites/SpriteText';
 import { Axes } from '@fw/layout/Enums';
 import { GameHost } from '@fw/platform/GameHost';
+import type { APIUser } from '../../online/api/requests/responses/APIUser';
 import { DrawableLinkCompiler } from '../../online/chat/DrawableLinkCompiler';
 import { OsuTextFlowContainer } from './OsuTextFlowContainer';
 
@@ -61,6 +63,11 @@ export class LinkFlowContainer extends OsuTextFlowContainer {
 
     const tooltipText = typeof tooltipOrCreationParameters === 'string' ? tooltipOrCreationParameters : '';
     this.createLink(this.createChunkFor(text, true, () => this.createSpriteText(), actionCreationParameters), '', tooltipText, urlOrAction);
+  }
+
+  addUserLink(user: APIUser, creationParameters: ((t: SpriteText) => void) | null = null): void {
+    this.createLink(this.createChunkFor(user.username, true, () => this.createSpriteText(), creationParameters), `https://osu.ppy.sh/users/${user.id}`,
+      'View profile');
   }
 
   private createLink(textPart: ITextPart, url: string, tooltipText: string, action: (() => void) | null = null): void {

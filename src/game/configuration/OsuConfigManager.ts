@@ -13,6 +13,7 @@ import { LeaderboardSortMode } from '../online/leaderboards/LeaderboardSortMode'
 import { BeatmapDetailTab } from '../screens/select/BeatmapDetailTab';
 import { GroupMode } from '../screens/select/filter/GroupMode';
 import { SortMode } from '../screens/select/filter/SortMode';
+import { BeatmapCardSize } from '../beatmaps/drawables/cards/BeatmapCardSize';
 
 export class OsuConfigManager extends IniConfigManager<OsuSetting> {
   constructor(storage: Storage) {
@@ -35,7 +36,15 @@ export class OsuConfigManager extends IniConfigManager<OsuSetting> {
 
     this.setDefault(OsuSetting.RandomSelectAlgorithm, RandomSelectAlgorithm.RandomPermutation);
 
+    this.setDefault(OsuSetting.BeatmapListingCardSize, BeatmapCardSize.Normal);
+    this.setDefaultBool(OsuSetting.BeatmapListingFeaturedArtistFilter, true);
+
     this.setDefaultBool(OsuSetting.SongSelectBackgroundBlur, false);
+
+    // Online
+    this.setDefaultBool(OsuSetting.PreferNoVideo, false);
+
+    this.setDefaultBool(OsuSetting.ShowOnlineExplicitContent, false);
 
     // Audio
     this.setDefaultDouble(OsuSetting.VolumeInactive, 0.25, 0, 1, 0.01);

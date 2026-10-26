@@ -6,6 +6,11 @@
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { AudioManager } from '@fw/audio/AudioManager';
+import { Logger } from '@fw/logging/Logger';
+import { PerformFromMenuRunner } from '../../PerformFromMenuRunner';
+import type { WorkingBeatmap } from '../../beatmaps/WorkingBeatmap';
+import { BeatmapListingOverlay } from '../../overlays/BeatmapListingOverlay';
+import type { RulesetInfo } from '../../rulesets/RulesetInfo';
 import type { Sample } from '@fw/audio/sample/Sample';
 import { Colour4 } from '@fw/graphics/Colour4';
 import { Container } from '@fw/graphics/containers/Container';
@@ -151,7 +156,9 @@ export class MainMenu extends OsuScreen {
       }
     });
 
-    // (Buttons.OnSettings and OnBeatmapListing toggle overlays that aren't ported yet.)
+    // (Buttons.OnSettings toggles the settings overlay, which isn't ported yet.)
+    const beatmapListing = dependencies.get(BeatmapListingOverlay);
+    this.buttons.onBeatmapListing = () => beatmapListing?.toggleVisibility();
 
     void audio.samples.get('Menu/reappear-swoosh').then(s => this.reappearSampleSwoosh = s);
 
@@ -250,6 +257,16 @@ export class MainMenu extends OsuScreen {
     this.push(new SoloSongSelect());
   }
 
+  /** (IHandlePresentBeatmap) */
+  presentBeatmap(beatmap: WorkingBeatmap, ruleset: RulesetInfo): void {
+    Logger.log(`MainMenu completing PresentBeatmap with beatmap ${beatmap} ruleset ${ruleset}`);
+
+    this.beatmap.value = beatmap;
+    this.ruleset.value = ruleset;
+
+    this.schedule(() => this.loadSongSelect());
+  }
+
   override onExiting(e: ScreenExitEvent): boolean {
     // (C# first asks for confirmation through the dialog overlay unless the exit was confirmed by holding or clicking; without a dialog
     // overlay it never does.)
@@ -270,3 +287,5 @@ export class MainMenu extends OsuScreen {
     return super.onExiting(e);
   }
 }
+
+PerformFromMenuRunner.mainMenuType = MainMenu;

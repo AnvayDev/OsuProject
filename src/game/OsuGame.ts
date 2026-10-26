@@ -1,6 +1,6 @@
-// Ported from osu.Game/OsuGame.cs (the screen layering and screen change handling)
-// Not ported yet: the loader/intro/main menu, toolbar, overlays, notifications, logo, footer, cursor, OSD, idle tracking and global
-// key bindings. They will be added to the containers below as they are ported. The first screen is supplied by createLoader().
+// Ported from osu.Game/OsuGame.cs (the screen layering and screen change handling, overlay management and PresentBeatmap)
+// Not ported yet: the toolbar, most overlays (the beatmap listing is the only one), notifications, cursor, OSD and global key bindings. They
+// will be added to the containers below as they are ported. The first screen is supplied by createLoader().
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { Bindable, type ValueChangedEvent } from '@fw/bindables/Bindable';
@@ -8,7 +8,22 @@ import type { WorkingBeatmap } from './beatmaps/WorkingBeatmap';
 import { Container } from '@fw/graphics/containers/Container';
 import { Anchor, Axes } from '@fw/layout/Enums';
 import { Vector2 } from '@fw/layout/Vector2';
+import { Colour4 } from '@fw/graphics/Colour4';
+import type { OverlayContainer } from '@fw/graphics/containers/OverlayContainer';
+import { Visibility } from '@fw/graphics/containers/VisibilityContainer';
+import type { Drawable } from '@fw/graphics/Drawable';
+import { Logger, LoggingTarget } from '@fw/logging/Logger';
 import type { IScreen } from '@fw/screens/IScreen';
+import { Easing } from '@fw/transforms/Easing';
+import type { BeatmapInfo } from './beatmaps/BeatmapInfo';
+import type { IBeatmapSetInfo } from './beatmaps/IBeatmapSetInfo';
+import { OsuSetting } from './configuration/OsuConfigManager';
+import { OsuFocusedOverlayContainer } from './graphics/containers/OsuFocusedOverlayContainer';
+import { OsuColour } from './graphics/OsuColour';
+import { BeatmapListingOverlay } from './overlays/BeatmapListingOverlay';
+import { IOverlayManager } from './overlays/IOverlayManager';
+import { PerformFromMenuRunner } from './PerformFromMenuRunner';
+import { isHandlePresentBeatmap } from './screens/IHandlePresentBeatmap';
 import { ScalingMode } from './configuration/ScalingMode';
 import { ScalingContainer } from './graphics/containers/ScalingContainer';
 import { OsuGameBase } from './OsuGameBase';
@@ -62,6 +77,12 @@ export class OsuGame extends OsuGameBase {
 
   private detachedBeatmapStore!: RealmDetachedBeatmapStore;
 
+  private beatmapListing!: BeatmapListingOverlay;
+
+  private readonly focusedOverlays: OsuFocusedOverlayContainer[] = [];
+
+  private readonly visibleBlockingOverlays: OverlayContainer[] = [];
+
   private screenStackFooter!: ScreenStackFooter;
 
   protected get screenFooter(): ScreenFooter {
@@ -72,6 +93,104 @@ export class OsuGame extends OsuGameBase {
   readonly overlayActivationMode = new Bindable<OverlayActivation>(OverlayActivation.All);
 
   readonly scalingContainerTargetDrawSize = new Vector2(1024, 768);
+
+  /** Close all game-wide overlays. hideToolbar: whether the toolbar should also be hidden (there is no toolbar yet). */
+  closeAllOverlays(_hideToolbar = true): void {
+    for (const overlay of this.focusedOverlays)
+      overlay.hide();
+
+    // (ScreenFooter.ActiveOverlay: footer overlays aren't ported)
+  }
+
+  // #region IOverlayManager
+
+  readonly isOverlayManager = true;
+
+  private updateBlockingOverlayFade(): void {
+    this.screenContainer.fadeColour(this.visibleBlockingOverlays.length > 0 ? OsuColour.gray(0.5) : Colour4.White, 500, Easing.OutQuint);
+  }
+
+  showBlockingOverlay(overlay: OverlayContainer): void {
+    if (!this.visibleBlockingOverlays.includes(overlay))
+      this.visibleBlockingOverlays.push(overlay);
+
+    this.updateBlockingOverlayFade();
+  }
+
+  hideBlockingOverlay(overlay: OverlayContainer): void {
+    this.schedule(() => {
+      const i = this.visibleBlockingOverlays.indexOf(overlay);
+      if (i >= 0) this.visibleBlockingOverlays.splice(i, 1);
+
+      this.updateBlockingOverlayFade();
+    });
+  }
+
+  // #endregion
+
+  /**
+   * Present a beatmap at song select immediately. The user should have already requested this interactively.
+   * difficultyCriteria: optional predicate used to narrow the set of difficulties to select from when presenting.
+   */
+  presentBeatmap(beatmap: IBeatmapSetInfo, difficultyCriteria: ((b: BeatmapInfo) => boolean) | null = null): void {
+    Logger.log(`Beginning PresentBeatmap with beatmap ${beatmap.onlineID}`);
+
+    // (Live<BeatmapSetInfo>.PerformRead(s => s.Detach()): the realm's sets are already detached)
+    const detachedSet = beatmap.onlineID > 0
+      ? this.realm.allBeatmapSets().find(s => s.onlineID === beatmap.onlineID && !s.deletePending) ?? null
+      : null;
+
+    if (detachedSet === null) {
+      Logger.log('The requested beatmap could not be loaded.', LoggingTarget.Information);
+      return;
+    }
+
+    this.performFromScreen(screen => {
+      // Find beatmaps that match our predicate.
+      let beatmaps = detachedSet.beatmaps.filter(b => difficultyCriteria?.(b) ?? true);
+
+      // Use all beatmaps if predicate matched nothing
+      if (beatmaps.length === 0)
+        beatmaps = [...detachedSet.beatmaps];
+
+      // Prefer recommended beatmap if recommendations are available, else fallback to a sane selection.
+      // (there is no DifficultyRecommender: it needs the user's statistics)
+      const selection = beatmaps.find(b => b.ruleset.equals(this.ruleset.value)) ?? beatmaps[0];
+
+      if (isHandlePresentBeatmap(screen)) {
+        screen.presentBeatmap(this.beatmapManager.getWorkingBeatmap(selection), selection.ruleset);
+      } else {
+        // Don't change the local ruleset if the user is on another ruleset and is showing converted beatmaps at song select.
+        // Eventually we probably want to check whether conversion is actually possible for the current ruleset.
+        const requiresRulesetSwitch = !selection.ruleset.equals(this.ruleset.value)
+          && (selection.ruleset.onlineID > 0 || !this.localConfig.get<boolean>(OsuSetting.ShowConvertedBeatmaps));
+
+        if (requiresRulesetSwitch) {
+          this.ruleset.value = selection.ruleset;
+          this.beatmap.value = this.beatmapManager.getWorkingBeatmap(selection);
+
+          Logger.log(`Completing PresentBeatmap with beatmap ${beatmap.onlineID} ruleset ${selection.ruleset}`);
+        } else {
+          this.beatmap.value = this.beatmapManager.getWorkingBeatmap(selection);
+
+          Logger.log(`Completing PresentBeatmap with beatmap ${beatmap.onlineID} (maintaining ruleset)`);
+        }
+      }
+    // (typeof(SongSelect) and typeof(IHandlePresentBeatmap): SongSelect implements IHandlePresentBeatmap, and importing it here would be
+    // circular, as its static members read OsuGame's)
+    }, [isHandlePresentBeatmap]);
+  }
+
+  private performFromMainMenuTask: PerformFromMenuRunner | null = null;
+
+  /**
+   * Perform an action only after returning to a specific screen as indicated by validScreens. Eagerly tries to exit the current screen to
+   * achieve this goal.
+   */
+  performFromScreen(action: (screen: IScreen) => void, validScreens: ((screen: IScreen) => boolean)[] | null = null): void {
+    this.performFromMainMenuTask?.cancel();
+    this.add(this.performFromMainMenuTask = new PerformFromMenuRunner(action, validScreens, () => this.screenStack.currentScreen));
+  }
 
   protected override createScalingContainer(): Container {
     return new ScalingContainer(ScalingMode.Everything);
@@ -85,8 +204,9 @@ export class OsuGame extends OsuGameBase {
   protected override createChildDependencies(parent: IReadOnlyDependencyContainer): IReadOnlyDependencyContainer {
     const dependencies = super.createChildDependencies(parent);
 
-    // [Cached(typeof(OsuGame))]
+    // [Cached(typeof(OsuGame))], and IOverlayManager is a [Cached] interface.
     this.osuDependencies.cacheAs(OsuGame, this);
+    this.osuDependencies.cacheAs(IOverlayManager, this);
 
     return dependencies;
   }
@@ -163,6 +283,24 @@ export class OsuGame extends OsuGameBase {
     this.screenStackFooter = screenStackFooter;
     this.osuDependencies.cache(this.screenFooter);
 
+    this.loadComponentSingleFile(this.beatmapListing = new BeatmapListingOverlay(), d => this.gameOverlayContent.add(d), true);
+
+    // ensure only one of these overlays are open at once.
+    const singleDisplayOverlays: OverlayContainer[] = [this.beatmapListing];
+
+    for (const overlay of singleDisplayOverlays) {
+      overlay.state.valueChanged.add(state => {
+        // (informational overlays, the beatmap set and user profile, aren't ported)
+
+        if (state.newValue !== Visibility.Hidden)
+          this.showOverlayAboveOthers(overlay, singleDisplayOverlays);
+      });
+    }
+
+    this.overlayActivationMode.valueChanged.add(mode => {
+      if (mode.newValue !== OverlayActivation.All) this.closeAllOverlays();
+    });
+
     this.screenStack.screenPushed.add(([lastScreen, newScreen]) => this.screenPushed(lastScreen, newScreen));
     this.screenStack.screenExited.add(([lastScreen, newScreen]) => this.screenExited(lastScreen, newScreen));
 
@@ -176,6 +314,57 @@ export class OsuGame extends OsuGameBase {
       if (loader !== null)
         this.screenStack.push(loader.with({ relativeSizeAxes: Axes.Both }));
     });
+  }
+
+  private showOverlayAboveOthers(overlay: OverlayContainer, otherOverlays: OverlayContainer[]): void {
+    otherOverlays.filter(o => o !== overlay).forEach(o => o.hide());
+
+    // (Settings and Notifications aren't ported)
+
+    // Partially visible so leave it at the current depth.
+    if (overlay.isPresent)
+      return;
+
+    // Show above all other overlays.
+    if (overlay.isLoaded)
+      this.gameOverlayContent.changeChildDepth(overlay, Math.fround(-this.clock!.currentTime));
+    else
+      overlay.depth = Math.fround(-this.clock!.currentTime);
+  }
+
+  private asyncLoadStream: Promise<unknown> | null = null;
+
+  /**
+   * Queues loading the provided component in sequential fashion.
+   * cache: whether to cache the component as its type into the game dependencies before any scheduling.
+   */
+  private loadComponentSingleFile<T extends Drawable>(component: T, loadCompleteAction: (d: T) => void, cache = false): T {
+    if (cache)
+      this.osuDependencies.cacheAs(component.constructor as abstract new (...args: never[]) => T, component);
+
+    if (component instanceof OsuFocusedOverlayContainer)
+      this.focusedOverlays.push(component);
+
+    // schedule is here to ensure that all component loads are done after LoadComplete is run (and thus all dependencies are cached).
+    this.schedule(() => {
+      const previousLoadStream = this.asyncLoadStream;
+
+      // chain with existing load stream
+      this.asyncLoadStream = (async () => {
+        if (previousLoadStream !== null)
+          await previousLoadStream;
+
+        try {
+          Logger.log(`Loading ${component}...`);
+          await this.loadComponentAsync(component, loadCompleteAction);
+          Logger.log(`Loaded ${component}!`);
+        } catch (e) {
+          Logger.error(e, `Failed to load ${component}`);
+        }
+      })();
+    });
+
+    return component;
   }
 
   // #region Beatmap progression

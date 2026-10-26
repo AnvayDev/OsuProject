@@ -31,6 +31,7 @@ import type { BeatmapInfo } from '../../beatmaps/BeatmapInfo';
 import { BeatmapManager } from '../../beatmaps/BeatmapManager';
 import type { BeatmapSetInfo } from '../../beatmaps/BeatmapSetInfo';
 import type { WorkingBeatmap } from '../../beatmaps/WorkingBeatmap';
+import type { RulesetInfo } from '../../rulesets/RulesetInfo';
 import { OsuConfigManager, OsuSetting } from '../../configuration/OsuConfigManager';
 import type { CarouselItem } from '../../graphics/carousel/CarouselItem';
 import { ShearAligningWrapper } from '../../graphics/containers/ShearAligningWrapper';
@@ -929,6 +930,30 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
 
   unscopeBeatmapSet(): void {
     this.unscopeBeatmapSetInternal(true);
+  }
+
+  /** (IHandlePresentBeatmap.PresentBeatmap) */
+  presentBeatmap(workingBeatmap: WorkingBeatmap, _ruleset: RulesetInfo): void {
+    this.unscopeBeatmapSetInternal(false);
+    this.cancelDebounceSelection();
+
+    const beatmapInfo = workingBeatmap.beatmapInfo;
+
+    // Don't change the local ruleset if the user is on another ruleset and is showing converted beatmaps.
+    // Eventually we probably want to check whether conversion is actually possible for the current ruleset.
+    const requiresRulesetSwitch = !beatmapInfo.ruleset.equals(this.ruleset.value)
+      && (beatmapInfo.ruleset.onlineID > 0 || !this.showConvertedBeatmaps.value);
+
+    if (requiresRulesetSwitch) {
+      this.ruleset.value = beatmapInfo.ruleset;
+      this.beatmap.value = workingBeatmap;
+
+      Logger.log(`Completing PresentBeatmap with beatmap ${workingBeatmap} ruleset ${beatmapInfo.ruleset}`);
+    } else {
+      this.beatmap.value = workingBeatmap;
+
+      Logger.log(`Completing PresentBeatmap with beatmap ${workingBeatmap} (maintaining ruleset)`);
+    }
   }
 
   private unscopeBeatmapSetInternal(restorePreviousSelection: boolean): void {

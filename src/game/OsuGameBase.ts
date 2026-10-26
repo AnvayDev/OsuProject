@@ -36,6 +36,7 @@ import { RealmAccess } from './database/RealmAccess';
 import { OsuColour } from './graphics/OsuColour';
 import { OsuIconStore } from './graphics/OsuIcon';
 import { MusicController } from './overlays/MusicController';
+import { PreviewTrackManager } from './audio/PreviewTrackManager';
 import { type RulesetInfo, RulesetStore } from './rulesets/RulesetInfo';
 
 /** The most basic Game that can be used to host osu! components and systems. Unlike OsuGame, this class will not load any kind of UI. */
@@ -143,6 +144,10 @@ export class OsuGameBase extends Game {
 
     this.osuDependencies.cacheAs(Bindable<WorkingBeatmap>, this.beatmap, 'WorkingBeatmap');
     this.osuDependencies.cacheAs(Bindable<RulesetInfo>, this.ruleset, 'RulesetInfo');
+
+    let previewTrackManager: PreviewTrackManager;
+    this.osuDependencies.cache(previewTrackManager = new PreviewTrackManager(this.beatmapManager.beatmapTrackStore));
+    super.content.add(previewTrackManager);
 
     super.content.add(this.musicController = new MusicController());
     this.osuDependencies.cacheAs(MusicController, this.musicController);

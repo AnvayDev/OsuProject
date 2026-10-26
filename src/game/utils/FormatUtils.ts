@@ -20,3 +20,10 @@ export function formatStarRating(starRating: number): string {
   // which then confuses users when they beat a 6.9999* beatmap but don't get the 7-star medal.
   return floorToDecimalDigits(starRating, 2).toFixed(2);
 }
+
+const short_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Formats a date like moment's 'll' ("d MMM yyyy" for English; MediumFormattedDate), in the date's own offset (UTC from osu-web). */
+export function toLocalisedMediumDate(dateTime: Date): string {
+  return `${dateTime.getUTCDate()} ${short_months[dateTime.getUTCMonth()]} ${dateTime.getUTCFullYear()}`;
+}

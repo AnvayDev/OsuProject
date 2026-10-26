@@ -77,6 +77,11 @@ export class RectangleF {
     return RectangleF.Empty;
   }
 
+  /** Determines if this rectangle intersects with rect. */
+  intersectsWith(rect: RectangleF): boolean {
+    return rect.x < this.x + this.width && this.x < rect.x + rect.width && rect.y < this.y + this.height && this.y < rect.y + rect.height;
+  }
+
   /** Instance Intersect (C# mutates; returns the result here). */
   intersect(rect: RectangleF): RectangleF {
     return RectangleF.intersect(rect, this);

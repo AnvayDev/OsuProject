@@ -1,6 +1,8 @@
 // Ported from osu.Game/Utils/HumanizerUtils.cs (Humanize(DateTimeOffset)), with Humanizer's DateTimeHumanizeAlgorithms.DefaultHumanize and its
 // English (DefaultFormatter) resources inlined, since Humanizer is a .NET library.
 
+import { mathRound } from '@fw/utils/DotNet';
+
 const ms_per_second = 1000;
 const ms_per_minute = 60 * ms_per_second;
 const ms_per_hour = 60 * ms_per_minute;
@@ -89,4 +91,24 @@ export function humanize(input: Date, comparisonBase: Date = new Date()): string
     years = 1;
 
   return dateHumanize('year', future, years);
+}
+
+const metric_symbols: Record<number, string> = { 1: 'k', 2: 'M', 3: 'G', 4: 'T', 5: 'P', 6: 'E', 7: 'Z', 8: 'Y', [-1]: 'm', [-2]: 'μ', [-3]: 'n' };
+
+/** Humanizer's MetricNumeralExtensions.ToMetric(input, decimals) with the default formats (no space, symbol only). */
+export function toMetric(input: number, decimals: number | null = null): string {
+  if (input === 0)
+    return '0';
+
+  const exponent = Math.floor(Math.log10(Math.abs(input)) / 3);
+
+  if (exponent === 0)
+    return String(decimals !== null ? mathRound(input, decimals) : input);
+
+  let number = input * Math.pow(1000, -exponent);
+
+  if (decimals !== null)
+    number = mathRound(number, decimals);
+
+  return `${number}${metric_symbols[exponent]}`;
 }

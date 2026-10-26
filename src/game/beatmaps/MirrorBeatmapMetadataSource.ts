@@ -6,7 +6,7 @@
 // Requests go through the mirror's rate limits (MirrorAccess), where osu! limits its own concurrency (BeatmapUpdater's four update threads).
 
 import { MIRROR_ROOT, mirrorFetch } from '../online/api/MirrorAccess';
-import { BeatmapOnlineStatus } from './BeatmapOnlineStatus';
+import { parseBeatmapOnlineStatus, parseDateTimeOffset } from '../online/api/requests/responses/APIBeatmap';
 import type { BeatmapInfo } from './BeatmapInfo';
 import type { OnlineBeatmapMetadata } from './OnlineBeatmapMetadata';
 
@@ -14,20 +14,6 @@ const mirror_root = `${MIRROR_ROOT}/v2`;
 const request_timeout = 10_000;
 
 const lookupFetch = (url: string) => mirrorFetch(url, () => ({ signal: AbortSignal.timeout(request_timeout) }));
-
-/** (APIBeatmap's status: osu-web's ranked status names) */
-const statuses: Record<string, BeatmapOnlineStatus> = {
-  graveyard: BeatmapOnlineStatus.Graveyard,
-  wip: BeatmapOnlineStatus.WIP,
-  pending: BeatmapOnlineStatus.Pending,
-  ranked: BeatmapOnlineStatus.Ranked,
-  approved: BeatmapOnlineStatus.Approved,
-  qualified: BeatmapOnlineStatus.Qualified,
-  loved: BeatmapOnlineStatus.Loved,
-};
-
-const parseStatus = (status: unknown) => statuses[String(status)] ?? BeatmapOnlineStatus.None;
-const parseDate = (date: unknown) => typeof date === 'string' ? new Date(date) : null;
 
 interface MirrorBeatmap {
   id: number;
@@ -77,10 +63,10 @@ export class MirrorBeatmapMetadataSource {
           beatmapID: res.id,
           beatmapSetID: res.beatmapset_id,
           authorID: res.user_id,
-          beatmapStatus: parseStatus(res.status),
-          beatmapSetStatus: set !== null ? parseStatus(set.status) : null,
-          dateRanked: parseDate(set?.ranked_date),
-          dateSubmitted: parseDate(set?.submitted_date),
+          beatmapStatus: parseBeatmapOnlineStatus(res.status),
+          beatmapSetStatus: set !== null ? parseBeatmapOnlineStatus(set.status) : null,
+          dateRanked: parseDateTimeOffset(set?.ranked_date),
+          dateSubmitted: parseDateTimeOffset(set?.submitted_date),
           md5Hash: res.checksum,
           lastUpdated: new Date(res.last_updated),
           // Tags are not populated because the response does not contain tag data.

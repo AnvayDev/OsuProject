@@ -83,7 +83,8 @@ export function installDebugHook(game: OsuGame): void {
         // The intro plays at boot (main.ts); these states wait for it to hand over to the main menu, then drive its ButtonSystem.
         case 'mainmenu':
         case 'mainmenu-toplevel':
-        case 'mainmenu-play': {
+        case 'mainmenu-play':
+        case 'beatmap-listing': {
           // Wait for the menu to receive the logo (ButtonSystem.setOsuLogo assigns its action).
           const logo = (game as unknown as { osuLogo: OsuLogo }).osuLogo;
           while (!(internals.screenStack.currentScreen instanceof MainMenu) || logo.action === null)
@@ -96,6 +97,10 @@ export function installDebugHook(game: OsuGame): void {
 
           if (state === 'mainmenu-play')
             (internals.screenStack.currentScreen as unknown as { buttons: ButtonSystem }).buttons.state = ButtonSystemState.Play;
+
+          // The top level "browse" button.
+          if (state === 'beatmap-listing')
+            (internals.screenStack.currentScreen as unknown as { buttons: ButtonSystem }).buttons.onBeatmapListing?.();
           break;
         }
 

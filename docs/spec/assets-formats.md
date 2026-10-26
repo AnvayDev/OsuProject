@@ -155,6 +155,27 @@ check is a strong end-to-end test of the importer's set-hash computation (§1, s
   - `GET /api/d/{setId}` → 302 to `storage.osu.direct/...osz?X-Amz-…`. Both send `Access-Control-Allow-Origin: <origin>`.
   - `GET /api/v2/search?query=&amount=` → `APIBeatmapSet[]` (osu! API v2 shape: covers, beatmaps[], status, ranked_date, …).
   - `GET /api/v2/s/{setId}` → `APIBeatmapSet`.
+- Search (`/api/v2/search`, OpenAPI spec at `/api/docs/json`, verified 2026-10-26) replaces osu-web's `beatmapsets/search`. It returns
+  a bare `APIBeatmapSet[]` (no cursor or total; pages by `offset`, `amount` ≤ 101). `SearchBeatmapSetsRequest` parameters map as:
+  - `q` → `q`; filters go in a `[a = 1 AND b = 2] text` prefix of `q` (Meilisearch filter syntax; unknown attributes answer 400).
+  - `m` → `mode`. Converts can't be included (`c=converts` has no equivalent).
+  - `s` (SearchCategory) → `status` list: any → none; leaderboard → `1,2,3,4`; ranked → `1,2`; qualified → `3`; loved → `4`;
+    pending → `0`; wip → `-1`; graveyard → `-2`. favourites and mine need a user: no results.
+  - `c`: spotlights → `[spotlight = true]`; featured_artists → `[track_id > 0]`; recommended, converts and follows have no
+    equivalent (recommended/follows need a user) and are dropped.
+  - `g` → `[genre_id = n]`, `l` → `[language_id = n]` (osu-web ids), `e` → `[video = true]` / `[storyboard = true]`,
+    `nsfw=false` → `[nsfw = false]`.
+  - `r` and `played` are supporter-only filters; with no user they give the SupporterOnlyFilters result before any request.
+  - `sort` → `field:dir`: title → `title`, artist → `artist`, difficulty → `beatmaps.difficulty_rating`, updated → `last_updated`,
+    ranked → `ranked_date`, plays → `play_count`, favourites → `favourite_count`. rating, relevance and nominations aren't sortable:
+    no sort parameter (the mirror's default order).
+- Preview audio: `b.ppy.sh/preview/{id}.mp3` has no CORS headers; `/api/media/preview/set/{setId}` (audio/mpeg) does.
+- Cover images (`assets.ppy.sh/beatmaps/{id}/covers/*`) have no CORS headers either: TextureStore uses an http(s) name directly as the
+  texture URL (an image element can display it) instead of fetching it.
+- Port status (listing): `SearchBeatmapSetsRequest` (mapping above), `APIBeatmapSet`/`APIBeatmap`, `BeatmapListingOverlay` with its header,
+  filter control and Normal/Extra beatmap cards, `PreviewTrackManager` (previews from the mirror) done; unit tests for the mapping, verified
+  in the browser (search, filters, paging, card size, hover expansion). No login: supporter-only filters (rank achieved, played) give the
+  supporter-required result, favouriting fails as for a logged out user, and the recommended difficulty shows no star rating.
 - Fallback mirror: nerinyan (`api.nerinyan.moe/d/{id}` → `dl.nerinyan.moe`, `Access-Control-Allow-Origin: *`). Search returned 530 at the time.
 - catboy.best answered 403 from the build environment; not used.
 - Downloaded archives go through the normal import (§1–4). Online status/dates populate `BeatmapSetInfo.Status`, `DateRanked` and

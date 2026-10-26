@@ -49,6 +49,8 @@ filter pipeline + panels, SongSelect/SoloSongSelect, footer, title wedge, detail
 placeholder), framework TabControl, framework TextBox (web text input via hidden textarea) + search box + FilterQueryParser.
 framework Menu/Dropdown/SearchContainer + OsuDropdown/ShearedDropdown (sort/group/collection/scope), framework SliderBar + star rating DifficultyRangeSlider.
 Not yet: tooltips, popovers, context menus, mod select. Mirror metadata lookup done (status, dates, star ratings at import). Downloads done (BeatmapModelDownloader +
-BeatmapDownloadTracker, shared mirror rate limiter). Next: beatmap listing overlay.
+BeatmapDownloadTracker, shared mirror rate limiter). Beatmap listing overlay done (main menu "browse"; mirror search, Normal/Extra cards,
+previews, downloads, PresentBeatmap): overlay base classes (WaveOverlayContainer/FullscreenOverlay/OnlineOverlay, OverlayHeader,
+OverlayScrollContainer), IOverlayManager dim, framework CircularProgress/DelayedLoadWrapper/ModelBackedDrawable. No beatmap set overlay.
 No gameplay is ported (user decision).
 Cloud screenshots: `PW_CHROMIUM=/opt/pw-browsers/chromium node scripts/shot.mjs ...` (dev server running). Recordings: docs/reference/recordings/web/*.mp4 (ffmpeg available).
