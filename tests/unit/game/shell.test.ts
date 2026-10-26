@@ -64,7 +64,7 @@ let dbCounter = 0;
 /** A root container standing in for OsuGameBase's dependencies, stepped manually. */
 async function setup() {
   const realm = await RealmAccess.open(`shell-test-${dbCounter++}`);
-  const audio = new AudioManager(new AudioThread(), new ResourceStore(), new ResourceStore(), context);
+  const audio = new AudioManager(new AudioThread(), new ResourceStore(), new ResourceStore(), null, context);
   const defaultBeatmap = new DummyWorkingBeatmap(audio, null);
   const manager = new BeatmapManager(realm, audio, defaultBeatmap);
   const updater = new BeatmapUpdater(manager, new BeatmapUpdaterMetadataLookup({ tryLookup: async () => null }));

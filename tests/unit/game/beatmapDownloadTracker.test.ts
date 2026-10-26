@@ -74,7 +74,7 @@ beforeEach(async () => {
   vi.stubGlobal('AudioContext', class {});
 
   realm = await RealmAccess.open(`tracker-test-${dbCounter++}`);
-  const audio = new AudioManager(new AudioThread(), new ResourceStore(), new ResourceStore(), context);
+  const audio = new AudioManager(new AudioThread(), new ResourceStore(), new ResourceStore(), null, context);
   manager = new BeatmapManager(realm, audio, new DummyWorkingBeatmap(audio, null));
 
   const updater = new BeatmapUpdater(manager, new BeatmapUpdaterMetadataLookup({ tryLookup: async () => null }));

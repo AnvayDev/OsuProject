@@ -2,6 +2,7 @@
 // One requestAnimationFrame callback runs UpdateFrame (update + masking) followed by the DOM "draw" (element validation).
 
 import { DependencyContainer } from '../allocation/DependencyContainer';
+import { FrameworkConfigManager } from '../configuration/FrameworkConfigManager';
 import { BindableBool } from '../bindables/Bindable';
 import { Container } from '../graphics/containers/Container';
 import { InputKey, KeyBinding } from '../input/bindings/KeyBindings';
@@ -80,6 +81,8 @@ export class GameHost {
     this.dependencies.cache(root);
     this.dependencies.cacheAs(Game, game);
     this.dependencies.cacheAs(GameHost, this);
+    // (C# caches it in SetupForRun; the web Storage is localStorage, as for the game's config)
+    this.dependencies.cache(new FrameworkConfigManager(window.localStorage));
     this.dependencies.cacheAs(TextInputSource, this.createTextInput());
     this.dependencies.cacheAs(Clipboard, new DomClipboard());
 

@@ -8,6 +8,7 @@ import { Vector2 } from './layout/Vector2';
 import type { GameHost } from './platform/GameHost';
 import { DependencyContainer, type IReadOnlyDependencyContainer } from './allocation/DependencyContainer';
 import { FontStore, GlyphStore } from './text/FontStore';
+import { FrameworkConfigManager } from './configuration/FrameworkConfigManager';
 import { AudioManager } from './audio/AudioManager';
 import { SampleStore } from './audio/sample/SampleStore';
 import { TrackStore } from './audio/track/TrackStore';
@@ -65,7 +66,7 @@ export abstract class Game extends Container {
     samples.addStore(new NamespacedResourceStore(this.resources, 'Samples'));
     samples.addStore(new OnlineStore());
 
-    this.audio = new AudioManager(this.host!.audioThread, tracks, samples);
+    this.audio = new AudioManager(this.host!.audioThread, tracks, samples, dependencies.get(FrameworkConfigManager));
     this.gameDependencies.cache(this.audio);
 
     this.gameDependencies.cacheAs(TrackStore, this.audio.tracks);
