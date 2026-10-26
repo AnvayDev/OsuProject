@@ -15,3 +15,18 @@ export enum BeatmapOnlineStatus {
   Qualified = 3,
   Loved = 4,
 }
+
+/** The enum's [LocalisableDescription] (GetLocalisableDescription()). */
+export function getOnlineStatusDescription(status: BeatmapOnlineStatus): string {
+  switch (status) {
+    case BeatmapOnlineStatus.LocallyModified: return 'Local';
+    case BeatmapOnlineStatus.None: return 'Unknown';
+    case BeatmapOnlineStatus.Graveyard: return 'Graveyard';
+    case BeatmapOnlineStatus.WIP: return 'WIP';
+    case BeatmapOnlineStatus.Pending: return 'Pending';
+    case BeatmapOnlineStatus.Ranked: return 'Ranked';
+    case BeatmapOnlineStatus.Approved: return 'Approved';
+    case BeatmapOnlineStatus.Qualified: return 'Qualified';
+    case BeatmapOnlineStatus.Loved: return 'Loved';
+  }
+}

@@ -979,8 +979,8 @@ export abstract class CompositeDrawable extends Drawable {
     }
   }
 
-  /** Helper function for creating and adding a transform that fades the current EdgeEffect (alpha, or to a colour). */
-  protected fadeEdgeEffectTo(newAlphaOrColour: number | Colour4, duration = 0, easing = Easing.None): TransformSequence<this> {
+  /** Helper function for creating and adding a transform that fades the current EdgeEffect (alpha, or to a colour). (Public, as C#'s IContainer extension.) */
+  fadeEdgeEffectTo(newAlphaOrColour: number | Colour4, duration = 0, easing = Easing.None): TransformSequence<this> {
     const target = typeof newAlphaOrColour === 'number'
       ? new Colour4(this.edgeEffect.colour.r, this.edgeEffect.colour.g, this.edgeEffect.colour.b, newAlphaOrColour)
       : newAlphaOrColour;
@@ -989,7 +989,7 @@ export abstract class CompositeDrawable extends Drawable {
   }
 
   /** Helper function for creating and adding a transform that tweens the current EdgeEffect to match the given parameters. */
-  protected tweenEdgeEffectTo(newParams: EdgeEffectParameters, duration = 0, easing = Easing.None): TransformSequence<this> {
+  tweenEdgeEffectTo(newParams: EdgeEffectParameters, duration = 0, easing = Easing.None): TransformSequence<this> {
     return this.transformTo('edgeEffect', newParams, duration, easing);
   }
 

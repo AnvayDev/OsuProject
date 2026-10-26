@@ -27,7 +27,7 @@ export interface IScrollContainer {
 const distance_decay_clamping = 0.012;
 
 export abstract class ScrollContainer<T extends Drawable = Drawable> extends Container<T> implements IScrollContainer, IKeyBindingHandler<PlatformAction> {
-  readonly keyBindingActionTypes = [PlatformAction];
+  readonly keyBindingActionTypes: readonly object[] = [PlatformAction];
 
   /** Determines whether the scroll dragger appears on the left side. If not, then it always appears on the right side. */
   get scrollbarAnchor(): Anchor {

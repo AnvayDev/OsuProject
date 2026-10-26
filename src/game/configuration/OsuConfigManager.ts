@@ -17,6 +17,8 @@ export class OsuConfigManager extends IniConfigManager<OsuSetting> {
 
   protected override initialiseDefaults(): void {
     // UI/selection defaults
+    this.setDefaultBool(OsuSetting.ShowConvertedBeatmaps, true);
+
     this.setDefault(OsuSetting.RandomSelectAlgorithm, RandomSelectAlgorithm.RandomPermutation);
 
     this.setDefaultBool(OsuSetting.SongSelectBackgroundBlur, false);
