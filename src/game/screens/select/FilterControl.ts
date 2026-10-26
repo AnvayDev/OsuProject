@@ -1,11 +1,9 @@
 // Ported from osu.Game/Screens/Select/FilterControl.cs
-// Not ported yet: the difficulty range slider, whose framework control (SliderBar) is still to come. Until then its bounds exist without a
-// drawable and the criteria read them as C# does (bound to their settings). Collections, the online user and ruleset filter criteria aren't
-// ported (offline, and no ruleset instances): GroupModeDropdown offers the osu! ruleset's modes (one gameplay variant: no Variant mode).
+// Collections, the online user and ruleset filter criteria aren't ported (offline, and no ruleset instances): GroupModeDropdown offers the
+// osu! ruleset's modes (one gameplay variant: no Variant mode).
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { Bindable, type ValueChangedEvent } from '@fw/bindables/Bindable';
-import type { BindableNumber } from '@fw/bindables/BindableNumber';
 import { Container } from '@fw/graphics/containers/Container';
 import { Dimension, GridContainer, GridSizeMode } from '@fw/graphics/containers/GridContainer';
 import { OverlayContainer } from '@fw/graphics/containers/OverlayContainer';
@@ -29,6 +27,7 @@ import type { InnerSearchTextBox } from '../../graphics/userInterface/ShearedSea
 import { GlobalAction } from '../../input/bindings/GlobalAction';
 import { ShearedDropdown } from '../../graphics/userInterfaceV2/ShearedDropdown';
 import { CollectionDropdown } from './CollectionDropdown';
+import { DifficultyRangeSlider } from './FilterControl.DifficultyRangeSlider';
 import { GroupMode, getGroupModeDescription } from './filter/GroupMode';
 import { SortMode, getSortModeDescription } from './filter/SortMode';
 import { FilterCriteria } from './FilterCriteria';
@@ -49,8 +48,7 @@ export class FilterControl extends OverlayContainer {
   private searchTextBox!: SongSelectSearchTextBox;
   private showConvertedBeatmapsButton!: ShearedToggleButton;
   /** (DifficultyRangeSlider.LowerBound / UpperBound) */
-  private lowerBound!: BindableNumber;
-  private upperBound!: BindableNumber;
+  private difficultyRangeSlider!: DifficultyRangeSlider;
   private sortDropdown!: ShearedDropdown<SortMode>;
   private groupDropdown!: GroupModeDropdown;
   private readonly configCollectionFilter = new Bindable<string>('');
@@ -136,7 +134,10 @@ export class FilterControl extends OverlayContainer {
                 ],
                 content: [
                   [
-                    emptyDrawable(),
+                    this.difficultyRangeSlider = new DifficultyRangeSlider().with({
+                      relativeSizeAxes: Axes.X,
+                      minRange: 0.1,
+                    }),
                     emptyDrawable(),
                     this.showConvertedBeatmapsButton = new ShearedToggleButton().with({
                       anchor: Anchor.Centre,
@@ -193,8 +194,8 @@ export class FilterControl extends OverlayContainer {
   protected override loadComplete(): void {
     super.loadComplete();
 
-    this.lowerBound = this.config.getBindable<number>(OsuSetting.DisplayStarsMinimum) as BindableNumber;
-    this.upperBound = this.config.getBindable<number>(OsuSetting.DisplayStarsMaximum) as BindableNumber;
+    this.difficultyRangeSlider.lowerBound = this.config.getBindable<number>(OsuSetting.DisplayStarsMinimum);
+    this.difficultyRangeSlider.upperBound = this.config.getBindable<number>(OsuSetting.DisplayStarsMaximum);
     this.config.bindWith(OsuSetting.ShowConvertedBeatmaps, this.showConvertedBeatmapsButton.active);
     this.config.bindWith(OsuSetting.SongSelectSortingMode, this.sortDropdown.current);
     this.config.bindWith(OsuSetting.SongSelectCollectionFilter, this.configCollectionFilter);
@@ -212,8 +213,8 @@ export class FilterControl extends OverlayContainer {
       sliderDebounce = this.scheduler.addDelayed(() => this.updateCriteria(), 50);
     };
 
-    this.lowerBound.bindValueChanged(() => debouncedUpdateCriteria());
-    this.upperBound.bindValueChanged(() => debouncedUpdateCriteria());
+    this.difficultyRangeSlider.lowerBound.bindValueChanged(() => debouncedUpdateCriteria());
+    this.difficultyRangeSlider.upperBound.bindValueChanged(() => debouncedUpdateCriteria());
 
     this.showConvertedBeatmapsButton.active.bindValueChanged(() => this.updateCriteria());
     this.sortDropdown.current.bindValueChanged(() => this.updateCriteria());
@@ -237,11 +238,11 @@ export class FilterControl extends OverlayContainer {
       ruleset: this.ruleset.value,
     });
 
-    if (!this.lowerBound.isDefault)
-      criteria.userStarDifficulty.min = this.lowerBound.value;
+    if (!this.difficultyRangeSlider.lowerBound.isDefault)
+      criteria.userStarDifficulty.min = this.difficultyRangeSlider.lowerBound.value;
 
-    if (!this.upperBound.isDefault)
-      criteria.userStarDifficulty.max = this.upperBound.value;
+    if (!this.difficultyRangeSlider.upperBound.isDefault)
+      criteria.userStarDifficulty.max = this.difficultyRangeSlider.upperBound.value;
 
     applyQueries(criteria, query);
 

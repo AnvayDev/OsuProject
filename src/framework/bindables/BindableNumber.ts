@@ -429,6 +429,20 @@ export class BindableDouble extends BindableNumber {
   }
 }
 
+/** BindableNumberWithCurrent<double> (Bindables/BindableNumberWithCurrent.cs): a number bindable that can be bound to a current target. */
+export class BindableNumberWithCurrent extends BindableDouble {
+  private currentBound: BindableNumber | null = null;
+
+  get current(): BindableNumber {
+    return this;
+  }
+
+  set current(value: Bindable<number>) {
+    if (this.currentBound !== null) this.unbindFrom(this.currentBound);
+    this.bindTo(this.currentBound = value as BindableNumber);
+  }
+}
+
 export class BindableInt extends BindableNumber {
   protected override get defaultMinValue(): number { return -2147483648; }
   protected override get defaultMaxValue(): number { return 2147483647; }

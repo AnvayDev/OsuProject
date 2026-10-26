@@ -14,8 +14,8 @@ import type { IFrameBasedClock } from '../../timing/IClock';
 import { Scheduler, type ScheduledDelegate } from '../../timing/Scheduler';
 import { Easing } from '../../transforms/Easing';
 import { TransformCustom } from '../../transforms/TransformCustom';
-import type { TransformSequence } from '../../transforms/TransformSequence';
-import { AbsoluteSequenceSender } from '../../transforms/Transformable';
+import { TransformSequence } from '../../transforms/TransformSequence';
+import { AbsoluteSequenceSender, type Transformable } from '../../transforms/Transformable';
 import { InvokeOnDisposal } from '../../allocation/InvokeOnDisposal';
 import { Colour4 } from '../Colour4';
 import { ColourInfo } from '../ColourInfo';
@@ -1515,3 +1515,21 @@ class AutoSizeTransform extends TransformCustom<Vector2, CompositeDrawable> {
 }
 
 const midColour = (a: Colour4, b: Colour4): Colour4 => new Colour4((a.r + b.r) / 2, (a.g + b.g) / 2, (a.b + b.b) / 2, (a.a + b.a) / 2);
+
+// TransformSequenceExtensions for CompositeDrawables: the edge effect helpers, appended to a sequence.
+declare module '../../transforms/TransformSequence' {
+  interface TransformSequence<T extends Transformable> {
+    fadeEdgeEffectTo(newAlphaOrColour: number | Colour4, duration?: number, easing?: Easing): TransformSequence<T>;
+    tweenEdgeEffectTo(newParams: EdgeEffectParameters, duration?: number, easing?: Easing): TransformSequence<T>;
+  }
+}
+
+for (const name of ['fadeEdgeEffectTo', 'tweenEdgeEffectTo'] as const) {
+  Object.defineProperty(TransformSequence.prototype, name, {
+    configurable: true,
+    writable: true,
+    value(this: TransformSequence<CompositeDrawable>, ...args: unknown[]) {
+      return this.append(o => (o[name] as (...a: unknown[]) => TransformSequence<CompositeDrawable>)(...args));
+    },
+  });
+}

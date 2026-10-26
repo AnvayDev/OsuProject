@@ -47,7 +47,7 @@ toolbar. Intro done (docs/spec/intro.md): Loader + LoadingSpinner, IntroScreen (
 boot = AudioUnlockScreen (web autoplay gate, src/) → Loader. Not yet: IntroCircles, IntroWelcome. Song select in progress (no spec md): carousel +
 filter pipeline + panels, SongSelect/SoloSongSelect, footer, title wedge, details area (Details/Ranking tabs, metadata wedge, offline leaderboard
 placeholder), framework TabControl, framework TextBox (web text input via hidden textarea) + search box + FilterQueryParser.
-framework Menu/Dropdown/SearchContainer + OsuDropdown/ShearedDropdown (sort/group/collection/scope). Not yet: SliderBar (star range),
-tooltips, popovers, context menus. Then: mirror lookup, downloads.
+framework Menu/Dropdown/SearchContainer + OsuDropdown/ShearedDropdown (sort/group/collection/scope), framework SliderBar + star rating DifficultyRangeSlider.
+Not yet: tooltips, popovers, context menus, mod select. Then: mirror lookup, downloads.
 No gameplay is ported (user decision).
 Cloud screenshots: `PW_CHROMIUM=/opt/pw-browsers/chromium node scripts/shot.mjs ...` (dev server running). Recordings: docs/reference/recordings/web/*.mp4 (ffmpeg available).
