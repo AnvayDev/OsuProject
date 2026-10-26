@@ -27,6 +27,12 @@ declare global {
 /** The fixture set used by the dev states (it has a background image). */
 const fixture_set = '/tests/fixtures/osu-tests/241526 Soleily - Renatus_virtual_quick.osz';
 
+/** The sets imported for the song select states. */
+const song_select_sets: [onlineID: number, url: string][] = [
+  [241526, fixture_set],
+  [1032103, '/tests/fixtures/1032103 LukHash - H8 U.osz'],
+];
+
 export function installDebugHook(game: OsuGame): void {
   // The members the hook drives are protected in OsuGame.
   const internals = game as unknown as { screenStack: OsuScreenStack; beatmapManager: BeatmapManager };
@@ -90,6 +96,21 @@ export function installDebugHook(game: OsuGame): void {
 
           if (state === 'mainmenu-play')
             (internals.screenStack.currentScreen as unknown as { buttons: ButtonSystem }).buttons.state = ButtonSystemState.Play;
+          break;
+        }
+
+        // The main menu's solo button: waits for the menu as above, with the song select sets imported.
+        case 'songselect': {
+          for (const [onlineID, url] of song_select_sets) {
+            if (internals.beatmapManager.queryBeatmapSet(s => s.onlineID === onlineID) === null)
+              await importUrl(url);
+          }
+
+          const logo = (game as unknown as { osuLogo: OsuLogo }).osuLogo;
+          while (!(internals.screenStack.currentScreen instanceof MainMenu) || logo.action === null)
+            await new Promise(r => requestAnimationFrame(r));
+
+          (internals.screenStack.currentScreen as unknown as { loadSongSelect(): void }).loadSongSelect();
           break;
         }
 

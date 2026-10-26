@@ -1,7 +1,9 @@
 // Ported from osu.Framework/Audio/Mixing/AudioMixer.cs and IAudioChannel.cs, with BassAudioMixer's channel routing as Web Audio nodes:
-// a channel's output node connects to the mixer's input node. Effects (AddEffect/RemoveEffect/UpdateEffect) are not ported yet.
+// a channel's output node connects to the mixer's input node. Effects run as a chain of Web Audio nodes between the input and the
+// destination, ordered like BASS DSP/FX priorities (higher priority first). Only BASS's BiQuad filter (BQFParameters) has a node mapping.
 
 import { AudioComponent } from '../AudioComponent';
+import { createEffectNode, type IEffectParameter, updateEffectNode } from './Effects';
 
 export interface IAudioChannel {
   readonly name: string;
@@ -22,11 +24,58 @@ export class AudioMixer extends AudioComponent {
   readonly input: GainNode;
 
   /** fallbackMixer: a mixer to which channels removed from this one are returned (null for a default mixer, from which removal is prevented). */
-  constructor(readonly context: BaseAudioContext, destination: AudioNode, private readonly fallbackMixer: AudioMixer | null, readonly identifier: string) {
+  private readonly activeEffects = new Map<IEffectParameter, { node: AudioNode; priority: number; order: number }>();
+
+  private effectOrder = 0;
+
+  constructor(readonly context: BaseAudioContext, private readonly destination: AudioNode, private readonly fallbackMixer: AudioMixer | null, readonly identifier: string) {
     super();
 
     this.input = context.createGain();
     this.input.connect(destination);
+  }
+
+  addEffect(effect: IEffectParameter, priority = 0): void {
+    if (this.activeEffects.has(effect))
+      return;
+
+    this.activeEffects.set(effect, { node: createEffectNode(this.context, effect), priority, order: this.effectOrder++ });
+    this.reconnectEffects();
+  }
+
+  removeEffect(effect: IEffectParameter): void {
+    const active = this.activeEffects.get(effect);
+    if (active === undefined)
+      return;
+
+    this.activeEffects.delete(effect);
+    active.node.disconnect();
+    this.reconnectEffects();
+  }
+
+  updateEffect(effect: IEffectParameter): void {
+    const active = this.activeEffects.get(effect);
+    if (active === undefined)
+      return;
+
+    updateEffectNode(active.node, effect);
+  }
+
+  private reconnectEffects(): void {
+    const chain = [...this.activeEffects.values()].sort((a, b) => b.priority - a.priority || a.order - b.order).map(e => e.node);
+
+    this.input.disconnect();
+    for (const node of chain)
+      node.disconnect();
+
+    let previous: AudioNode = this.input;
+
+    for (const node of chain) {
+      previous.connect(node);
+      previous = node;
+    }
+
+    previous.connect(this.destination);
   }
 
   /** Adds a channel to the mix. */

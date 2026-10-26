@@ -50,8 +50,17 @@ export class LinkFlowContainer extends OsuTextFlowContainer {
     return r;
   }
 
-  addLink(text: string, url: string, creationParameters: ((t: SpriteText) => void) | null = null): void {
-    this.createLink(this.createChunkFor(text, true, () => this.createSpriteText(), creationParameters), url, url);
+  /** AddLink(text, url, creationParameters), or AddLink(text, action, tooltipText, creationParameters) when given an action. */
+  addLink(text: string, urlOrAction: string | (() => void), tooltipOrCreationParameters: string | ((t: SpriteText) => void) | null = null,
+    actionCreationParameters: ((t: SpriteText) => void) | null = null): void {
+    if (typeof urlOrAction === 'string') {
+      const creationParameters = typeof tooltipOrCreationParameters === 'function' ? tooltipOrCreationParameters : null;
+      this.createLink(this.createChunkFor(text, true, () => this.createSpriteText(), creationParameters), urlOrAction, urlOrAction);
+      return;
+    }
+
+    const tooltipText = typeof tooltipOrCreationParameters === 'string' ? tooltipOrCreationParameters : '';
+    this.createLink(this.createChunkFor(text, true, () => this.createSpriteText(), actionCreationParameters), '', tooltipText, urlOrAction);
   }
 
   private createLink(textPart: ITextPart, url: string, tooltipText: string, action: (() => void) | null = null): void {

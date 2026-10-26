@@ -9,6 +9,8 @@ import { IntroSequence } from './IntroSequence';
 import { RandomSelectAlgorithm } from './RandomSelectAlgorithm';
 import { ScalingMode } from './ScalingMode';
 import { SeasonalBackgroundMode } from './SeasonalBackgroundMode';
+import { GroupMode } from '../screens/select/filter/GroupMode';
+import { SortMode } from '../screens/select/filter/SortMode';
 
 export class OsuConfigManager extends IniConfigManager<OsuSetting> {
   constructor(storage: Storage) {
@@ -18,6 +20,12 @@ export class OsuConfigManager extends IniConfigManager<OsuSetting> {
   protected override initialiseDefaults(): void {
     // UI/selection defaults
     this.setDefaultBool(OsuSetting.ShowConvertedBeatmaps, true);
+    this.setDefaultDouble(OsuSetting.DisplayStarsMinimum, 0.0, 0, 10, 0.1);
+    this.setDefaultDouble(OsuSetting.DisplayStarsMaximum, 10.1, 0, 10.1, 0.1);
+
+    this.setDefault(OsuSetting.SongSelectGroupMode, GroupMode.None);
+    this.setDefault(OsuSetting.SongSelectSortingMode, SortMode.Title);
+    this.setDefault(OsuSetting.SongSelectCollectionFilter, '');
 
     this.setDefault(OsuSetting.RandomSelectAlgorithm, RandomSelectAlgorithm.RandomPermutation);
 

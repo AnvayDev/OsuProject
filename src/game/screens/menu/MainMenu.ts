@@ -28,6 +28,7 @@ import { MenuSideFlashes } from './MenuSideFlashes';
 import { MenuTipDisplay } from './MenuTipDisplay';
 import { OnlineMenuBanner } from './OnlineMenuBanner';
 import type { OsuLogo } from './OsuLogo';
+import { SoloSongSelect } from '../select/SoloSongSelect';
 import { SongTicker } from './SongTicker';
 import { SupporterDisplay } from './SupporterDisplay';
 
@@ -94,8 +95,9 @@ export class MainMenu extends OsuScreen {
         parallaxAmount: Math.fround(0.01),
         children: [
           this.buttons = new ButtonSystem().with({
-            // (OnEditBeatmap, OnEditSkin, OnSolo, OnMultiplayer, OnQuickPlay, OnRankedPlay, OnPlaylists and OnDailyChallenge push screens that
+            // (OnEditBeatmap, OnEditSkin, OnMultiplayer, OnQuickPlay, OnRankedPlay, OnPlaylists and OnDailyChallenge push screens that
             // aren't ported yet.)
+            onSolo: () => this.loadSongSelect(),
             // (C# also records whether the exit came from a mouse click, which only decides whether the exit dialog is shown.)
             onExit: () => this.exit(),
           }),
@@ -242,6 +244,10 @@ export class MainMenu extends OsuScreen {
     this.bottomElementsFlow
       .scaleTo(1, 1000, Easing.OutQuint)
       .fadeIn(1000, Easing.OutQuint);
+  }
+
+  private loadSongSelect(): void {
+    this.push(new SoloSongSelect());
   }
 
   override onExiting(e: ScreenExitEvent): boolean {

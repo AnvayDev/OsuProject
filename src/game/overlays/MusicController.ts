@@ -1,18 +1,20 @@
 // Ported from osu.Game/Overlays/MusicController.cs
-// Not ported: ducking (Duck/DuckMomentarily and the TrackMixer AudioFilter, added with the first overlay that ducks) and mod track
-// adjustments (there are no mods, so ResetTrackAdjustments binds an empty AudioAdjustments when applyModTrackAdjustments is set).
+// Not ported: mod track adjustments (there are no mods, so ResetTrackAdjustments binds an empty AudioAdjustments when applyModTrackAdjustments is set).
 // Live<BeatmapSetInfo> is the BeatmapSetInfo itself (RealmAccess keeps the sets in memory); its equality is BeatmapSetInfo.equals (by ID).
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { AdjustableProperty, AudioAdjustments } from '@fw/audio/AudioComponent';
+import { AudioManager } from '@fw/audio/AudioManager';
 import { TrackVirtual } from '@fw/audio/track/TrackVirtual';
 import { Bindable, BindableBool } from '@fw/bindables/Bindable';
+import { BindableDouble, type BindableNumber } from '@fw/bindables/BindableNumber';
 import { Signal } from '@fw/bindables/Signal';
 import { CompositeDrawable } from '@fw/graphics/containers/CompositeDrawable';
 import { DrawableTrack } from '@fw/graphics/audio/DrawableTrack';
 import { Logger } from '@fw/logging/Logger';
 import type { ScheduledDelegate } from '@fw/timing/Scheduler';
 import { Easing } from '@fw/transforms/Easing';
+import { AudioFilter } from '../audio/effects/AudioFilter';
 import { BeatmapManager } from '../beatmaps/BeatmapManager';
 import type { BeatmapSetInfo } from '../beatmaps/BeatmapSetInfo';
 import type { WorkingBeatmap } from '../beatmaps/WorkingBeatmap';
@@ -54,6 +56,12 @@ export class MusicController extends CompositeDrawable {
 
   private realm!: RealmAccess;
 
+  private sampleVolume!: BindableNumber;
+
+  private readonly audioDuckVolume = new BindableDouble(1);
+
+  private audioDuckFilter!: AudioFilter;
+
   private readonly randomSelectAlgorithm = new Bindable<RandomSelectAlgorithm>(RandomSelectAlgorithm.RandomPermutation);
 
   /** LinkedList<Live<BeatmapSetInfo>>, with currentRandomHistoryPosition as an index into it. */
@@ -67,6 +75,11 @@ export class MusicController extends CompositeDrawable {
     // [Resolved] bindables are bound copies (SourceGeneratorUtils.GetDependency, rebindBindables).
     this.beatmap = dependencies.resolve(Bindable<WorkingBeatmap>, 'WorkingBeatmap').getBoundCopy();
     this.realm = dependencies.resolve(RealmAccess);
+
+    const audio = dependencies.resolve(AudioManager);
+    this.addInternal(this.audioDuckFilter = new AudioFilter(audio.trackMixer));
+    audio.tracks.addAdjustment(AdjustableProperty.Volume, this.audioDuckVolume);
+    this.sampleVolume = audio.volumeSample.getBoundCopy();
 
     dependencies.resolve(OsuConfigManager).bindWith(OsuSetting.RandomSelectAlgorithm, this.randomSelectAlgorithm);
 
@@ -223,6 +236,60 @@ export class MusicController extends CompositeDrawable {
       if (res)
         onSuccess?.();
     });
+  }
+
+  private readonly duckOperations: DuckParameters[] = [];
+
+  /**
+   * Applies ducking, attenuating the volume and/or low-pass cutoff of the currently playing track to make headroom for effects (or just to apply an effect).
+   * @returns A handle which will restore the duck operation when disposed.
+   */
+  duck(parameters: DuckParameters | null = null): { dispose(): void } {
+    // Don't duck if samples have no volume, it sounds weird.
+    if (this.sampleVolume.value === 0)
+      return { dispose: () => {} };
+
+    const p = parameters ?? new DuckParameters();
+
+    this.duckOperations.push(p);
+
+    const volumeOperation = minBy(this.duckOperations, o => o.duckVolumeTo)!;
+    const lowPassOperation = minBy(this.duckOperations, o => o.duckCutoffTo)!;
+
+    this.audioDuckFilter.cutoffTo(lowPassOperation.duckCutoffTo, lowPassOperation.duckDuration, lowPassOperation.duckEasing);
+    this.transformBindableTo(this.audioDuckVolume, volumeOperation.duckVolumeTo, volumeOperation.duckDuration, volumeOperation.duckEasing);
+
+    const restoreDucking = () => this.schedule(() => {
+      const index = this.duckOperations.indexOf(p);
+      if (index < 0)
+        return;
+
+      this.duckOperations.splice(index, 1);
+
+      const restoreVolumeOperation = minBy(this.duckOperations, o => o.duckVolumeTo);
+      const restoreLowPassOperation = minBy(this.duckOperations, o => o.duckCutoffTo);
+
+      // If another duck operation is in the list, restore ducking to its level, else reset back to defaults.
+      this.audioDuckFilter.cutoffTo(restoreLowPassOperation?.duckCutoffTo ?? AudioFilter.MAX_LOWPASS_CUTOFF, p.restoreDuration, p.restoreEasing);
+      this.transformBindableTo(this.audioDuckVolume, restoreVolumeOperation?.duckVolumeTo ?? 1, p.restoreDuration, p.restoreEasing);
+    });
+
+    return { dispose: restoreDucking };
+  }
+
+  /**
+   * A convenience method that ducks the currently playing track, then after a delay, restores automatically.
+   * @param delayUntilRestore A delay in milliseconds which defines how long to delay restoration after ducking completes.
+   * @param parameters Parameters defining the ducking operation.
+   */
+  duckMomentarily(delayUntilRestore: number, parameters: DuckParameters | null = null): void {
+    // Don't duck if samples have no volume, it sounds weird.
+    if (this.sampleVolume.value === 0)
+      return;
+
+    const duckOperation = this.duck(parameters ?? new DuckParameters());
+
+    this.scheduler.addDelayed(() => duckOperation.dispose(), delayUntilRestore);
   }
 
   private next(allowProtectedTracks: boolean): boolean {
@@ -448,4 +515,45 @@ export enum PreviousTrackResult {
   None,
   Restart,
   Previous,
+}
+
+/** Enumerable.MinBy: the first element with the smallest key, or undefined when empty. */
+function minBy<T>(items: readonly T[], key: (item: T) => number): T | undefined {
+  let best: T | undefined;
+  let bestKey = Infinity;
+
+  for (const item of items) {
+    const k = key(item);
+    if (best === undefined || k < bestKey) {
+      best = item;
+      bestKey = k;
+    }
+  }
+
+  return best;
+}
+
+export class DuckParameters {
+  /** The duration of the ducking transition in milliseconds. Defaults to 100 ms. */
+  duckDuration = 100;
+
+  /** The final volume which should be reached during ducking, when 0 is silent and 1 is original volume. Defaults to 25%. */
+  duckVolumeTo = 0.25;
+
+  /** The low-pass cutoff frequency which should be reached during ducking. If not required, set to AudioFilter.MAX_LOWPASS_CUTOFF. Defaults to 300 Hz. */
+  duckCutoffTo = 300;
+
+  /** The easing curve to be applied during ducking. Defaults to Easing.Out. */
+  duckEasing = Easing.Out;
+
+  /** The duration of the restoration transition in milliseconds. Defaults to 500 ms. */
+  restoreDuration = 500;
+
+  /** The easing curve to be applied during restoration. Defaults to Easing.In. */
+  restoreEasing = Easing.In;
+
+  /** C#'s object initialiser. */
+  static of(init: Partial<DuckParameters>): DuckParameters {
+    return Object.assign(new DuckParameters(), init);
+  }
 }

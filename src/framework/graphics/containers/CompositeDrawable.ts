@@ -842,10 +842,30 @@ export abstract class CompositeDrawable extends Drawable {
         this.borderElement = b;
       }
 
-      const borderColour = ColourInfo.multiply(this.borderColour, drawColour).averageColour;
-      this.borderElement.style.border = `${this.borderThickness}px solid ${borderColour.toCss()}`;
-      this.borderElement.style.borderRadius = radius > 0 ? `${radius}px` : '';
-      this.borderElement.style.display = '';
+      const borderColour = ColourInfo.multiply(this.borderColour, drawColour);
+      const b = this.borderElement;
+
+      if (borderColour.hasSingleColour) {
+        b.style.border = `${this.borderThickness}px solid ${borderColour.topLeft.toCss()}`;
+        b.style.padding = b.style.background = b.style.mask = '';
+      } else {
+        // A gradient border: the gradient fills the border box and a mask cuts out the content box (the shader interpolates the border
+        // colour over the masking rectangle the same way). Vertical and horizontal gradients are exact; other gradients use the
+        // vertical blend of the averaged edges.
+        const vertical = borderColour.topLeft.equals(borderColour.topRight) && borderColour.bottomLeft.equals(borderColour.bottomRight);
+        const horizontal = borderColour.topLeft.equals(borderColour.bottomLeft) && borderColour.topRight.equals(borderColour.bottomRight);
+        const gradient = horizontal && !vertical
+          ? `linear-gradient(to right, ${borderColour.topLeft.toCss()}, ${borderColour.topRight.toCss()})`
+          : `linear-gradient(to bottom, ${midColour(borderColour.topLeft, borderColour.topRight).toCss()}, ${midColour(borderColour.bottomLeft, borderColour.bottomRight).toCss()})`;
+
+        b.style.border = '';
+        b.style.padding = `${this.borderThickness}px`;
+        b.style.background = gradient;
+        b.style.mask = 'linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0)';
+      }
+
+      b.style.borderRadius = radius > 0 ? `${radius}px` : '';
+      b.style.display = '';
     } else if (this.borderElement !== null)
       this.borderElement.style.display = 'none';
 
@@ -1493,3 +1513,5 @@ class AutoSizeTransform extends TransformCustom<Vector2, CompositeDrawable> {
     super('baseSize');
   }
 }
+
+const midColour = (a: Colour4, b: Colour4): Colour4 => new Colour4((a.r + b.r) / 2, (a.g + b.g) / 2, (a.b + b.b) / 2, (a.a + b.a) / 2);

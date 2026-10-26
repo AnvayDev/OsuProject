@@ -1,5 +1,6 @@
-// Ported from osu.Game/Beatmaps/BeatmapMetadataInfoExtensions.cs (GetDisplayTitle, Match).
+// Ported from osu.Game/Beatmaps/BeatmapMetadataInfoExtensions.cs (GetDisplayTitle, GetDisplayTitleRomanisable, Match).
 
+import { romanisable } from '@fw/localisation/RomanisableString';
 import type { OptionalTextFilter } from '../screens/select/FilterCriteria';
 import type { BeatmapMetadata } from './BeatmapMetadata';
 
@@ -23,4 +24,13 @@ export function match(metadataInfo: BeatmapMetadata, filter: OptionalTextFilter)
   if (filter.matches(metadataInfo.tags)) return true;
 
   return false;
+}
+
+/** A user-presentable display title representing this metadata, as a RomanisableString (resolved with romanisable()). */
+export function getDisplayTitleRomanisable(metadataInfo: BeatmapMetadata, includeCreator = true): string {
+  const author = !includeCreator || !metadataInfo.author.username ? '' : `(${metadataInfo.author.username})`;
+  const artistUnicode = !metadataInfo.artistUnicode ? metadataInfo.artist : metadataInfo.artistUnicode;
+  const titleUnicode = !metadataInfo.titleUnicode ? metadataInfo.title : metadataInfo.titleUnicode;
+
+  return romanisable(`${artistUnicode} - ${titleUnicode} ${author}`.trim(), `${metadataInfo.artist} - ${metadataInfo.title} ${author}`.trim());
 }

@@ -18,9 +18,17 @@ import { OsuScreenStack } from './screens/OsuScreenStack';
 import { OsuLogo } from './screens/menu/OsuLogo';
 import { GameIdleTracker } from './input/GameIdleTracker';
 import { IdleTracker } from './input/IdleTracker';
+import { BeatmapStore } from './database/BeatmapStore';
+import { RealmDetachedBeatmapStore } from './database/RealmDetachedBeatmapStore';
 
 /** The full osu! experience. Builds on top of OsuGameBase to add menus and binding logic for the screen stack. */
 export class OsuGame extends OsuGameBase {
+  /** A common shear factor applied to most components of the game. */
+  static readonly SHEAR = new Vector2(Math.fround(0.2), 0);
+
+  /** For elements placed close to the screen edge, this is the margin to leave to the edge. */
+  static readonly SCREEN_EDGE_MARGIN = 12;
+
   protected screenStack!: OsuScreenStack;
 
   /** The container the screen stack (and the screen-scaled overlays) live in. */
@@ -46,6 +54,8 @@ export class OsuGame extends OsuGameBase {
   private logoContainer!: Container;
 
   private osuLogo!: OsuLogo;
+
+  private detachedBeatmapStore!: RealmDetachedBeatmapStore;
 
   /** Whether overlays should be able to be opened game-wide. Value is sourced from the current active screen. */
   readonly overlayActivationMode = new Bindable<OverlayActivation>(OverlayActivation.All);
@@ -81,6 +91,10 @@ export class OsuGame extends OsuGameBase {
     super.loadComplete();
 
     this.beatmap.bindValueChanged(b => this.beatmapChanged(b), true);
+
+    // loadComponentSingleFile<BeatmapStore>(detachedBeatmapStore = new RealmDetachedBeatmapStore(), Add, true)
+    this.osuDependencies.cacheAs(BeatmapStore, this.detachedBeatmapStore = new RealmDetachedBeatmapStore());
+    this.add(this.detachedBeatmapStore);
 
     // (The session idle tracker, which resets SessionStatics after 5 minutes of inactivity, is not ported yet.)
     this.osuDependencies.cacheAs(IdleTracker, this.idleTracker = new GameIdleTracker(6000));
