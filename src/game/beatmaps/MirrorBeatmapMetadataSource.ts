@@ -3,28 +3,17 @@
 // mirror's doesn't, so the set (status and dates) is a second request, shared by a set's beatmaps.
 // Like the API source: a beatmap the mirror doesn't know is a performed lookup with no result; a failed request is a lookup not performed.
 // The file name fallback (GetBeatmapRequest's filename) isn't available on the mirror.
-// The mirror allows bursts of 25 requests per 5 seconds (its 429 responses carry no CORS headers, so they read as network failures): requests
-// are spaced to stay within that, where osu! limits its own concurrency (BeatmapUpdater's four update threads).
+// Requests go through the mirror's rate limits (MirrorAccess), where osu! limits its own concurrency (BeatmapUpdater's four update threads).
 
+import { MIRROR_ROOT, mirrorFetch } from '../online/api/MirrorAccess';
 import { BeatmapOnlineStatus } from './BeatmapOnlineStatus';
 import type { BeatmapInfo } from './BeatmapInfo';
 import type { OnlineBeatmapMetadata } from './OnlineBeatmapMetadata';
 
-const mirror_root = 'https://osu.direct/api/v2';
+const mirror_root = `${MIRROR_ROOT}/v2`;
 const request_timeout = 10_000;
-const request_spacing = 5000 / 25;
 
-let nextRequestTime = 0;
-
-/** fetch, started no sooner than request_spacing after the previous mirror request. */
-function mirrorFetch(url: string): Promise<Response> {
-  const now = performance.now();
-  const start = Math.max(now, nextRequestTime);
-  nextRequestTime = start + request_spacing;
-
-  return new Promise(resolve => setTimeout(resolve, start - now))
-    .then(() => fetch(url, { signal: AbortSignal.timeout(request_timeout) }));
-}
+const lookupFetch = (url: string) => mirrorFetch(url, () => ({ signal: AbortSignal.timeout(request_timeout) }));
 
 /** (APIBeatmap's status: osu-web's ranked status names) */
 const statuses: Record<string, BeatmapOnlineStatus> = {
@@ -72,7 +61,7 @@ export class MirrorBeatmapMetadataSource {
       return null;
 
     try {
-      const response = await mirrorFetch(`${mirror_root}/md5/${beatmapInfo.md5Hash}`);
+      const response = await lookupFetch(`${mirror_root}/md5/${beatmapInfo.md5Hash}`);
 
       if (response.status === 404)
         return { onlineMetadata: null };
@@ -108,7 +97,7 @@ export class MirrorBeatmapMetadataSource {
     let set = this.beatmapSets.get(id);
 
     if (set === undefined) {
-      set = mirrorFetch(`${mirror_root}/s/${id}`)
+      set = lookupFetch(`${mirror_root}/s/${id}`)
         .then(r => r.ok ? r.json() as Promise<MirrorBeatmapSet> : null)
         .catch(() => null)
         // (a failed request is retried by the next lookup)

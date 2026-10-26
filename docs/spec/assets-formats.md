@@ -114,8 +114,8 @@ Source: osu! 2026.1005.0-lazer (`_reference/osu`), osu-framework 2026.921.1. Pat
 - `Process` runs inside the import transaction (`PostImport`), so a set appears with its final values; the carousel ignores later changes
   that only touch star rating, length or BPM (`BeatmapCarousel.cs:423-474`). The web importer runs it before its write for the same reason.
 - Port status: `BeatmapUpdater.process` (statistics + the <2-objects rule) and the metadata/star-rating lookup (`BeatmapUpdaterMetadataLookup`
-  with `MirrorBeatmapMetadataSource`: `/api/v2/md5/{md5}` then `/api/v2/s/{setId}` for status and dates; requests spaced 200 ms for the
-  mirror's 25-per-5-s burst limit) done and tested. Sets imported before this keep their values (BackgroundDataStoreProcessor isn't ported).
+  with `MirrorBeatmapMetadataSource`: `/api/v2/md5/{md5}` then `/api/v2/s/{setId}` for status and dates, through the shared rate limiter
+  of §7) done and tested. Sets imported before this keep their values (BackgroundDataStoreProcessor isn't ported).
 
 ## 5. Bundled sets (`Screens/Menu/IntroScreen.cs`, `IntroCircles/Triangles/Welcome.cs`)
 
@@ -159,6 +159,16 @@ check is a strong end-to-end test of the importer's set-hash computation (§1, s
 - catboy.best answered 403 from the build environment; not used.
 - Downloaded archives go through the normal import (§1–4). Online status/dates populate `BeatmapSetInfo.Status`, `DateRanked` and
   `DateSubmitted`, as the metadata lookup does.
+- Limits (response headers, 2026-10-26): `ratelimit-limit: 120` per minute and `ratelimit-burst-limit: 25` per 5 s, shared by every
+  endpoint; `/api/d` also reports a download budget (`x-download-budget-limit: 200` downloads, 8 GiB). Every mirror request goes through
+  one sliding-window limiter (`online/api/MirrorAccess.ts`) that keeps within both rate limits.
+- 429 responses carry no CORS headers, so page code sees a bare network failure. The browser still intermittently gets a 429
+  (`retry-after: 10`) from `/api/d` even when the limiter is satisfied and the reported counters have room; curl with identical headers
+  never reproduced it. As in osu!, a failed download isn't retried (the tracker returns to NotDownloaded, the user can start it again).
+- Port status: `ModelDownloader`/`BeatmapModelDownloader`, `ArchiveDownloadRequest`/`DownloadBeatmapSetRequest` (fetch with progress from
+  the streamed body, the 60 s inactivity timeout, cancel), `DownloadTracker`/`BeatmapDownloadTracker` done and tested; verified in the
+  browser (8 MB set downloaded with progress and imported). Not ported: download notifications (no NotificationOverlay yet),
+  `DownloadAsUpdate`.
 
 ## 8. Open questions
 

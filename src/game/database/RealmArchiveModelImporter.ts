@@ -363,6 +363,6 @@ function sequenceEqual<T>(a: readonly T[], b: readonly T[]): boolean {
 }
 
 /** Humanizer's Humanize(LetterCasing.Title) for a lower-case model name. */
-function titleCase(s: string): string {
+export function titleCase(s: string): string {
   return s.replace(/\b\w/g, c => c.toUpperCase());
 }

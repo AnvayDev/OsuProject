@@ -26,6 +26,7 @@ import type { ControlPointInfo } from './beatmaps/controlPoints/ControlPointInfo
 import { FramedBeatmapClock } from './beatmaps/FramedBeatmapClock';
 import { IBeatSyncProvider } from './beatmaps/IBeatSyncProvider';
 import { GlobalActionContainer } from './input/bindings/GlobalActionContainer';
+import { BeatmapModelDownloader } from './beatmaps/BeatmapModelDownloader';
 import { BeatmapUpdater } from './beatmaps/BeatmapUpdater';
 import { DummyWorkingBeatmap } from './beatmaps/DummyWorkingBeatmap';
 import type { WorkingBeatmap } from './beatmaps/WorkingBeatmap';
@@ -54,6 +55,8 @@ export class OsuGameBase extends Game {
   protected beatmapManager!: BeatmapManager;
 
   protected beatmapUpdater!: BeatmapUpdater;
+
+  protected beatmapDownloader!: BeatmapModelDownloader;
 
   protected musicController!: MusicController;
 
@@ -123,6 +126,8 @@ export class OsuGameBase extends Game {
     const defaultBeatmap = new DummyWorkingBeatmap(this.audio, this.textures);
 
     this.osuDependencies.cache(this.beatmapManager = new BeatmapManager(this.realm, this.audio, defaultBeatmap));
+
+    this.osuDependencies.cache(this.beatmapDownloader = new BeatmapModelDownloader(this.beatmapManager));
 
     this.osuDependencies.cacheAs(BeatmapUpdater, this.beatmapUpdater = this.createBeatmapUpdater());
 
