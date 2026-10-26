@@ -14,6 +14,7 @@ import { BeatmapDetailTab } from '../screens/select/BeatmapDetailTab';
 import { GroupMode } from '../screens/select/filter/GroupMode';
 import { SortMode } from '../screens/select/filter/SortMode';
 import { BeatmapCardSize } from '../beatmaps/drawables/cards/BeatmapCardSize';
+import { ToolbarClockDisplayMode } from './ToolbarClockDisplayMode';
 
 export class OsuConfigManager extends IniConfigManager<OsuSetting> {
   constructor(storage: Storage) {
@@ -39,6 +40,8 @@ export class OsuConfigManager extends IniConfigManager<OsuSetting> {
     this.setDefault(OsuSetting.BeatmapListingCardSize, BeatmapCardSize.Normal);
     this.setDefaultBool(OsuSetting.BeatmapListingFeaturedArtistFilter, true);
 
+    this.setDefault(OsuSetting.ToolbarClockDisplayMode, ToolbarClockDisplayMode.Full);
+
     this.setDefaultBool(OsuSetting.SongSelectBackgroundBlur, false);
 
     // Online
@@ -58,6 +61,11 @@ export class OsuConfigManager extends IniConfigManager<OsuSetting> {
     this.setDefaultBool(OsuSetting.ShowStoryboard, true);
 
     this.setDefaultFloat(OsuSetting.MenuParallaxScale, 1.0, 0.0, 2.0, 0.1);
+
+    // See https://stackoverflow.com/a/63307411 for default sourcing.
+    // (the system culture's short time pattern contains "tt" when it uses a 12-hour clock)
+    const hourCycle = new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).resolvedOptions().hourCycle;
+    this.setDefaultBool(OsuSetting.Prefer24HourTime, hourCycle !== 'h11' && hourCycle !== 'h12');
 
     // Gameplay
     this.setDefaultDouble(OsuSetting.DimLevel, 0.7, 0, 1, 0.01);

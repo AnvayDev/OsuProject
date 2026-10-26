@@ -1,5 +1,5 @@
 // Ported from osu.Game/OsuGame.cs (the screen layering and screen change handling, overlay management and PresentBeatmap)
-// Not ported yet: the toolbar, most overlays (the beatmap listing is the only one), notifications, cursor, OSD and global key bindings. They
+// Not ported yet: most overlays (the beatmap listing is the only one), notifications, cursor, OSD and global key bindings. They
 // will be added to the containers below as they are ported. The first screen is supplied by createLoader().
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
@@ -13,7 +13,8 @@ import type { OverlayContainer } from '@fw/graphics/containers/OverlayContainer'
 import { Visibility } from '@fw/graphics/containers/VisibilityContainer';
 import type { Drawable } from '@fw/graphics/Drawable';
 import { Logger, LoggingTarget } from '@fw/logging/Logger';
-import type { IScreen } from '@fw/screens/IScreen';
+import { type IScreen, ScreenExtensions } from '@fw/screens/IScreen';
+import { MarginPadding } from '@fw/layout/MarginPadding';
 import { Easing } from '@fw/transforms/Easing';
 import type { BeatmapInfo } from './beatmaps/BeatmapInfo';
 import type { IBeatmapSetInfo } from './beatmaps/IBeatmapSetInfo';
@@ -22,6 +23,7 @@ import { OsuFocusedOverlayContainer } from './graphics/containers/OsuFocusedOver
 import { OsuColour } from './graphics/OsuColour';
 import { BeatmapListingOverlay } from './overlays/BeatmapListingOverlay';
 import { IOverlayManager } from './overlays/IOverlayManager';
+import { Toolbar } from './overlays/toolbar/Toolbar';
 import { PerformFromMenuRunner } from './PerformFromMenuRunner';
 import { isHandlePresentBeatmap } from './screens/IHandlePresentBeatmap';
 import { ScalingMode } from './configuration/ScalingMode';
@@ -48,6 +50,12 @@ export class OsuGame extends OsuGameBase {
 
   /** For elements placed close to the screen edge, this is the margin to leave to the edge. */
   static readonly SCREEN_EDGE_MARGIN = 12;
+
+  toolbar!: Toolbar;
+
+  private get toolbarOffset(): number {
+    return (this.toolbar?.position.y ?? 0) + (this.toolbar?.drawHeight ?? 0);
+  }
 
   protected screenStack!: OsuScreenStack;
 
@@ -79,6 +87,9 @@ export class OsuGame extends OsuGameBase {
 
   private beatmapListing!: BeatmapListingOverlay;
 
+  /** (C#'s MainMenu menuScreen: the main menu type is PerformFromMenuRunner.mainMenuType, as importing MainMenu here would be circular) */
+  private menuScreen: IScreen | null = null;
+
   private readonly focusedOverlays: OsuFocusedOverlayContainer[] = [];
 
   private readonly visibleBlockingOverlays: OverlayContainer[] = [];
@@ -94,12 +105,14 @@ export class OsuGame extends OsuGameBase {
 
   readonly scalingContainerTargetDrawSize = new Vector2(1024, 768);
 
-  /** Close all game-wide overlays. hideToolbar: whether the toolbar should also be hidden (there is no toolbar yet). */
-  closeAllOverlays(_hideToolbar = true): void {
+  /** Close all game-wide overlays. hideToolbar: whether the toolbar should also be hidden. */
+  closeAllOverlays(hideToolbar = true): void {
     for (const overlay of this.focusedOverlays)
       overlay.hide();
 
     // (ScreenFooter.ActiveOverlay: footer overlays aren't ported)
+
+    if (hideToolbar) this.toolbar.hide();
   }
 
   // #region IOverlayManager
@@ -283,6 +296,15 @@ export class OsuGame extends OsuGameBase {
     this.screenStackFooter = screenStackFooter;
     this.osuDependencies.cache(this.screenFooter);
 
+    this.loadComponentSingleFile(this.toolbar = new Toolbar().with({
+      onHome: () => {
+        this.closeAllOverlays(false);
+
+        if (this.menuScreen !== null && ScreenExtensions.getChildScreen(this.menuScreen) !== null)
+          ScreenExtensions.makeCurrent(this.menuScreen);
+      },
+    }), d => this.topMostOverlayContent.add(d));
+
     this.loadComponentSingleFile(this.beatmapListing = new BeatmapListingOverlay(), d => this.gameOverlayContent.add(d), true);
 
     // ensure only one of these overlays are open at once.
@@ -377,13 +399,30 @@ export class OsuGame extends OsuGameBase {
 
   // #endregion
 
+  protected override updateAfterChildren(): void {
+    super.updateAfterChildren();
+
+    this.screenOffsetContainer.padding = MarginPadding.of({ top: this.toolbarOffset });
+    this.overlayOffsetContainer.padding = MarginPadding.of({ top: this.toolbarOffset });
+  }
+
   protected screenChanged(current: OsuScreen | null, newScreen: OsuScreen | null): void {
+    if (newScreen !== null && PerformFromMenuRunner.mainMenuType !== null && newScreen instanceof PerformFromMenuRunner.mainMenuType)
+      this.menuScreen = newScreen;
+
     if (current !== null)
       this.overlayActivationMode.unbindFrom(current.overlayActivationMode);
 
     // Bind to new screen.
-    if (newScreen !== null)
+    if (newScreen !== null) {
       this.overlayActivationMode.bindTo(newScreen.overlayActivationMode);
+
+      // Handle various configuration updates based on new screen settings.
+      if (newScreen.hideOverlaysOnEnter)
+        this.closeAllOverlays();
+      else
+        this.toolbar.show();
+    }
   }
 
   private handleBackButton(): void {

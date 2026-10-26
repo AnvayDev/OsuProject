@@ -1,7 +1,7 @@
 // Ported from osu.Game/Screens/Menu/ButtonSystem.cs
 // Not ported yet: the online buttons' API check (there is no API: every online action falls through to the login overlay, which isn't
 // ported either, so they do nothing), DailyChallengeButton (online-only; offline it always stays contracted and out of the flow, so it is
-// left out), joystick/MIDI triggers, and the toolbar show/hide (no toolbar yet).
+// left out) and joystick/MIDI triggers.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import type { InvokeOnDisposal } from '@fw/allocation/InvokeOnDisposal';
@@ -25,6 +25,7 @@ import { LogoTrackingContainer } from '../../graphics/containers/LogoTrackingCon
 import { OsuIcon } from '../../graphics/OsuIcon';
 import { GlobalAction } from '../../input/bindings/GlobalAction';
 import { IdleTracker } from '../../input/IdleTracker';
+import { OsuGame } from '../../OsuGame';
 import { ButtonArea } from './ButtonArea';
 import { MainMenuButton } from './MainMenuButton';
 import type { OsuLogo } from './OsuLogo';
@@ -149,6 +150,7 @@ export class ButtonSystem extends Container implements IKeyBindingHandler<Global
     const audio = dependencies.resolve(AudioManager);
     const idleTracker = dependencies.get(IdleTracker);
     const host = dependencies.resolve(GameHost);
+    this.game = dependencies.get(OsuGame);
 
     this.buttonsPlay.push(new MainMenuButton('solo', 'button-default-select', OsuIcon.Player, rgb(102, 68, 204), () => this.onSolo?.(), Key.P).with({
       buttonPadding: MarginPadding.of({ left: ButtonSystem.WEDGE_WIDTH }),
@@ -374,6 +376,8 @@ export class ButtonSystem extends Container implements IKeyBindingHandler<Global
     this.stateChanged.emit(this.state);
   }
 
+  private game: OsuGame | null = null;
+
   private logoDelayedAction: ScheduledDelegate | null = null;
   private logoTracking: InvokeOnDisposal | null = null;
 
@@ -388,6 +392,8 @@ export class ButtonSystem extends Container implements IKeyBindingHandler<Global
         this.logoDelayedAction = this.scheduler.addDelayed(() => {
           this.logoTracking?.dispose();
           this.logoTracking = null;
+
+          this.game?.toolbar.hide();
 
           this.logo?.clearTransforms(false, 'position');
           this.logo?.moveTo(new Vector2(0.5), 800, Easing.OutExpo);
@@ -418,6 +424,8 @@ export class ButtonSystem extends Container implements IKeyBindingHandler<Global
             this.logoDelayedAction = this.scheduler.addDelayed(() => {
               if (impact)
                 this.logo?.impact();
+
+              this.game?.toolbar.show();
             }, 200);
             break;
           }

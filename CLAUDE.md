@@ -42,8 +42,9 @@ only mixer effects remain, to port when first needed. Game layer: .osu decoder, 
 tested: OsuGameBase/OsuGame (index.html + src/main.ts), OsuConfigManager, OsuScreen/OsuScreenStack, background screens (default rotation,
 beatmap), Parallax/Scaling/UserDim containers, MusicController, OsuColour/OsuFont/OsuSpriteText. Dev states via window.__osu (src/dev/).
 Main menu done and tested (docs/spec/main-menu.md): MainMenu, ButtonSystem/MainMenuButton, OsuLogo + TrianglesV2 + LogoVisualisation,
-side flashes, song ticker, tips, supporter display, idle return; framework TextFlowContainer. Not yet: kiai fountains, hold-to-exit,
-toolbar. Intro done (docs/spec/intro.md): Loader + LoadingSpinner, IntroScreen (theme import, watchdog, "see ya" exit), IntroTriangles;
+side flashes, song ticker, tips, supporter display, idle return; framework TextFlowContainer. Not yet: kiai fountains, hold-to-exit.
+Toolbar done (osu.Game/Overlays/Toolbar): all buttons, ruleset selector, clock, guest user button; buttons of unported overlays show
+their names/icons but do nothing. Intro done (docs/spec/intro.md): Loader + LoadingSpinner, IntroScreen (theme import, watchdog, "see ya" exit), IntroTriangles;
 boot = AudioUnlockScreen (web autoplay gate, src/) → Loader. Not yet: IntroCircles, IntroWelcome. Song select in progress (no spec md): carousel +
 filter pipeline + panels, SongSelect/SoloSongSelect, footer, title wedge, details area (Details/Ranking tabs, metadata wedge, offline leaderboard
 placeholder), framework TabControl, framework TextBox (web text input via hidden textarea) + search box + FilterQueryParser.
