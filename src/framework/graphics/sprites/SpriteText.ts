@@ -436,12 +436,18 @@ export class SpriteText extends Drawable {
   /** The glyphs of the shadow (below) and of the text. */
   private shadowElement: HTMLElement | null = null;
   private textElement: HTMLElement | null = null;
-  private lastGlyphKey = '';
+
+  // The masks are only rewritten when the characters change, and the colours when the draw colour changes (it carries the alpha of every
+  // parent, so fades change it every frame): re-setting a mask makes Chrome reload its images, which skips drawing the glyphs for a frame.
+  private maskedCharactersVersion = -1;
+  private mask = '';
+  private glyphLayers: string[] = [];
+  private glyphBounds = { left: 0, top: 0, right: 0, bottom: 0 };
+  private lastColourKey = '';
 
   protected override applyElementState(): void {
     super.applyElementState();
 
-    const characters = this.characters;
     const colour = this.drawColourInfo.colour;
 
     // shadowAlpha: adjust shadow alpha based on highest component intensity to avoid muddy display of darker text.
@@ -452,13 +458,56 @@ export class SpriteText extends Drawable {
 
     const shadowOffset = this._shadowOffset.mul(this._font.size);
 
-    const key = `${this.charactersVersion}|${colour}|${this._shadow ? `${finalShadowColour}|${shadowOffset}` : ''}`;
-    if (key === this.lastGlyphKey)
+    if (this._shadow && this.shadowElement === null) {
+      this.shadowElement = this.createGlyphsElement(this.textElement);
+      this.shadowElement.style.setProperty('mask', this.mask);
+      this.shadowElement.style.setProperty('-webkit-mask', this.mask);
+    }
+
+    this.textElement ??= this.createGlyphsElement(null);
+
+    const charactersChanged = this.charactersVersion !== this.maskedCharactersVersion;
+
+    if (charactersChanged)
+      this.updateMasks();
+
+    const colourKey = `${colour}|${this._shadow ? `${finalShadowColour}|${shadowOffset}` : ''}`;
+    if (!charactersChanged && colourKey === this.lastColourKey)
       return;
 
-    this.lastGlyphKey = key;
+    this.lastColourKey = colourKey;
 
-    // The bounds of all glyph rectangles: the element the glyphs are mask layers of.
+    const { left, top, right, bottom } = this.glyphBounds;
+
+    // Each glyph quad is drawn with the whole draw colour (SpriteTextDrawNode.Draw): a non-uniform colour is a background layer per glyph.
+    const place = (el: HTMLElement, dx: number, dy: number, c: ColourInfo) => {
+      if (this.glyphLayers.length === 0) {
+        el.style.display = 'none';
+        return;
+      }
+
+      const css = colourInfoToCss(c, true);
+
+      el.style.display = '';
+      el.style.transform = `translate(${left + dx}px, ${top + dy}px) scale(${1 / glyph_layer_scale})`;
+      el.style.width = `${(right - left) * glyph_layer_scale}px`;
+      el.style.height = `${(bottom - top) * glyph_layer_scale}px`;
+      el.style.background = c.hasSingleColour ? css : this.glyphLayers.map(l => `${css} ${l}`).join(', ');
+    };
+
+    if (this._shadow)
+      place(this.shadowElement!, shadowOffset.x, shadowOffset.y, finalShadowColour);
+    else if (this.shadowElement !== null)
+      this.shadowElement.style.display = 'none';
+
+    place(this.textElement, 0, 0, colour);
+  }
+
+  /** Lays out a mask layer per glyph, within the bounds of all glyph rectangles. */
+  private updateMasks(): void {
+    const characters = this.characters;
+    this.maskedCharactersVersion = this.charactersVersion;
+
     let left = Infinity;
     let top = Infinity;
     let right = -Infinity;
@@ -477,6 +526,7 @@ export class SpriteText extends Drawable {
 
     const masks: string[] = [];
     const layers: string[] = [];
+    const k = glyph_layer_scale;
 
     for (const c of characters) {
       const rect = c.drawRectangle;
@@ -487,49 +537,29 @@ export class SpriteText extends Drawable {
 
       // the page isn't decoded yet (e.g. after a font change): draw again once it is.
       if (url === null) {
-        this.lastGlyphKey = '';
+        this.maskedCharactersVersion = -1;
         void loadPage(c.texture.pageUrl)?.then(() => this.invalidate(Invalidation.DrawNode));
         continue;
       }
 
-      masks.push(`url("${url}")`);
-      const k = glyph_layer_scale;
-      layers.push(`${(rect.x - left) * k}px ${(rect.y - top) * k}px / ${rect.width * k}px ${rect.height * k}px no-repeat`);
+      const layer = `${(rect.x - left) * k}px ${(rect.y - top) * k}px / ${rect.width * k}px ${rect.height * k}px no-repeat`;
+      masks.push(`url("${url}") ${layer}`);
+      layers.push(layer);
     }
 
-    // Each glyph quad is drawn with the whole draw colour (SpriteTextDrawNode.Draw): a non-uniform colour is a background layer per glyph.
-    const fill = (c: ColourInfo) => {
-      const css = colourInfoToCss(c, true);
-      return c.hasSingleColour ? css : layers.map(l => `${css} ${l}`).join(', ');
-    };
+    this.glyphLayers = layers;
+    this.glyphBounds = { left, top, right, bottom };
 
-    const place = (el: HTMLElement, dx: number, dy: number, c: ColourInfo) => {
-      if (masks.length === 0) {
-        el.style.display = 'none';
-        return;
-      }
+    const mask = masks.join(', ');
+    if (mask === this.mask)
+      return;
 
-      el.style.display = '';
-      el.style.transform = `translate(${left + dx}px, ${top + dy}px) scale(${1 / glyph_layer_scale})`;
-      el.style.width = `${(right - left) * glyph_layer_scale}px`;
-      el.style.height = `${(bottom - top) * glyph_layer_scale}px`;
-      el.style.background = fill(c);
-      const mask = masks.map((m, i) => `${m} ${layers[i]}`).join(', ');
-      el.style.setProperty('mask', mask);
-      el.style.setProperty('-webkit-mask', mask);
-    };
+    this.mask = mask;
 
-    if (this._shadow)
-      this.shadowElement ??= this.createGlyphsElement(this.textElement);
-
-    this.textElement ??= this.createGlyphsElement(null);
-
-    if (this._shadow)
-      place(this.shadowElement!, shadowOffset.x, shadowOffset.y, finalShadowColour);
-    else if (this.shadowElement !== null)
-      this.shadowElement.style.display = 'none';
-
-    place(this.textElement, 0, 0, colour);
+    for (const el of [this.shadowElement, this.textElement]) {
+      el?.style.setProperty('mask', mask);
+      el?.style.setProperty('-webkit-mask', mask);
+    }
   }
 
   private createGlyphsElement(before: HTMLElement | null): HTMLElement {
