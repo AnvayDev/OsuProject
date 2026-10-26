@@ -1,5 +1,5 @@
 // Ported from osu.Game/Screens/OsuScreen.cs (and IOsuScreen.cs)
-// Not ported yet: the footer (with song select), user activity and mods (online and gameplay features).
+// Not ported yet: user activity and mods (online and gameplay features).
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { AudioManager } from '@fw/audio/AudioManager';
@@ -14,6 +14,9 @@ import { MusicController } from '../overlays/MusicController';
 import { OverlayActivation } from '../overlays/OverlayActivation';
 import { OsuLogo } from './menu/OsuLogo';
 import type { RulesetInfo } from '../rulesets/RulesetInfo';
+import type { Drawable } from '@fw/graphics/Drawable';
+import { ScreenFooter } from './footer/ScreenFooter';
+import type { ScreenFooterButton } from './footer/ScreenFooterButton';
 import type { BackgroundScreen } from './BackgroundScreen';
 import { BackgroundScreenStack } from './BackgroundScreenStack';
 import { OsuScreenDependencies } from './OsuScreenDependencies';
@@ -153,6 +156,12 @@ export abstract class OsuScreen extends Screen {
 
   private logo: OsuLogo | null = null;
 
+  private _footer: ScreenFooter | null = null;
+
+  protected get footer(): ScreenFooter | null {
+    return this._footer;
+  }
+
   protected constructor() {
     super();
 
@@ -169,6 +178,7 @@ export abstract class OsuScreen extends Screen {
     this.musicController = dependencies.resolve(MusicController);
     this.backgroundStack = dependencies.get(BackgroundScreenStack);
     this.logo = dependencies.get(OsuLogo);
+    this._footer = dependencies.get(ScreenFooter);
 
     // [BackgroundDependencyLoader(true)]: the sample arrives asynchronously.
     void dependencies.get(AudioManager)?.samples.get('UI/screen-back').then(s => this.sampleExit = s);
@@ -295,6 +305,16 @@ export abstract class OsuScreen extends Screen {
    */
   protected createBackground(): BackgroundScreen | null {
     return null;
+  }
+
+  /** @internal */
+  loadComponentsAgainstScreenDependencies(components: Iterable<Drawable>): void {
+    for (const c of components)
+      this.loadComponent(c);
+  }
+
+  createFooterButtons(): ScreenFooterButton[] {
+    return [];
   }
 
   /** Invoked when the back button has been pressed to close any overlays before exiting this OsuScreen. Return true to block the exit. */

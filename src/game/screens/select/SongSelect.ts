@@ -1,6 +1,5 @@
 // Ported from osu.Game/Screens/Select/SongSelect.cs
-// Not ported yet: the title wedge and details area (the left wedges) and the footer (with its logo tracking and the mods / random / options
-// buttons), which follow. Not ported at all: mods (ModSelectOverlay, ModSpeedHotkeyHandler), skinning (SkinnableContainer), the volume
+// Not ported yet: the title wedge and details area (the left wedges), which follow. Not ported at all: mods (ModSelectOverlay, ModSpeedHotkeyHandler), skinning (SkinnableContainer), the volume
 // overlay (GlobalScrollAdjustsVolume), context menus / popovers (OsuContextMenuContainer, PopoverContainer pass their child through), dialogs,
 // the difficulty recommender (online user statistics: the first beatmap is recommended), online lookups and gameplay.
 
@@ -41,7 +40,12 @@ import { OverlayColourProvider } from '../../overlays/OverlayColourProvider';
 import { OverlayColourScheme } from '../../overlays/OverlayColourScheme';
 import type { OsuLogo } from '../menu/OsuLogo';
 import { ScreenWithBeatmapBackground } from '../play/ScreenWithBeatmapBackground';
+import { ScreenFooter } from '../footer/ScreenFooter';
+import type { ScreenFooterButton } from '../footer/ScreenFooterButton';
 import { BeatmapCarousel } from './BeatmapCarousel';
+import { FooterButtonMods } from './FooterButtonMods';
+import { FooterButtonOptions } from './FooterButtonOptions';
+import { FooterButtonRandom } from './FooterButtonRandom';
 import { FilterControl } from './FilterControl';
 import type { FilterCriteria } from './FilterCriteria';
 import type { GroupedBeatmap } from './GroupDefinition';
@@ -54,8 +58,7 @@ import type { DrawableTrack } from '@fw/graphics/audio/DrawableTrack';
 const logo_scale = 0.4;
 const fade_duration = 300;
 
-/** ScreenFooter.HEIGHT */
-const screen_footer_height = 50;
+const screen_footer_height = ScreenFooter.HEIGHT;
 
 const float_min_value = -3.4028234663852886e38;
 
@@ -275,6 +278,28 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
    * This is the default action which should be provided to selectAndRun.
    */
   protected abstract onStart(): void;
+
+  override createFooterButtons(): ScreenFooterButton[] {
+    // (FooterButtonMods: mods aren't ported, so there is no overlay or mod selection to give it.)
+    return [
+      new FooterButtonMods().with({
+        hotkey: GlobalAction.ToggleModSelection,
+      }),
+      new FooterButtonRandom().with({
+        nextRandom: () => {
+          if (!this.carousel.nextRandom())
+            this.errorSample?.play();
+        },
+        previousRandom: () => {
+          if (!this.carousel.previousRandom())
+            this.errorSample?.play();
+        },
+      }),
+      new FooterButtonOptions().with({
+        hotkey: GlobalAction.ToggleBeatmapOptions,
+      }),
+    ];
+  }
 
   protected override loadComplete(): void {
     super.loadComplete();
@@ -609,10 +634,12 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
     if (!this.showOsuLogo)
       return;
 
-    // (Footer?.StartTrackingLogo: the footer isn't ported yet.)
-    if (!(logo.alpha > 0.8 && resuming)) {
+    if (logo.alpha > 0.8 && resuming)
+      this.footer?.startTrackingLogo(logo, 400, Easing.OutQuint);
+    else {
       logo.hide();
       logo.scaleTo(0.2);
+      this.footer?.startTrackingLogo(logo);
     }
 
     logo.fadeIn(240, Easing.OutQuint);
@@ -627,6 +654,11 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
 
   protected override logoSuspending(logo: OsuLogo): void {
     super.logoSuspending(logo);
+
+    if (!this.showOsuLogo)
+      return;
+
+    this.footer?.stopTrackingLogo();
   }
 
   protected override logoExiting(logo: OsuLogo): void {
@@ -634,6 +666,8 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
 
     if (!this.showOsuLogo)
       return;
+
+    this.footer?.stopTrackingLogo();
 
     logo.scaleTo(0.2, 120, Easing.Out);
     logo.fadeOut(120, Easing.Out);
@@ -780,6 +814,8 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
         this.mainContent.fadeOut(200, Easing.OutQuint);
 
         this.updateBackgroundDim();
+
+        this.footer?.hide();
       }, 200);
     }
 
@@ -799,6 +835,8 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
       this.mainContent.resizeWidthTo(1, 500, Easing.OutQuint);
       this.mainContent.scaleTo(1, 500, Easing.OutQuint);
       this.mainContent.fadeIn(500, Easing.OutQuint);
+
+      this.footer?.show();
     }
 
     this.revealBackgroundDelegate.cancel();

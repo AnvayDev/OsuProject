@@ -16,10 +16,15 @@ import { OverlayActivation } from './overlays/OverlayActivation';
 import { OsuScreen } from './screens/OsuScreen';
 import { OsuScreenStack } from './screens/OsuScreenStack';
 import { OsuLogo } from './screens/menu/OsuLogo';
+import { BackReceptor, type ScreenFooter } from './screens/footer/ScreenFooter';
+import { ScreenStackFooter } from './screens/footer/ScreenStackFooter';
 import { GameIdleTracker } from './input/GameIdleTracker';
 import { IdleTracker } from './input/IdleTracker';
 import { BeatmapStore } from './database/BeatmapStore';
 import { RealmDetachedBeatmapStore } from './database/RealmDetachedBeatmapStore';
+
+// C# float.MinValue
+const float_min_value = -3.4028234663852886e38;
 
 /** The full osu! experience. Builds on top of OsuGameBase to add menus and binding logic for the screen stack. */
 export class OsuGame extends OsuGameBase {
@@ -56,6 +61,12 @@ export class OsuGame extends OsuGameBase {
   private osuLogo!: OsuLogo;
 
   private detachedBeatmapStore!: RealmDetachedBeatmapStore;
+
+  private screenStackFooter!: ScreenStackFooter;
+
+  protected get screenFooter(): ScreenFooter {
+    return this.screenStackFooter.footer;
+  }
 
   /** Whether overlays should be able to be opened game-wide. Value is sourced from the current active screen. */
   readonly overlayActivationMode = new Bindable<OverlayActivation>(OverlayActivation.All);
@@ -99,6 +110,11 @@ export class OsuGame extends OsuGameBase {
     // (The session idle tracker, which resets SessionStatics after 5 minutes of inactivity, is not ported yet.)
     this.osuDependencies.cacheAs(IdleTracker, this.idleTracker = new GameIdleTracker(6000));
 
+    let backReceptor!: BackReceptor;
+    let screenStackFooter!: ScreenStackFooter;
+    // (the footer tracks the stack it is constructed with, so the stack is created first)
+    const screenStack = new OsuScreenStack().with({ relativeSizeAxes: Axes.Both });
+
     this.addRange([
       this.screenOffsetContainer = new Container().with({
         relativeSizeAxes: Axes.Both,
@@ -108,11 +124,25 @@ export class OsuGame extends OsuGameBase {
             anchor: Anchor.Centre,
             origin: Anchor.Centre,
             children: [
-              this.screenStack = new OsuScreenStack().with({ relativeSizeAxes: Axes.Both }),
+              backReceptor = new BackReceptor(),
+              this.screenStack = screenStack,
               this.logoContainer = new Container().with({ relativeSizeAxes: Axes.Both }),
+              // TODO: what is this? why is this?
+              // TODO: this is being screen scaled even though it's probably AN OVERLAY.
               this.footerBasedOverlayContent = new Container().with({
                 depth: -1,
                 relativeSizeAxes: Axes.Both,
+              }),
+              // (PopoverContainer: popovers aren't ported, so it is a plain container.)
+              new Container().with({
+                // Ensure the footer is displayed above any content and/or overlays.
+                depth: -1,
+                relativeSizeAxes: Axes.Both,
+                child: screenStackFooter = new ScreenStackFooter(screenStack, backReceptor, {
+                  // TODO: this is really really weird and should not exist.
+                  requestLogoInFront: inFront => this.screenContainer.changeChildDepth(this.logoContainer, inFront ? float_min_value : 0),
+                  backButtonPressed: () => this.handleBackButton(),
+                }),
               }),
             ],
           }),
@@ -129,6 +159,9 @@ export class OsuGame extends OsuGameBase {
       this.topMostOverlayContent = new Container().with({ relativeSizeAxes: Axes.Both }),
       this.idleTracker,
     ]);
+
+    this.screenStackFooter = screenStackFooter;
+    this.osuDependencies.cache(this.screenFooter);
 
     this.screenStack.screenPushed.add(([lastScreen, newScreen]) => this.screenPushed(lastScreen, newScreen));
     this.screenStack.screenExited.add(([lastScreen, newScreen]) => this.screenExited(lastScreen, newScreen));
@@ -162,6 +195,16 @@ export class OsuGame extends OsuGameBase {
     // Bind to new screen.
     if (newScreen !== null)
       this.overlayActivationMode.bindTo(newScreen.overlayActivationMode);
+  }
+
+  private handleBackButton(): void {
+    // TODO: this is SUPER SUPER bad.
+    // It can potentially exit the wrong screen if screens are not loaded yet.
+    // ScreenFooter / ScreenBackButton should be aware of which screen it is currently being handled by.
+    const currentScreen = this.screenStack.currentScreen;
+    if (!(currentScreen instanceof OsuScreen)) return;
+
+    if (!currentScreen.isLoaded || (currentScreen.allowUserExit && !currentScreen.onBackButton())) this.screenStack.exit();
   }
 
   private screenPushed(lastScreen: IScreen | null, newScreen: IScreen): void {
