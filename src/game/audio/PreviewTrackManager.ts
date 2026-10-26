@@ -1,6 +1,7 @@
 // Ported from osu.Game/Audio/PreviewTrackManager.cs
-// Web: previews come from the mirror (/api/media/preview/set/{id}, through MirrorResourceStore) instead of b.ppy.sh/preview, which sends no
-// CORS headers (docs/spec/assets-formats.md §7). C#'s TrustedDomainOnlineStore becomes the mirror store.
+// Web: b.ppy.sh/preview sends no CORS headers, so previews are streamed by the media element outside Web Audio (TrackStore.getStreamed);
+// when that can't play, they come from the mirror (/api/media/preview/set/{id}, through MirrorResourceStore, which is slow on the first request
+// of a set) (docs/spec/assets-formats.md §7). C#'s TrustedDomainOnlineStore becomes the mirror store.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { AudioManager } from '@fw/audio/AudioManager';
@@ -109,7 +110,16 @@ export class TrackManagerPreviewTrack extends PreviewTrack {
       Logger.log('A PreviewTrack was created without a containing IPreviewTrackOwner. An owner should be added for correct behaviour.');
   }
 
-  protected override getTrack(): Promise<Track | null> {
+  protected override async getTrack(): Promise<Track | null> {
+    const track = this.trackManager.getStreamed(`https://b.ppy.sh/preview/${this.beatmapSetInfo.onlineID}.mp3`);
+
+    // queued actions run once the track has loaded or failed.
+    await track.enqueueAction(() => {});
+
+    if (track.isLoaded)
+      return track;
+
+    track.dispose();
     return this.trackManager.get(`${MIRROR_ROOT}/media/preview/set/${this.beatmapSetInfo.onlineID}`);
   }
 }

@@ -64,6 +64,22 @@ export class TrackStore extends AudioCollectionManager<AdjustableAudioComponent>
     return track;
   }
 
+  /**
+   * Web: a track streamed by the media element straight from a cross-origin URL that sends no CORS headers (so it can't be fetched), bypassing
+   * the store and Web Audio (see TrackWeb). It fails if the URL can't be played.
+   */
+  getStreamed(url: string): Track {
+    if (this.isDisposed)
+      throw new Error(`Cannot access a disposed ${this.constructor.name}.`);
+
+    const track = new TrackWeb(url, url);
+
+    this.mixer.add(track);
+    this.addItem(track);
+
+    return track;
+  }
+
   getAvailableResources(): readonly string[] {
     return this.store.getAvailableResources();
   }

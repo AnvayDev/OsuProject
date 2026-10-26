@@ -1,5 +1,7 @@
 // Ported from osu.Framework/Audio/Track/TrackBass.cs, on an HTMLAudioElement (streamed, seekable) routed through Web Audio:
 // MediaElementSource → [AmplitudeProcessor, pre-volume like BASSmix] → Gain (AggregateVolume) → StereoPanner (AggregateBalance) → mixer.
+// A track of a cross-origin URL without CORS headers (TrackStore.getStreamed) can't pass through Web Audio (it would output silence): it plays
+// from the element alone, with AggregateVolume as the element's volume (clamped to [0, 1]), no balance, no amplitudes and no mixer effects.
 //
 // Deviations (no BASS_FX): playbackRate = |AggregateFrequency| × AggregateTempo, clamped to the media element's [0.0625, 16]. preservesPitch is on
 // only while the frequency is 1, so frequency and tempo changes together get pitch frequency × tempo (BASS: frequency only). Reverse playback
@@ -24,6 +26,9 @@ export class TrackWeb extends Track {
   /** Actions waiting for the track to load (null once loaded or failed). */
   private loadQueue: (() => void)[] | null = [];
 
+  /** Whether the element plays a cross-origin URL directly (not routed through Web Audio). */
+  private readonly streamed: boolean;
+
   private gain: GainNode | null = null;
   private panner: StereoPannerNode | null = null;
   private source: MediaElementAudioSourceNode | null = null;
@@ -38,8 +43,10 @@ export class TrackWeb extends Track {
   }
 
   /** @internal */
-  constructor(data: Blob | Promise<Blob | null>, name: string) {
+  constructor(data: Blob | Promise<Blob | null> | string, name: string) {
     super(name);
+
+    this.streamed = typeof data === 'string';
 
     // todo: support this internally to match the underlying Track implementation (which can support this).
     const tempo_minimum_supported = 0.05;
@@ -70,7 +77,9 @@ export class TrackWeb extends Track {
       this.runLoadQueue();
     });
 
-    if (data instanceof Blob)
+    if (typeof data === 'string')
+      this.audio.src = data;
+    else if (data instanceof Blob)
       this.setSource(data);
     else {
       void data.then(blob => {
@@ -114,7 +123,7 @@ export class TrackWeb extends Track {
 
   /** @internal */
   override attachToContext(context: BaseAudioContext): void {
-    if (this.source !== null)
+    if (this.source !== null || this.streamed)
       return;
 
     this.source = (context as AudioContext).createMediaElementSource(this.audio);
@@ -290,6 +299,8 @@ export class TrackWeb extends Track {
 
     if (this.gain !== null)
       this.gain.gain.value = this.aggregateVolume.value;
+    if (this.streamed)
+      this.audio.volume = Math.min(Math.max(this.aggregateVolume.value, 0), 1);
     if (this.panner !== null)
       this.panner.pan.value = this.aggregateBalance.value;
 

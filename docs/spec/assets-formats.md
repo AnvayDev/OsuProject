@@ -169,11 +169,13 @@ check is a strong end-to-end test of the importer's set-hash computation (§1, s
   - `sort` → `field:dir`: title → `title`, artist → `artist`, difficulty → `beatmaps.difficulty_rating`, updated → `last_updated`,
     ranked → `ranked_date`, plays → `play_count`, favourites → `favourite_count`. rating, relevance and nominations aren't sortable:
     no sort parameter (the mirror's default order).
-- Preview audio: `b.ppy.sh/preview/{id}.mp3` has no CORS headers; `/api/media/preview/set/{setId}` (audio/mpeg) does.
+- Preview audio: `b.ppy.sh/preview/{id}.mp3` (Ogg Vorbis, ~0.3 s) has no CORS headers, so it is streamed by the media element outside Web Audio
+  (`TrackStore.getStreamed`: element volume, no balance/amplitudes); `/api/media/preview/set/{setId}` (audio/mpeg, CORS, but 5-6 s on the first
+  request of a set) is the fallback when that can't play.
 - Cover images (`assets.ppy.sh/beatmaps/{id}/covers/*`) have no CORS headers either: TextureStore uses an http(s) name directly as the
   texture URL (an image element can display it) instead of fetching it.
 - Port status (listing): `SearchBeatmapSetsRequest` (mapping above), `APIBeatmapSet`/`APIBeatmap`, `BeatmapListingOverlay` with its header,
-  filter control and Normal/Extra beatmap cards, `PreviewTrackManager` (previews from the mirror) done; unit tests for the mapping, verified
+  filter control and Normal/Extra beatmap cards, `PreviewTrackManager` (previews from b.ppy.sh, falling back to the mirror) done; unit tests for the mapping, verified
   in the browser (search, filters, paging, card size, hover expansion). No login: supporter-only filters (rank achieved, played) give the
   supporter-required result, favouriting fails as for a logged out user, and the recommended difficulty shows no star rating.
 - Fallback mirror: nerinyan (`api.nerinyan.moe/d/{id}` → `dl.nerinyan.moe`, `Access-Control-Allow-Origin: *`). Search returned 530 at the time.
