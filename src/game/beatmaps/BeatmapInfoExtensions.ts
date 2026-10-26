@@ -1,4 +1,5 @@
-// Ported from osu.Game/Beatmaps/BeatmapInfoExtensions.cs (UpdateStatisticsFromBeatmap, GetDisplayTitle, Match, AllowGameplayWithRuleset).
+// Ported from osu.Game/Beatmaps/BeatmapInfoExtensions.cs (UpdateStatisticsFromBeatmap, GetDisplayTitle, Match, AllowGameplayWithRuleset,
+// GetOnlineURL).
 
 import { hasDuration } from '../rulesets/objects/types/Types';
 import { BeatmapExtensions, type IBeatmap } from './Beatmap';
@@ -6,6 +7,7 @@ import type { BeatmapInfo } from './BeatmapInfo';
 import type { RulesetInfo } from '../rulesets/RulesetInfo';
 import type { OptionalTextFilter } from '../screens/select/FilterCriteria';
 import { getDisplayTitle as getMetadataDisplayTitle, match as matchMetadata } from './BeatmapMetadataInfoExtensions';
+import { WEBSITE_URL } from './BeatmapSetInfoExtensions';
 
 /** Given an IBeatmap, update length, BPM and object counts. */
 export function updateStatisticsFromBeatmap(beatmapInfo: BeatmapInfo, beatmap: IBeatmap): void {
@@ -49,4 +51,12 @@ export function allowGameplayWithRuleset(beatmap: BeatmapInfo, ruleset: RulesetI
     return true;
 
   return false;
+}
+
+/** Get the beatmap info page URL, or null if unavailable. */
+export function getOnlineURL(beatmapInfo: BeatmapInfo, ruleset: RulesetInfo | null = null): string | null {
+  if (beatmapInfo.onlineID <= 0 || beatmapInfo.beatmapSet === null)
+    return null;
+
+  return `${WEBSITE_URL}/beatmapsets/${beatmapInfo.beatmapSet.onlineID}#${ruleset?.shortName ?? beatmapInfo.ruleset.shortName}/${beatmapInfo.onlineID}`;
 }

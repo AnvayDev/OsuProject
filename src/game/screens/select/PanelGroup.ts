@@ -1,5 +1,4 @@
 // Ported from osu.Game/Screens/Select/PanelGroup.cs
-// Context menus aren't ported.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { ColourInfo } from '@fw/graphics/ColourInfo';
@@ -7,6 +6,7 @@ import { Colour4 } from '@fw/graphics/Colour4';
 import { CircularContainer } from '@fw/graphics/containers/CircularContainer';
 import { Container } from '@fw/graphics/containers/Container';
 import type { Drawable } from '@fw/graphics/Drawable';
+import type { MenuItem } from '@fw/graphics/userInterface/MenuItem';
 import { Box } from '@fw/graphics/shapes/Box';
 import { FontAwesome } from '@fw/graphics/sprites/FontAwesome';
 import { SpriteIcon } from '@fw/graphics/sprites/SpriteIcon';
@@ -18,6 +18,8 @@ import { TrianglesV2 } from '../../graphics/backgrounds/TrianglesV2';
 import { CarouselItem } from '../../graphics/carousel/CarouselItem';
 import { FontWeight, OsuFont, withFont } from '../../graphics/OsuFont';
 import { OsuSpriteText } from '../../graphics/sprites/OsuSpriteText';
+import { MenuItemType } from '../../graphics/userInterface/MenuItemType';
+import { OsuMenuItem } from '../../graphics/userInterface/OsuMenuItem';
 import { OverlayColourProvider } from '../../overlays/OverlayColourProvider';
 import type { GroupDefinition } from './GroupDefinition';
 import { Panel } from './Panel';
@@ -143,5 +145,14 @@ export class PanelGroup extends Panel {
 
     // Move the count pill in the opposite direction to keep it pinned to the screen regardless of the X position of TopLevelContent.
     this.countPill.x = -this.topLevelContent.x;
+  }
+
+  override get contextMenuItems(): readonly MenuItem[] {
+    if (this.item === null)
+      return [];
+
+    return [
+      new OsuMenuItem(this.expanded.value ? 'Collapse' : 'Expand', MenuItemType.Highlighted, () => this.triggerClick()),
+    ];
   }
 }

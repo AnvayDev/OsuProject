@@ -1,5 +1,5 @@
 // Ported from osu.Game/Screens/Select/PanelBeatmap.cs
-// Context menus aren't ported. The difficulty cache isn't ported (no difficulty calculators): the star difficulty is the value C#'s
+// The difficulty cache isn't ported (no difficulty calculators): the star difficulty is the value C#'s
 // GetBindableDifficulty starts with, StarDifficulty(beatmap.StarRating, 0). Ruleset variants (the mania key count) need ruleset instances,
 // which aren't ported, so the variant text stays hidden as for the single-variant osu! ruleset.
 
@@ -10,6 +10,7 @@ import { Box } from '@fw/graphics/shapes/Box';
 import { Anchor, Axes, FillDirection } from '@fw/layout/Enums';
 import { MarginPadding } from '@fw/layout/MarginPadding';
 import { Vector2 } from '@fw/layout/Vector2';
+import type { MenuItem } from '@fw/graphics/userInterface/MenuItem';
 import type { BeatmapInfo } from '../../beatmaps/BeatmapInfo';
 import { StarRatingDisplay, StarRatingDisplaySize } from '../../beatmaps/drawables/StarRatingDisplay';
 import { TrianglesV2 } from '../../graphics/backgrounds/TrianglesV2';
@@ -20,6 +21,7 @@ import { OsuSpriteText } from '../../graphics/sprites/OsuSpriteText';
 import { StarCounter } from '../../graphics/userInterface/StarCounter';
 import { OverlayColourProvider } from '../../overlays/OverlayColourProvider';
 import type { GroupedBeatmap } from './GroupDefinition';
+import { ISongSelect } from './ISongSelect';
 import { Panel } from './Panel';
 import { createRulesetIcon } from './PanelBeatmapSet.SpreadDisplay';
 import { PanelLocalRankDisplay } from './PanelLocalRankDisplay';
@@ -41,6 +43,8 @@ export class PanelBeatmap extends Panel {
 
   private triangles!: TrianglesV2;
 
+  private songSelect: ISongSelect | null = null;
+
   private get beatmap(): BeatmapInfo {
     return (this.item!.model as GroupedBeatmap).beatmap;
   }
@@ -57,6 +61,8 @@ export class PanelBeatmap extends Panel {
 
   protected override load(dependencies: IReadOnlyDependencyContainer): Promise<void> | void {
     const r = super.load(dependencies);
+
+    this.songSelect = dependencies.get(ISongSelect);
 
     const colourProvider = dependencies.resolve(OverlayColourProvider);
 
@@ -205,5 +211,17 @@ export class PanelBeatmap extends Panel {
 
     if (!this.difficultyIcon.colour.equals(this.starRatingDisplay.displayedDifficultyTextColour))
       this.difficultyIcon.colour = this.starRatingDisplay.displayedDifficultyTextColour;
+  }
+
+  override get contextMenuItems(): readonly MenuItem[] {
+    if (this.item === null)
+      return [];
+
+    const items: MenuItem[] = [];
+
+    if (this.songSelect !== null)
+      items.push(...this.songSelect.getForwardActions(this.beatmap));
+
+    return items;
   }
 }

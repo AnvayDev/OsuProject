@@ -50,7 +50,9 @@ boot = AudioUnlockScreen (web autoplay gate, src/) → Loader. Not yet: IntroCir
 filter pipeline + panels, SongSelect/SoloSongSelect, footer, title wedge, details area (Details/Ranking tabs, metadata wedge, offline leaderboard
 placeholder), framework TabControl, framework TextBox (web text input via hidden textarea) + search box + FilterQueryParser.
 framework Menu/Dropdown/SearchContainer + OsuDropdown/ShearedDropdown (sort/group/collection/scope), framework SliderBar + star rating DifficultyRangeSlider.
-Not yet: tooltips, popovers, context menus, mod select. Mirror metadata lookup done (status, dates, star ratings at import). Downloads done (BeatmapModelDownloader +
+Carousel context menus done (framework ContextMenuContainer, OsuContextMenu/OsuMenu items + samples; hide/restore,
+mark played, copy link, delete via DialogOverlay + PopupDialog/DangerousActionDialog hold-to-confirm). Not yet: tooltips, popovers, mod select,
+collections (menu entry only), editor/scores (menu entries do nothing). Mirror metadata lookup done (status, dates, star ratings at import). Downloads done (BeatmapModelDownloader +
 BeatmapDownloadTracker, shared mirror rate limiter). Beatmap listing overlay done (main menu "browse"; mirror search, Normal/Extra cards,
 previews, downloads, PresentBeatmap): overlay base classes (WaveOverlayContainer/FullscreenOverlay/OnlineOverlay, OverlayHeader,
 OverlayScrollContainer), IOverlayManager dim, framework CircularProgress/DelayedLoadWrapper/ModelBackedDrawable. No beatmap set overlay.

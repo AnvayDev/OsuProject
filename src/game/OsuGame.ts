@@ -1,11 +1,14 @@
 // Ported from osu.Game/OsuGame.cs (the screen layering and screen change handling, overlay management and PresentBeatmap)
-// Not ported yet: most overlays (the beatmap listing and now playing are the only ones), notifications, cursor, OSD and global key bindings. They
-// will be added to the containers below as they are ported. The first screen is supplied by createLoader().
+// Not ported yet: most overlays (the beatmap listing, now playing, volume and dialog overlays are the only ones), notifications, cursor, OSD
+// and global key bindings. They will be added to the containers below as they are ported. The first screen is supplied by createLoader().
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { Bindable, type ValueChangedEvent } from '@fw/bindables/Bindable';
 import type { WorkingBeatmap } from './beatmaps/WorkingBeatmap';
 import { Container } from '@fw/graphics/containers/Container';
+import { Clipboard } from '@fw/platform/Clipboard';
+import { DialogOverlay } from './overlays/DialogOverlay';
+import { IDialogOverlay } from './overlays/IDialogOverlay';
 import { Anchor, Axes } from '@fw/layout/Enums';
 import { Vector2 } from '@fw/layout/Vector2';
 import { Colour4 } from '@fw/graphics/Colour4';
@@ -213,6 +216,11 @@ export class OsuGame extends OsuGameBase implements IKeyBindingHandler<GlobalAct
     this.add(this.performFromMainMenuTask = new PerformFromMenuRunner(action, validScreens, () => this.screenStack.currentScreen));
   }
 
+  /** (The on-screen display isn't ported, so there's no CopiedToClipboardToast.) */
+  copyToClipboard(value: string): void {
+    this.osuDependencies.resolve(Clipboard).setText(value);
+  }
+
   protected override createScalingContainer(): Container {
     return new ScalingContainer(ScalingMode.Everything);
   }
@@ -314,6 +322,11 @@ export class OsuGame extends OsuGameBase implements IKeyBindingHandler<GlobalAct
     }), d => this.topMostOverlayContent.add(d));
 
     this.loadComponentSingleFile(this.volume = new VolumeOverlay(), d => this.leftFloatingOverlayContent.add(d), true);
+
+    // (loadComponentSingleFile<IDialogOverlay>(..., cache: true))
+    const dialogOverlay = new DialogOverlay();
+    this.osuDependencies.cacheAs(IDialogOverlay, dialogOverlay);
+    this.loadComponentSingleFile(dialogOverlay, d => this.topMostOverlayContent.add(d));
 
     this.loadComponentSingleFile(this.beatmapListing = new BeatmapListingOverlay(), d => this.gameOverlayContent.add(d), true);
 

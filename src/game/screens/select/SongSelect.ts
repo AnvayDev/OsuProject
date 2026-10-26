@@ -1,6 +1,6 @@
 // Ported from osu.Game/Screens/Select/SongSelect.cs
 // Not ported yet: the title wedge and details area (the left wedges), which follow. Not ported at all: mods (ModSelectOverlay, ModSpeedHotkeyHandler), skinning (SkinnableContainer), the volume
-// overlay (GlobalScrollAdjustsVolume), context menus / popovers (OsuContextMenuContainer, PopoverContainer pass their child through), dialogs,
+// overlay (GlobalScrollAdjustsVolume), popovers (PopoverContainer passes its child through), dialogs,
 // the difficulty recommender (online user statistics: the first beatmap is recommended), online lookups and gameplay.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
@@ -16,6 +16,7 @@ import { Dimension, GridContainer, GridSizeMode } from '@fw/graphics/containers/
 import { Visibility } from '@fw/graphics/containers/VisibilityContainer';
 import { emptyDrawable } from '@fw/graphics/EmptyDrawable';
 import { Box } from '@fw/graphics/shapes/Box';
+import { FontAwesome } from '@fw/graphics/sprites/FontAwesome';
 import type { IKeyBindingHandler, KeyBindingPressEvent, KeyBindingReleaseEvent } from '@fw/input/bindings/KeyBindings';
 import type { HoverEvent, KeyDownEvent, MouseDownEvent, MouseUpEvent } from '@fw/input/events/UIEvents';
 import type { InputManager } from '@fw/input/InputManager';
@@ -26,7 +27,7 @@ import { Logger } from '@fw/logging/Logger';
 import type { ScreenExitEvent, ScreenTransitionEvent } from '@fw/screens/IScreen';
 import { RunState, type ScheduledDelegate } from '@fw/timing/Scheduler';
 import { Easing } from '@fw/transforms/Easing';
-import { allowGameplayWithRuleset } from '../../beatmaps/BeatmapInfoExtensions';
+import { allowGameplayWithRuleset, getOnlineURL } from '../../beatmaps/BeatmapInfoExtensions';
 import type { BeatmapInfo } from '../../beatmaps/BeatmapInfo';
 import { BeatmapManager } from '../../beatmaps/BeatmapManager';
 import type { BeatmapSetInfo } from '../../beatmaps/BeatmapSetInfo';
@@ -35,6 +36,12 @@ import type { RulesetInfo } from '../../rulesets/RulesetInfo';
 import { OsuConfigManager, OsuSetting } from '../../configuration/OsuConfigManager';
 import type { CarouselItem } from '../../graphics/carousel/CarouselItem';
 import { ShearAligningWrapper } from '../../graphics/containers/ShearAligningWrapper';
+import { OsuContextMenuContainer } from '../../graphics/cursor/OsuContextMenuContainer';
+import { MenuItemType } from '../../graphics/userInterface/MenuItemType';
+import { OsuMenuItem } from '../../graphics/userInterface/OsuMenuItem';
+import { OsuMenuItemSpacer } from '../../graphics/userInterface/OsuMenuItemSpacer';
+import { IDialogOverlay } from '../../overlays/IDialogOverlay';
+import { BeatmapDeleteDialog } from './BeatmapDeleteDialog';
 import { GlobalAction } from '../../input/bindings/GlobalAction';
 import { OsuGame } from '../../OsuGame';
 import { DuckParameters, MusicController, type TrackChangeDirection } from '../../overlays/MusicController';
@@ -139,6 +146,8 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
 
   private music!: MusicController;
 
+  private dialogOverlay: IDialogOverlay | null = null;
+
   private inputManager!: InputManager;
 
   private configBackgroundBlur!: Bindable<boolean>;
@@ -159,6 +168,7 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
 
     this.beatmaps = dependencies.resolve(BeatmapManager);
     this.music = dependencies.resolve(MusicController);
+    this.dialogOverlay = dependencies.get(IDialogOverlay);
 
     const audio = dependencies.resolve(AudioManager);
     const config = dependencies.resolve(OsuConfigManager);
@@ -174,91 +184,94 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
         origin: Anchor.Centre,
         relativeSizeAxes: Axes.Both,
         padding: MarginPadding.of({ bottom: screen_footer_height }),
-        children: [
-          new Box().with({
-            relativeSizeAxes: Axes.Both,
-            width: 0.6,
-            colour: ColourInfo.gradientHorizontal(Colour4.Black.opacity(0.3), Colour4.Black.opacity(0)),
-          }),
-          this.mainGridContainer = new GridContainer().with({ // used for max width implementation
-            relativeSizeAxes: Axes.Both,
-            content: [
-              [
-                new Container().with({
-                  relativeSizeAxes: Axes.Both,
-                  // Ensure the left components are on top of the carousel both visually (although they should never overlay)
-                  // but more importantly, for input purposes to allow the scroll-to-selection logic to override carousel's
-                  // screen-wide scroll handling.
-                  depth: float_min_value,
-                  shear: OsuGame.SHEAR,
-                  padding: MarginPadding.of({
-                    top: -SongSelect.CORNER_RADIUS_HIDE_OFFSET,
-                    left: -SongSelect.CORNER_RADIUS_HIDE_OFFSET,
+        child: new OsuContextMenuContainer().with({
+          relativeSizeAxes: Axes.Both,
+          children: [
+            new Box().with({
+              relativeSizeAxes: Axes.Both,
+              width: 0.6,
+              colour: ColourInfo.gradientHorizontal(Colour4.Black.opacity(0.3), Colour4.Black.opacity(0)),
+            }),
+            this.mainGridContainer = new GridContainer().with({ // used for max width implementation
+              relativeSizeAxes: Axes.Both,
+              content: [
+                [
+                  new Container().with({
+                    relativeSizeAxes: Axes.Both,
+                    // Ensure the left components are on top of the carousel both visually (although they should never overlay)
+                    // but more importantly, for input purposes to allow the scroll-to-selection logic to override carousel's
+                    // screen-wide scroll handling.
+                    depth: float_min_value,
+                    shear: OsuGame.SHEAR,
+                    padding: MarginPadding.of({
+                      top: -SongSelect.CORNER_RADIUS_HIDE_OFFSET,
+                      left: -SongSelect.CORNER_RADIUS_HIDE_OFFSET,
+                    }),
+                    children: [
+                      new Container().with({
+                        // Pad enough to only reset scroll when well into the left wedge areas.
+                        padding: MarginPadding.of({ right: 40 }),
+                        relativeSizeAxes: Axes.Both,
+                        child: new LeftSideInteractionContainer(() => this.carousel.scrollToSelection()).with({
+                          relativeSizeAxes: Axes.Both,
+                        }),
+                      }),
+                      this.wedgesContainer = new FillFlowContainer().with({
+                        relativeSizeAxes: Axes.Both,
+                        spacing: new Vector2(0, 4),
+                        direction: FillDirection.Vertical,
+                        children: [
+                          new ShearAligningWrapper(this.titleWedge = new BeatmapTitleWedge().with({
+                            topPadding: this.topPadding,
+                          })),
+                          new ShearAligningWrapper(this.detailsArea = new BeatmapDetailsArea()),
+                        ],
+                      }),
+                    ],
                   }),
-                  children: [
-                    new Container().with({
-                      // Pad enough to only reset scroll when well into the left wedge areas.
-                      padding: MarginPadding.of({ right: 40 }),
-                      relativeSizeAxes: Axes.Both,
-                      child: new LeftSideInteractionContainer(() => this.carousel.scrollToSelection()).with({
+                  emptyDrawable(),
+                  new Container().with({
+                    relativeSizeAxes: Axes.Both,
+                    children: [
+                      this.rightGradientBackground = new Box().with({
+                        anchor: Anchor.TopRight,
+                        origin: Anchor.TopRight,
+                        colour: ColourInfo.gradientHorizontal(Colour4.Black.opacity(0.0), Colour4.Black.opacity(0.5)),
                         relativeSizeAxes: Axes.Both,
                       }),
-                    }),
-                    this.wedgesContainer = new FillFlowContainer().with({
-                      relativeSizeAxes: Axes.Both,
-                      spacing: new Vector2(0, 4),
-                      direction: FillDirection.Vertical,
-                      children: [
-                        new ShearAligningWrapper(this.titleWedge = new BeatmapTitleWedge().with({
-                          topPadding: this.topPadding,
-                        })),
-                        new ShearAligningWrapper(this.detailsArea = new BeatmapDetailsArea()),
-                      ],
-                    }),
-                  ],
-                }),
-                emptyDrawable(),
-                new Container().with({
-                  relativeSizeAxes: Axes.Both,
-                  children: [
-                    this.rightGradientBackground = new Box().with({
-                      anchor: Anchor.TopRight,
-                      origin: Anchor.TopRight,
-                      colour: ColourInfo.gradientHorizontal(Colour4.Black.opacity(0.0), Colour4.Black.opacity(0.5)),
-                      relativeSizeAxes: Axes.Both,
-                    }),
-                    new Container().with({
-                      relativeSizeAxes: Axes.Both,
-                      padding: MarginPadding.of({
-                        top: FilterControl.HEIGHT_FROM_SCREEN_TOP + 5,
-                        bottom: 5,
+                      new Container().with({
+                        relativeSizeAxes: Axes.Both,
+                        padding: MarginPadding.of({
+                          top: FilterControl.HEIGHT_FROM_SCREEN_TOP + 5,
+                          bottom: 5,
+                        }),
+                        children: [
+                          carousel = new BeatmapCarousel().with({
+                            bleedTop: FilterControl.HEIGHT_FROM_SCREEN_TOP + 5,
+                            bleedBottom: screen_footer_height + 5,
+                            relativeSizeAxes: Axes.Both,
+                            requestPresentBeatmap: b => this.selectAndRun(b, () => this.onStart()),
+                            requestSelection: b => this.queueBeatmapSelection(b),
+                            requestRecommendedSelection: b => this.requestRecommendedSelection(b),
+                            newItemsPresented: items => this.newItemsPresented(items),
+                          }),
+                          this.noResultsPlaceholder = new NoResultsPlaceholder().with({
+                            requestClearFilterText: () => this.filterControl.search(''),
+                          }),
+                        ],
                       }),
-                      children: [
-                        carousel = new BeatmapCarousel().with({
-                          bleedTop: FilterControl.HEIGHT_FROM_SCREEN_TOP + 5,
-                          bleedBottom: screen_footer_height + 5,
-                          relativeSizeAxes: Axes.Both,
-                          requestPresentBeatmap: b => this.selectAndRun(b, () => this.onStart()),
-                          requestSelection: b => this.queueBeatmapSelection(b),
-                          requestRecommendedSelection: b => this.requestRecommendedSelection(b),
-                          newItemsPresented: items => this.newItemsPresented(items),
-                        }),
-                        this.noResultsPlaceholder = new NoResultsPlaceholder().with({
-                          requestClearFilterText: () => this.filterControl.search(''),
-                        }),
-                      ],
-                    }),
-                    filterControl = new FilterControl().with({
-                      anchor: Anchor.TopRight,
-                      origin: Anchor.TopRight,
-                      relativeSizeAxes: Axes.X,
-                    }),
-                  ],
-                }),
+                      filterControl = new FilterControl().with({
+                        anchor: Anchor.TopRight,
+                        origin: Anchor.TopRight,
+                        relativeSizeAxes: Axes.X,
+                      }),
+                    ],
+                  }),
+                ],
               ],
-            ],
-          }),
-        ],
+            }),
+          ],
+        }),
       }),
     ]);
 
@@ -913,6 +926,46 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
   // #endregion
 
   // #region Beatmap management
+
+  getForwardActions(beatmap: BeatmapInfo): OsuMenuItem[] {
+    const items: OsuMenuItem[] = [];
+
+    items.push(Object.assign(new OsuMenuItem('Select', MenuItemType.Highlighted, () => this.selectAndRun(beatmap, () => this.onStart())), {
+      icon: FontAwesome.Solid.Check,
+    }));
+
+    items.push(new OsuMenuItemSpacer());
+
+    if (beatmap.onlineID > 0) {
+      // (the beatmap set overlay isn't ported: beatmapOverlay?.FetchAndShowBeatmap is a no-op)
+      items.push(new OsuMenuItem('Details...', MenuItemType.Standard, () => {}));
+
+      const url = getOnlineURL(beatmap, this.ruleset.value);
+      if (url !== null)
+        items.push(new OsuMenuItem('Copy link', MenuItemType.Standard, () => (this.game instanceof OsuGame ? this.game : null)?.copyToClipboard(url)));
+    }
+
+    items.push(new OsuMenuItemSpacer());
+
+    items.push(...this.createCollectionMenuActions(beatmap));
+
+    return items;
+  }
+
+  /** (Collections aren't ported: there are no collections to toggle and no manage collections dialog to show.) */
+  protected createCollectionMenuActions(_beatmap: BeatmapInfo): OsuMenuItem[] {
+    const collectionItems = [new OsuMenuItem('Manage...', MenuItemType.Standard, () => {})];
+
+    return [Object.assign(new OsuMenuItem('Collections'), { items: collectionItems })];
+  }
+
+  delete(beatmapSet: BeatmapSetInfo): void {
+    this.dialogOverlay?.push(new BeatmapDeleteDialog(beatmapSet));
+  }
+
+  restoreAllHidden(beatmapSet: BeatmapSetInfo): void {
+    void this.beatmaps.restore(beatmapSet);
+  }
 
   private beforeScopedSelection: GroupedBeatmap | null = null;
 

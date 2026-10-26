@@ -1,6 +1,7 @@
 // Ported from osu.Game/Screens/Select/PanelBeatmapSet.cs
-// Context menus aren't ported. PanelUpdateBeatmapButton is left out: it only shows when a set doesn't match its online version, which needs
-// the online metadata lookup (until then every set reads as up to date, so the button is never present in the flow).
+// Collections aren't ported, so the collections submenu is empty. PanelUpdateBeatmapButton is left out: it only shows when a set doesn't
+// match its online version, which needs the online metadata lookup (until then every set reads as up to date, so the button is never present
+// in the flow).
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { Bindable } from '@fw/bindables/Bindable';
@@ -17,7 +18,17 @@ import { Vector2 } from '@fw/layout/Vector2';
 import { romanisable } from '@fw/localisation/RomanisableString';
 import type { ScheduledDelegate } from '@fw/timing/Scheduler';
 import { Easing } from '@fw/transforms/Easing';
+import type { MenuItem } from '@fw/graphics/userInterface/MenuItem';
 import { BeatmapManager } from '../../beatmaps/BeatmapManager';
+import { getOnlineURL } from '../../beatmaps/BeatmapSetInfoExtensions';
+import type { WorkingBeatmap } from '../../beatmaps/WorkingBeatmap';
+import { MenuItemType } from '../../graphics/userInterface/MenuItemType';
+import { OsuMenuItem } from '../../graphics/userInterface/OsuMenuItem';
+import { OsuMenuItemSpacer } from '../../graphics/userInterface/OsuMenuItemSpacer';
+import { OsuGame } from '../../OsuGame';
+import type { RulesetInfo } from '../../rulesets/RulesetInfo';
+import { ISongSelect } from './ISongSelect';
+import type { SoloSongSelect } from './SoloSongSelect';
 import type { BeatmapInfo } from '../../beatmaps/BeatmapInfo';
 import { BeatmapSetOnlineStatusPill } from '../../beatmaps/drawables/BeatmapSetOnlineStatusPill';
 import { CarouselItem } from '../../graphics/carousel/CarouselItem';
@@ -48,6 +59,14 @@ export class PanelBeatmapSet extends Panel {
 
   private beatmaps!: BeatmapManager;
 
+  private songSelect: ISongSelect | null = null;
+
+  private ruleset!: Bindable<RulesetInfo>;
+
+  private globalBeatmap!: Bindable<WorkingBeatmap>;
+
+  private game: OsuGame | null = null;
+
   private get groupedBeatmapSet(): GroupedBeatmapSet {
     return this.item!.model as GroupedBeatmapSet;
   }
@@ -63,6 +82,10 @@ export class PanelBeatmapSet extends Panel {
 
     this.colourProvider = dependencies.resolve(OverlayColourProvider);
     this.beatmaps = dependencies.resolve(BeatmapManager);
+    this.songSelect = dependencies.get(ISongSelect);
+    this.ruleset = dependencies.resolve(Bindable<RulesetInfo>, 'RulesetInfo');
+    this.globalBeatmap = dependencies.resolve(Bindable<WorkingBeatmap>, 'WorkingBeatmap');
+    this.game = dependencies.get(OsuGame);
 
     this.height = PanelBeatmapSet.HEIGHT;
 
@@ -169,5 +192,49 @@ export class PanelBeatmapSet extends Panel {
     this.scheduledBackgroundRetrieval = null;
     this.setBackground.beatmap = null;
     this.spreadDisplay.beatmapSet.value = null;
+  }
+
+  override get contextMenuItems(): readonly MenuItem[] {
+    if (this.item === null)
+      return [];
+
+    const beatmapSet = this.groupedBeatmapSet.beatmapSet;
+
+    const items: MenuItem[] = [];
+
+    if (this.expanded.value) {
+      // (`songSelect is SoloSongSelect`: duck-typed, as importing SoloSongSelect here would be circular)
+      const soloSongSelect = this.songSelect as (ISongSelect & Partial<Pick<SoloSongSelect, 'edit'>>) | null;
+
+      if (typeof soloSongSelect?.edit === 'function') {
+        // Assume the current set has one of its beatmaps selected since it is expanded.
+        items.push(Object.assign(new OsuMenuItem('Edit', MenuItemType.Standard, () => soloSongSelect.edit!(this.globalBeatmap.value.beatmapInfo)), {
+          icon: FontAwesome.Solid.PencilAlt,
+        }));
+        items.push(new OsuMenuItemSpacer());
+      }
+    } else {
+      items.push(new OsuMenuItem('Expand', MenuItemType.Highlighted, () => this.triggerClick()));
+      items.push(new OsuMenuItemSpacer());
+    }
+
+    if (beatmapSet.onlineID > 0) {
+      // (the beatmap set overlay isn't ported: beatmapOverlay?.FetchAndShowBeatmapSet is a no-op)
+      items.push(new OsuMenuItem('Details...', MenuItemType.Standard, () => {}));
+
+      const url = getOnlineURL(beatmapSet, this.ruleset.value);
+      if (url !== null)
+        items.push(new OsuMenuItem('Copy link', MenuItemType.Standard, () => this.game?.copyToClipboard(url)));
+
+      items.push(new OsuMenuItemSpacer());
+    }
+
+    items.push(new OsuMenuItem('Collections'));
+
+    if (beatmapSet.beatmaps.some(b => b.hidden))
+      items.push(new OsuMenuItem('Restore all hidden', MenuItemType.Standard, () => this.songSelect?.restoreAllHidden(beatmapSet)));
+
+    items.push(new OsuMenuItem('Delete...', MenuItemType.Destructive, () => this.songSelect?.delete(beatmapSet)));
+    return items;
   }
 }

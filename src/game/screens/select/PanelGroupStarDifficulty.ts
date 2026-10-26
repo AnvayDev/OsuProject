@@ -1,5 +1,4 @@
 // Ported from osu.Game/Screens/Select/PanelGroupStarDifficulty.cs
-// Context menus aren't ported.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { ColourInfo } from '@fw/graphics/ColourInfo';
@@ -8,6 +7,7 @@ import { CircularContainer } from '@fw/graphics/containers/CircularContainer';
 import { Container } from '@fw/graphics/containers/Container';
 import { FillFlowContainer } from '@fw/graphics/containers/FillFlowContainer';
 import type { Drawable } from '@fw/graphics/Drawable';
+import type { MenuItem } from '@fw/graphics/userInterface/MenuItem';
 import { Box } from '@fw/graphics/shapes/Box';
 import { FontAwesome } from '@fw/graphics/sprites/FontAwesome';
 import { SpriteIcon } from '@fw/graphics/sprites/SpriteIcon';
@@ -21,6 +21,8 @@ import { FontWeight, OsuFont, withFont } from '../../graphics/OsuFont';
 import { OsuSpriteText } from '../../graphics/sprites/OsuSpriteText';
 import { OverlayColourProvider } from '../../overlays/OverlayColourProvider';
 import type { StarDifficultyGroupDefinition } from './GroupDefinition';
+import { MenuItemType } from '../../graphics/userInterface/MenuItemType';
+import { OsuMenuItem } from '../../graphics/userInterface/OsuMenuItem';
 import { Panel } from './Panel';
 import { PanelGroup } from './PanelGroup';
 
@@ -174,5 +176,14 @@ export class PanelGroupStarDifficulty extends Panel {
 
     // Move the count pill in the opposite direction to keep it pinned to the screen regardless of the X position of TopLevelContent.
     this.countPill.x = -this.topLevelContent.x;
+  }
+
+  override get contextMenuItems(): readonly MenuItem[] {
+    if (this.item === null)
+      return [];
+
+    return [
+      new OsuMenuItem(this.expanded.value ? 'Collapse' : 'Expand', MenuItemType.Highlighted, () => this.triggerClick()),
+    ];
   }
 }

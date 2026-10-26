@@ -259,3 +259,35 @@ describe('BeatmapManager', () => {
     expect(results.at(-1)).toEqual([]);
   });
 });
+
+describe('BeatmapManager hide / restore / played (context menu actions)', () => {
+  it('hides difficulties but never the last visible one, and restores them all', async () => {
+    const set = await importQuick();
+    const last = set.beatmaps[set.beatmaps.length - 1];
+
+    for (const b of set.beatmaps.slice(0, -1)) {
+      expect(manager.canHide(b)).toBe(true);
+      expect(await manager.hide(b)).toBe(true);
+    }
+
+    // only the last difficulty is still visible
+    expect(manager.canHide(last)).toBe(false);
+    expect(await manager.hide(last)).toBe(false);
+    expect(realm.findBeatmapSet(set.id)!.beatmaps.filter(x => !x.hidden).map(x => x.id)).toEqual([last.id]);
+
+    await manager.restore(set);
+    expect(realm.findBeatmapSet(set.id)!.beatmaps.some(x => x.hidden)).toBe(false);
+  });
+
+  it('marks a difficulty as played and not played', async () => {
+    const set = await importQuick();
+    const beatmap = set.beatmaps[1];
+
+    await manager.markPlayed(beatmap);
+    expect(realm.findBeatmap(beatmap.id)!.lastPlayed).toBeInstanceOf(Date);
+    expect(realm.findBeatmapSet(set.id)!.beatmaps.filter(x => x.lastPlayed !== null)).toHaveLength(1);
+
+    await manager.markNotPlayed(beatmap);
+    expect(realm.findBeatmap(beatmap.id)!.lastPlayed).toBeNull();
+  });
+});

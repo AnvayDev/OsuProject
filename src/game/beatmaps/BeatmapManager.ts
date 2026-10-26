@@ -66,6 +66,52 @@ export class BeatmapManager extends ModelManager implements IWorkingBeatmapCache
     return this.undeleteItems(this.realm.allBeatmapSets().filter(s => s.deletePending));
   }
 
+  /** Hide a beatmap difficulty. Will fail if all difficulties are about to be hidden. */
+  hide(beatmapInfo: BeatmapInfo): Promise<boolean> {
+    return this.realm.write(r => {
+      const set = r.all().find(s => s.beatmaps.some(b => b.id === beatmapInfo.id));
+      if (set === undefined || set.beatmaps.filter(b => !b.hidden).length <= 1)
+        return false;
+
+      r.edit(set).beatmaps.find(b => b.id === beatmapInfo.id)!.hidden = true;
+      return true;
+    });
+  }
+
+  canHide(beatmapInfo: BeatmapInfo): boolean {
+    const beatmap = this.realm.findBeatmap(beatmapInfo.id) ?? beatmapInfo;
+    return beatmap.beatmapSet!.beatmaps.filter(b => !b.hidden).length > 1;
+  }
+
+  /** Restore a beatmap set (C#'s Restore(BeatmapSetInfo); restoring a single difficulty isn't used by ported code). */
+  restore(beatmapSetInfo: BeatmapSetInfo): Promise<void> {
+    return this.realm.write(r => {
+      const set = r.find(beatmapSetInfo.id);
+      if (set === null || !set.beatmaps.some(b => b.hidden))
+        return;
+
+      for (const beatmapInfo of r.edit(set).beatmaps.filter(b => b.hidden))
+        beatmapInfo.hidden = false;
+    });
+  }
+
+  markPlayed(beatmapInfo: BeatmapInfo): Promise<void> {
+    return this.editBeatmap(beatmapInfo, b => b.lastPlayed = new Date());
+  }
+
+  markNotPlayed(beatmapInfo: BeatmapInfo): Promise<void> {
+    return this.editBeatmap(beatmapInfo, b => b.lastPlayed = null);
+  }
+
+  /** r.Find<BeatmapInfo>(id) inside a write: edits the difficulty's set copy. */
+  private editBeatmap(beatmapInfo: BeatmapInfo, perform: (b: BeatmapInfo) => void): Promise<void> {
+    return this.realm.write(r => {
+      const set = r.all().find(s => s.beatmaps.some(b => b.id === beatmapInfo.id));
+      if (set !== undefined)
+        perform(r.edit(set).beatmaps.find(b => b.id === beatmapInfo.id)!);
+    });
+  }
+
   /** Set (persist) the protected flag, or any other change, on a stored set: C#'s Live<BeatmapSetInfo>.PerformWrite. */
   performWrite(beatmapSet: BeatmapSetInfo, perform: (s: BeatmapSetInfo) => void): Promise<void> {
     return this.realm.write(realm => {

@@ -26,6 +26,7 @@ import type { ControlPointInfo } from './beatmaps/controlPoints/ControlPointInfo
 import { FramedBeatmapClock } from './beatmaps/FramedBeatmapClock';
 import { IBeatSyncProvider } from './beatmaps/IBeatSyncProvider';
 import { GlobalActionContainer } from './input/bindings/GlobalActionContainer';
+import { OsuMenuSamples } from './graphics/userInterface/OsuMenuSamples';
 import { BeatmapModelDownloader } from './beatmaps/BeatmapModelDownloader';
 import { BeatmapUpdater } from './beatmaps/BeatmapUpdater';
 import { DummyWorkingBeatmap } from './beatmaps/DummyWorkingBeatmap';
@@ -156,6 +157,10 @@ export class OsuGameBase extends Game {
 
     this.musicController.trackChanged.add(([beatmap]) => this.onTrackChanged(beatmap));
     super.content.add(this.beatmapClock);
+
+    let menuSamples: OsuMenuSamples;
+    this.osuDependencies.cache(menuSamples = new OsuMenuSamples());
+    super.content.add(menuSamples);
 
     let globalBindings: GlobalActionContainer;
 

@@ -1,5 +1,5 @@
 // Ported from osu.Game/Screens/Select/PanelBeatmapStandalone.cs
-// As PanelBeatmap: no context menus, no difficulty cache (StarDifficulty(beatmap.StarRating, 0)) and no ruleset variants. PanelUpdateBeatmapButton
+// As PanelBeatmap: no difficulty cache (StarDifficulty(beatmap.StarRating, 0)) and no ruleset variants. PanelUpdateBeatmapButton
 // is left out as in PanelBeatmapSet (never present without online metadata).
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
@@ -10,6 +10,7 @@ import { MarginPadding } from '@fw/layout/MarginPadding';
 import { Vector2 } from '@fw/layout/Vector2';
 import { romanisable } from '@fw/localisation/RomanisableString';
 import type { ScheduledDelegate } from '@fw/timing/Scheduler';
+import type { MenuItem } from '@fw/graphics/userInterface/MenuItem';
 import { BeatmapManager } from '../../beatmaps/BeatmapManager';
 import type { BeatmapInfo } from '../../beatmaps/BeatmapInfo';
 import { BeatmapSetOnlineStatusPill } from '../../beatmaps/drawables/BeatmapSetOnlineStatusPill';
@@ -20,6 +21,7 @@ import { FontWeight, OsuFont, Typeface, withFont } from '../../graphics/OsuFont'
 import { OsuSpriteText } from '../../graphics/sprites/OsuSpriteText';
 import { OverlayColourProvider } from '../../overlays/OverlayColourProvider';
 import type { GroupedBeatmap } from './GroupDefinition';
+import { ISongSelect } from './ISongSelect';
 import { Panel } from './Panel';
 import { createRulesetIcon } from './PanelBeatmapSet.SpreadDisplay';
 import { SpreadDisplay } from './PanelBeatmapStandalone.SpreadDisplay';
@@ -51,6 +53,8 @@ export class PanelBeatmapStandalone extends Panel {
 
   private backgroundBorder!: Box;
 
+  private songSelect: ISongSelect | null = null;
+
   private get beatmap(): BeatmapInfo {
     return (this.item!.model as GroupedBeatmap).beatmap;
   }
@@ -67,6 +71,8 @@ export class PanelBeatmapStandalone extends Panel {
 
   protected override load(dependencies: IReadOnlyDependencyContainer): Promise<void> | void {
     const r = super.load(dependencies);
+
+    this.songSelect = dependencies.get(ISongSelect);
 
     this.colourProvider = dependencies.resolve(OverlayColourProvider);
     this.beatmaps = dependencies.resolve(BeatmapManager);
@@ -235,5 +241,17 @@ export class PanelBeatmapStandalone extends Panel {
 
     this.backgroundBorder.colour = diffColour;
     this.difficultyIcon.colour = this.starRatingDisplay.displayedDifficultyTextColour;
+  }
+
+  override get contextMenuItems(): readonly MenuItem[] {
+    if (this.item === null)
+      return [];
+
+    const items: MenuItem[] = [];
+
+    if (this.songSelect !== null)
+      items.push(...this.songSelect.getForwardActions(this.beatmap));
+
+    return items;
   }
 }

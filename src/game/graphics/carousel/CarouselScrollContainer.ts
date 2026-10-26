@@ -1,9 +1,8 @@
 // Ported from osu.Game/Graphics/Carousel/Carousel.ScrollContainer.cs (Carousel<T>.ScrollContainer)
-// Context menus aren't ported, so a right mouse press always starts absolute scrolling (C# skips it when a hovered drawable has a context
-// menu; every carousel panel has one, so in C# right-click absolute scrolling only starts outside panels).
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { Colour4 } from '@fw/graphics/Colour4';
+import { isHasContextMenu } from '@fw/graphics/cursor/IHasContextMenu';
 import { Container } from '@fw/graphics/containers/Container';
 import { ScrollbarContainer } from '@fw/graphics/containers/ScrollContainer';
 import type { Drawable } from '@fw/graphics/Drawable';
@@ -285,8 +284,13 @@ export class CarouselScrollContainer extends UserTrackingScrollContainer {
   }
 
   protected override onMouseDown(e: MouseDownEvent): boolean {
-    if (e.button === MouseButton.Right)
+    if (e.button === MouseButton.Right) {
+      // To avoid conflicts with context menus, disallow absolute scroll if it looks like things will fall over.
+      if (this.getContainingInputManager()!.hoveredDrawables.some(isHasContextMenu))
+        return false;
+
       this.beginAbsoluteScrolling(e);
+    }
 
     return super.onMouseDown(e);
   }

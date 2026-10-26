@@ -1,5 +1,5 @@
 // Ported from osu.Game/Screens/Select/Panel.cs
-// Context menus aren't ported, so IHasContextMenu / ContextMenuItems are left out. The carousel is resolved as the generic Carousel
+// The carousel is resolved as the generic Carousel
 // (BeatmapCarousel caches itself as both): only activate() is used, and it keeps this module free of an import cycle with the panels.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
@@ -9,6 +9,7 @@ import { ColourInfo } from '@fw/graphics/ColourInfo';
 import { Colour4 } from '@fw/graphics/Colour4';
 import { Container } from '@fw/graphics/containers/Container';
 import type { Drawable } from '@fw/graphics/Drawable';
+import type { MenuItem } from '@fw/graphics/userInterface/MenuItem';
 import { BlendingParameters, EdgeEffectParameters, EdgeEffectType } from '@fw/graphics/DrawInfo';
 import { PoolableDrawable } from '@fw/graphics/pooling/PoolableDrawable';
 import { Box } from '@fw/graphics/shapes/Box';
@@ -331,6 +332,9 @@ export abstract class Panel extends PoolableDrawable implements ICarouselPanel {
     super.update();
     this.contentPaddingContainer.padding = this.contentPaddingContainer.padding.with({ left: this.iconContainer.drawWidth });
   }
+
+  /** (IHasContextMenu) */
+  abstract get contextMenuItems(): readonly MenuItem[] | null;
 
   // #region ICarouselPanel
 
