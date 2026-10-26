@@ -1,6 +1,5 @@
 // Ported from osu.Game/Overlays/Toolbar/ToolbarMusicButton.cs
-// NowPlayingOverlay isn't ported yet: its INamedOverlayComponent values are shown (see ToolbarOverlayToggleButton). VolumeOverlay isn't
-// ported either, so adjustments only expand the volume bar, as they do in osu! without a volume overlay.
+// VolumeOverlay isn't ported yet, so adjustments only expand the volume bar, as they do in osu! without a volume overlay.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { AudioManager } from '@fw/audio/AudioManager';
@@ -16,8 +15,8 @@ import { MarginPadding } from '@fw/layout/MarginPadding';
 import type { ScheduledDelegate } from '@fw/timing/Scheduler';
 import { Easing } from '@fw/transforms/Easing';
 import type { TransformSequence } from '@fw/transforms/TransformSequence';
-import { OsuIcon } from '../../graphics/OsuIcon';
 import { GlobalAction } from '../../input/bindings/GlobalAction';
+import { NowPlayingOverlay } from '../NowPlayingOverlay';
 import { TOOLBAR_HEIGHT } from './ToolbarButton';
 import { ToolbarOverlayToggleButton } from './ToolbarOverlayToggleButton';
 
@@ -43,7 +42,7 @@ export class ToolbarMusicButton extends ToolbarOverlayToggleButton {
   protected override load(dependencies: IReadOnlyDependencyContainer): Promise<void> | void {
     const r = super.load(dependencies);
 
-    this.applyNamedOverlayComponent({ icon: OsuIcon.Music, title: 'now playing', description: 'manage the currently playing track' });
+    this.stateContainer = dependencies.get(NowPlayingOverlay);
 
     this.audio = dependencies.resolve(AudioManager);
 

@@ -1,5 +1,5 @@
 // Ported from osu.Game/OsuGame.cs (the screen layering and screen change handling, overlay management and PresentBeatmap)
-// Not ported yet: most overlays (the beatmap listing is the only one), notifications, cursor, OSD and global key bindings. They
+// Not ported yet: most overlays (the beatmap listing and now playing are the only ones), notifications, cursor, OSD and global key bindings. They
 // will be added to the containers below as they are ported. The first screen is supplied by createLoader().
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
@@ -23,6 +23,7 @@ import { OsuFocusedOverlayContainer } from './graphics/containers/OsuFocusedOver
 import { OsuColour } from './graphics/OsuColour';
 import { BeatmapListingOverlay } from './overlays/BeatmapListingOverlay';
 import { IOverlayManager } from './overlays/IOverlayManager';
+import { NowPlayingOverlay } from './overlays/NowPlayingOverlay';
 import { Toolbar } from './overlays/toolbar/Toolbar';
 import { PerformFromMenuRunner } from './PerformFromMenuRunner';
 import { isHandlePresentBeatmap } from './screens/IHandlePresentBeatmap';
@@ -86,6 +87,8 @@ export class OsuGame extends OsuGameBase {
   private detachedBeatmapStore!: RealmDetachedBeatmapStore;
 
   private beatmapListing!: BeatmapListingOverlay;
+
+  private nowPlayingOverlay!: NowPlayingOverlay;
 
   /** (C#'s MainMenu menuScreen: the main menu type is PerformFromMenuRunner.mainMenuType, as importing MainMenu here would be circular) */
   private menuScreen: IScreen | null = null;
@@ -306,6 +309,13 @@ export class OsuGame extends OsuGameBase {
     }), d => this.topMostOverlayContent.add(d));
 
     this.loadComponentSingleFile(this.beatmapListing = new BeatmapListingOverlay(), d => this.gameOverlayContent.add(d), true);
+
+    this.loadComponentSingleFile(this.nowPlayingOverlay = new NowPlayingOverlay().with({
+      anchor: Anchor.TopRight,
+      origin: Anchor.TopRight,
+    }), d => this.rightFloatingOverlayContent.add(d), true);
+
+    // (singleDisplaySideOverlays: the now playing overlay is the only side overlay ported so far, so there are none to cancel)
 
     // ensure only one of these overlays are open at once.
     const singleDisplayOverlays: OverlayContainer[] = [this.beatmapListing];

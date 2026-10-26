@@ -48,6 +48,8 @@ export class OsuGameBase extends Game {
 
   static readonly SAMPLE_CONCURRENCY = 6;
 
+  static readonly SFX_STEREO_STRENGTH = 0.6;
+
   /** The minimum delay in milliseconds between any two hover sounds (HoverSampleDebounceComponent). */
   static readonly SAMPLE_DEBOUNCE_TIME = 20;
 
