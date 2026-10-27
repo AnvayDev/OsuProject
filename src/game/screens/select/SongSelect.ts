@@ -725,6 +725,8 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
     this.applyToBackground(backgroundModeBeatmap => {
       backgroundModeBeatmap.beatmap = this.beatmap.value;
       backgroundModeBeatmap.ignoreUserSettings.value = true;
+      // (web addition, user request: the beatmap's video plays as the song select background)
+      backgroundModeBeatmap.showVideo.value = true;
 
       backgroundModeBeatmap.dimWhenUserSettingsIgnored.value = 0.1;
 

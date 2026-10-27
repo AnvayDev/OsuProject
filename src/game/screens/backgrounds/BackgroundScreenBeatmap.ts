@@ -1,5 +1,6 @@
 // Ported from osu.Game/Screens/Backgrounds/BackgroundScreenBeatmap.cs
 // LoadComponentAsync's cancellation token is an AbortController checked before the loaded background is switched in.
+// Web addition (user request): with showVideo set (by song select), the beatmap's video plays over the background (BeatmapBackgroundVideo).
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { Bindable } from '@fw/bindables/Bindable';
@@ -14,6 +15,7 @@ import { Background } from '../../graphics/backgrounds/Background';
 import { BeatmapBackground } from '../../graphics/backgrounds/BeatmapBackground';
 import { UserDimContainer } from '../../graphics/containers/UserDimContainer';
 import { BackgroundScreen } from '../BackgroundScreen';
+import { BeatmapBackgroundVideo } from './BeatmapBackgroundVideo';
 
 export class BackgroundScreenBeatmap extends BackgroundScreen {
   /** The amount of blur to apply when full user blur is requested. */
@@ -27,6 +29,9 @@ export class BackgroundScreenBeatmap extends BackgroundScreen {
   readonly ignoreUserSettings = new Bindable<boolean>(true);
 
   readonly storyboardReplacesBackground = new Bindable<boolean>(false);
+
+  /** (Web addition) Whether the beatmap's video, if it has one, plays over the background. */
+  readonly showVideo = new Bindable<boolean>(false);
 
   /** The amount of blur to be applied in addition to user-specified blur. */
   readonly blurAmount = new BindableFloat();
@@ -55,6 +60,8 @@ export class BackgroundScreenBeatmap extends BackgroundScreen {
     this.dimmable.isBreakTime.bindTo(this.isBreakTime);
     this.dimmable.blurAmount.bindTo(this.blurAmount);
     this.dimmable.dimWhenUserSettingsIgnored.bindTo(this.dimWhenUserSettingsIgnored);
+
+    this.showVideo.valueChanged.add(() => this.schedule(() => this.updateVideo()));
   }
 
   protected override load(dependencies: IReadOnlyDependencyContainer): Promise<void> | void {
@@ -80,6 +87,8 @@ export class BackgroundScreenBeatmap extends BackgroundScreen {
     this._beatmap = value;
 
     this.schedule(() => {
+      this.updateVideo();
+
       if ((this.background as BeatmapBackground | null)?.beatmap?.beatmapInfo.backgroundEquals(this._beatmap?.beatmapInfo ?? null) ?? false)
         return;
 
@@ -91,6 +100,33 @@ export class BackgroundScreenBeatmap extends BackgroundScreen {
         if (!source.signal.aborted)
           this.switchBackground(b);
       });
+    });
+  }
+
+  private videoCancellationSource: AbortController | null = null;
+
+  /** (Web addition) Replaces the video when the beatmap set changes; difficulties of a set share their video. */
+  private updateVideo(): void {
+    const beatmap = this.showVideo.value ? this._beatmap : null;
+    const current = this.dimmable.video;
+
+    // the playing track moves between a set's difficulties (MusicController transfers it), so follow the current beatmap's.
+    if (current !== null && beatmap !== null && current.beatmap.beatmapSetInfo.id === beatmap.beatmapSetInfo.id) {
+      current.trackSource = beatmap;
+      return;
+    }
+
+    this.videoCancellationSource?.abort();
+    this.dimmable.video = null;
+
+    if (beatmap === null)
+      return;
+
+    const source = this.videoCancellationSource = new AbortController();
+
+    void this.loadComponentAsync(new BeatmapBackgroundVideo(beatmap), v => {
+      if (!source.signal.aborted)
+        this.dimmable.video = v;
     });
   }
 
@@ -131,6 +167,28 @@ export class DimmableBackground extends UserDimContainer {
     super.add(this._background = value);
     this._background.blurTo(this.blurTarget, 0, Easing.OutQuint);
   }
+
+  /** (Web addition) The beatmap video shown over the background. */
+  get video(): BeatmapBackgroundVideo | null {
+    return this._video;
+  }
+
+  set video(value: BeatmapBackgroundVideo | null) {
+    if (this._video !== null) {
+      this._video.fadeOut(250);
+      this._video.expire();
+    }
+
+    this._video = value;
+
+    if (value !== null) {
+      value.depth = -1;
+      super.add(value);
+      value.blurTo(this.blurTarget, 0, Easing.OutQuint);
+    }
+  }
+
+  private _video: BeatmapBackgroundVideo | null = null;
 
   private userBlurLevel!: Bindable<number>;
 
@@ -178,5 +236,6 @@ export class DimmableBackground extends UserDimContainer {
     super.updateVisuals();
 
     this.background?.blurTo(this.blurTarget, UserDimContainer.BACKGROUND_FADE_DURATION, Easing.OutQuint);
+    this._video?.blurTo(this.blurTarget, UserDimContainer.BACKGROUND_FADE_DURATION, Easing.OutQuint);
   }
 }

@@ -52,7 +52,8 @@ placeholder), framework TabControl, framework TextBox (web text input via hidden
 framework Menu/Dropdown/SearchContainer + OsuDropdown/ShearedDropdown (sort/group/collection/scope), framework SliderBar + star rating DifficultyRangeSlider.
 Carousel context menus done (framework ContextMenuContainer, OsuContextMenu/OsuMenu items + samples; hide/restore,
 mark played, copy link, delete via DialogOverlay + PopupDialog/DangerousActionDialog hold-to-confirm). Not yet: tooltips, popovers, mod select,
-collections (menu entry only), editor/scores (menu entries do nothing). Mirror metadata lookup done (status, dates, star ratings at import). Downloads done (BeatmapModelDownloader +
+collections (menu entry only), editor/scores (menu entries do nothing). Song select video background (web addition, user request):
+the selected set's .osu Video event plays muted, synced to the track (BeatmapBackgroundVideo, framework web Video). Mirror metadata lookup done (status, dates, star ratings at import). Downloads done (BeatmapModelDownloader +
 BeatmapDownloadTracker, shared mirror rate limiter). Beatmap listing overlay done (main menu "browse"; mirror search, Normal/Extra cards,
 previews, downloads, PresentBeatmap): overlay base classes (WaveOverlayContainer/FullscreenOverlay/OnlineOverlay, OverlayHeader,
 OverlayScrollContainer), IOverlayManager dim, framework CircularProgress/DelayedLoadWrapper/ModelBackedDrawable. No beatmap set overlay.
