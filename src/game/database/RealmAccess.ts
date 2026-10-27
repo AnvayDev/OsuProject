@@ -7,7 +7,7 @@
 //   rollback) and readers keep the objects they had, as with realm's detached copies. A committed object is never mutated afterwards.
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import { Logger } from '@fw/logging/Logger';
+import { Logger, LoggingTarget } from '@fw/logging/Logger';
 import { BeatmapDifficulty } from '../beatmaps/BeatmapDifficulty';
 import { BeatmapInfo } from '../beatmaps/BeatmapInfo';
 import { BeatmapMetadata } from '../beatmaps/BeatmapMetadata';
@@ -171,6 +171,8 @@ export class RealmAccess {
 
       this.load(records.filter(r => !r.deletePending));
 
+      await this.removeIncompleteSets();
+
       // clean up files after dropping any pending deletions.
       // in the future we may want to only do this when the game is idle, rather than on every startup.
       await this.files.cleanup();
@@ -180,6 +182,34 @@ export class RealmAccess {
       if (this.beatmapSets.length === 0)
         this.load(await this.db.getAll('beatmapSets'));
     }
+  }
+
+  /**
+   * Web addition: deletes sets that can't work, because a stored file is gone or a difficulty's audio file is missing from the set (a damaged
+   * download, or a set whose audio was removed, imported before the importer rejected those). Protected sets are left alone.
+   */
+  private async removeIncompleteSets(): Promise<void> {
+    const storedFiles = new Set(await this.db.getAllKeys('files'));
+
+    const incomplete = this.beatmapSets.filter(set => !set.isProtected && (
+      set.files.some(f => !storedFiles.has(f.file.hash))
+      || set.beatmaps.some(b => {
+        const audioFile = b.metadata.audioFile;
+        return !!audioFile && audioFile.toLowerCase() !== 'virtual' && set.getFile(audioFile) === null;
+      })));
+
+    if (incomplete.length === 0)
+      return;
+
+    const tx = this.db.transaction('beatmapSets', 'readwrite');
+    await Promise.all([...incomplete.map(set => tx.store.delete(set.id)), tx.done]);
+
+    for (const set of incomplete) {
+      Logger.log(`Removed incomplete beatmap set ${set} (missing files).`, LoggingTarget.Database);
+      this.sequence.delete(set.id);
+    }
+
+    this.beatmapSets = this.beatmapSets.filter(s => !incomplete.includes(s));
   }
 
   private load(records: BeatmapSetRecord[]): void {
