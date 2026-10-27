@@ -1,5 +1,25 @@
 // Ported from osu.Framework/Bindables/BindableList.cs (and IBindableList.cs). Bindings are strongly referenced, like all bindables in this port.
 // System.Collections.Specialized.NotifyCollectionChangedEventArgs is reproduced as NotifyCollectionChangedEvent (same constructor semantics).
+// IndexOf / Contains / Remove compare like List<T> (EqualityComparer<T>.Default): an item's equals(other) when it has one (IEquatable<T>),
+// otherwise reference equality.
+
+/** (EqualityComparer<T>.Default.Equals) */
+function defaultEquals<T>(a: T, b: T): boolean {
+  if (a === b)
+    return true;
+
+  return a !== null && typeof a === 'object' && typeof (a as { equals?: unknown }).equals === 'function'
+    && (a as unknown as { equals(other: T): boolean }).equals(b);
+}
+
+function indexOfEqual<T>(collection: readonly T[], item: T): number {
+  for (let i = 0; i < collection.length; i++) {
+    if (defaultEquals(item, collection[i]))
+      return i;
+  }
+
+  return -1;
+}
 
 export enum NotifyCollectionChangedAction {
   Add,
@@ -93,7 +113,7 @@ export class BindableList<T> implements Iterable<T> {
 
   /** Retrieves the index of an item in this BindableList. */
   indexOf(item: T): number {
-    return this.collection.indexOf(item);
+    return indexOfEqual(this.collection, item);
   }
 
   /** Inserts an item at the specified index in this BindableList. */
@@ -140,7 +160,7 @@ export class BindableList<T> implements Iterable<T> {
 
   /** Determines if an item is in this BindableList. */
   contains(item: T): boolean {
-    return this.collection.includes(item);
+    return indexOfEqual(this.collection, item) >= 0;
   }
 
   /** Removes an item from this BindableList. Returns whether the item was removed. */
@@ -154,7 +174,7 @@ export class BindableList<T> implements Iterable<T> {
 
     this.ensureMutationAllowed();
 
-    const index = this.collection.indexOf(item);
+    const index = indexOfEqual(this.collection, item);
 
     if (index < 0)
       return false;
