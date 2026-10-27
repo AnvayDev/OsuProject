@@ -76,12 +76,7 @@ export class BeatmapBackgroundVideo extends CompositeDrawable {
   private readonly bufferedContainer: BufferedContainer;
 
   private video: Video | null = null;
-  private _startTime = 0;
-
-  /** The track time (in ms) at which the video starts (the Video event's offset). */
-  get startTime(): number {
-    return this._startTime;
-  }
+  private startTime = 0;
   /** Where the first frame is in the played file (non-zero for remuxed AVIs with B-frames). */
   private fileStartOffset = 0;
   private url: string | null = null;
@@ -99,11 +94,6 @@ export class BeatmapBackgroundVideo extends CompositeDrawable {
     this.addInternal(this.bufferedContainer = new BufferedContainer().with({
       relativeSizeAxes: Axes.Both,
     }));
-  }
-
-  /** Whether the beatmap has a video this background can play (known once loaded). */
-  get hasVideo(): boolean {
-    return this.video !== null && !this.video.failed;
   }
 
   protected override async load(dependencies: IReadOnlyDependencyContainer): Promise<void> {
@@ -131,7 +121,7 @@ export class BeatmapBackgroundVideo extends CompositeDrawable {
       blob = new Blob([data as Uint8Array<ArrayBuffer>]);
     }
 
-    this._startTime = info.startTime;
+    this.startTime = info.startTime;
     this.url = URL.createObjectURL(blob);
 
     this.bufferedContainer.add(this.video = new Video(this.url).with({
@@ -164,7 +154,7 @@ export class BeatmapBackgroundVideo extends CompositeDrawable {
 
     const track = this.trackSource.trackLoaded ? this.trackSource.track : null;
 
-    const position = (track?.currentTime ?? 0) - this._startTime;
+    const position = (track?.currentTime ?? 0) - this.startTime;
 
     this.video.playbackPosition = position + this.fileStartOffset;
     this.video.playing = track?.isRunning ?? false;
