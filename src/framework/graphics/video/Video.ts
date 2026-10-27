@@ -3,8 +3,17 @@
 
 import { Drawable } from '../Drawable';
 
-/** Maximum drift (in ms) between the requested position and the element's before it is seeked. */
-const max_drift = 150;
+/**
+ * Drift (in ms) between the requested position and the element's beyond which the element is seeked. Below it, the playback rate is nudged
+ * instead: seeking an H.264 video decodes from the previous keyframe (often seconds away), and seeking on every small drift never catches up.
+ */
+const seek_drift = 1000;
+
+/** Minimum time (in ms) between seeks while playing, so slow seeks don't chain. */
+const seek_cooldown = 1000;
+
+/** Drift (in ms) tolerated without correction. */
+const tolerated_drift = 40;
 
 export class Video extends Drawable {
   /** The playback position (in ms) the video should be at. Set by the owner every frame. */
@@ -55,6 +64,8 @@ export class Video extends Drawable {
     return el;
   }
 
+  private lastSeek = -Infinity;
+
   protected override update(): void {
     super.update();
 
@@ -62,21 +73,43 @@ export class Video extends Drawable {
       return;
 
     const el = this.videoElement;
-
-    if (el.playbackRate !== this.rate && this.rate > 0)
-      el.playbackRate = this.rate;
+    const now = performance.now();
 
     const position = Math.min(Math.max(this.playbackPosition, 0), this.duration);
+    // positive: the video is behind the requested position.
+    const drift = position - el.currentTime * 1000;
 
-    if (Math.abs(el.currentTime * 1000 - position) > max_drift)
-      el.currentTime = position / 1000;
+    const shouldPlay = this.playing && this.rate > 0 && position < this.duration;
 
-    const shouldPlay = this.playing && position < this.duration;
+    if (!shouldPlay) {
+      if (!el.paused)
+        el.pause();
 
-    if (shouldPlay && el.paused)
+      if (Math.abs(drift) > tolerated_drift)
+        this.seek(position, now);
+
+      return;
+    }
+
+    if (Math.abs(drift) > seek_drift) {
+      if (now - this.lastSeek > seek_cooldown)
+        this.seek(position, now);
+    } else {
+      // catch up (or wait) over about a second, by at most 10%.
+      const correction = Math.abs(drift) > tolerated_drift ? Math.min(Math.max(drift / 1000, -0.1), 0.1) : 0;
+      const playbackRate = this.rate * (1 + correction);
+
+      if (Math.abs(el.playbackRate - playbackRate) > 0.005)
+        el.playbackRate = playbackRate;
+    }
+
+    if (el.paused)
       void el.play().catch(() => {});
-    else if (!shouldPlay && !el.paused)
-      el.pause();
+  }
+
+  private seek(position: number, now: number): void {
+    this.videoElement.currentTime = position / 1000;
+    this.lastSeek = now;
   }
 
   protected override disposeInternal(isDisposing: boolean): void {

@@ -8,6 +8,7 @@ import { BindableFloat } from '@fw/bindables/BindableNumber';
 import type { Drawable } from '@fw/graphics/Drawable';
 import { Axes } from '@fw/layout/Enums';
 import { Vector2 } from '@fw/layout/Vector2';
+import type { ScheduledDelegate } from '@fw/timing/Scheduler';
 import { Easing } from '@fw/transforms/Easing';
 import type { WorkingBeatmap } from '../../beatmaps/WorkingBeatmap';
 import { OsuConfigManager, OsuSetting } from '../../configuration/OsuConfigManager';
@@ -117,6 +118,7 @@ export class BackgroundScreenBeatmap extends BackgroundScreen {
     }
 
     this.videoCancellationSource?.abort();
+    this.videoLoadDelegate?.cancel();
     this.dimmable.video = null;
 
     if (beatmap === null)
@@ -124,11 +126,21 @@ export class BackgroundScreenBeatmap extends BackgroundScreen {
 
     const source = this.videoCancellationSource = new AbortController();
 
-    void this.loadComponentAsync(new BeatmapBackgroundVideo(beatmap), v => {
-      if (!source.signal.aborted)
-        this.dimmable.video = v;
-    });
+    // reading (and remuxing) a video is expensive: only start once the selection has settled, so skipping through sets loads nothing.
+    this.videoLoadDelegate = this.scheduler.addDelayed(() => {
+      void this.loadComponentAsync(new BeatmapBackgroundVideo(beatmap), v => {
+        if (!source.signal.aborted)
+          this.dimmable.video = v;
+        else
+          v.dispose();
+      });
+    }, BackgroundScreenBeatmap.VIDEO_LOAD_DELAY);
   }
+
+  private videoLoadDelegate: ScheduledDelegate | null = null;
+
+  /** (Web addition) How long the beatmap has to stay selected before its video is loaded. */
+  private static readonly VIDEO_LOAD_DELAY = 400;
 
   private switchBackground(b: BeatmapBackground): void {
     let newDepth = 0;

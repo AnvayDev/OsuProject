@@ -1,7 +1,7 @@
 // Web addition (user request, not in osu!): song select plays the beatmap's video behind the UI, muted and synced to the music, in place of
 // the still background. osu! only shows videos in gameplay, as part of the storyboard (StoryboardVideo / DrawableStoryboardVideo), so the
 // lookup follows LegacyStoryboardDecoder's Video event handling (from the .osu file; .osb storyboards aren't read). Browsers play MP4/M4V/MOV
-// (H.264) directly; AVI files, which most beatmaps use, are rewrapped into MP4 first (AviRemuxer: H.264 only). Any other video (FLV, WMV,
+// (H.264) directly; AVI files, which most beatmaps use, are rewrapped into MP4 first (AviRemuxer, in a worker: H.264 only). Any other video (FLV, WMV,
 // MPEG-1, non-H.264 AVI) stays hidden and the background image shows as before.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
@@ -14,7 +14,7 @@ import { Easing } from '@fw/transforms/Easing';
 import { parseIntInvariant } from '@fw/utils/DotNet';
 import type { WorkingBeatmap } from '../../beatmaps/WorkingBeatmap';
 import { SupportedExtensions } from '../../utils/SupportedExtensions';
-import { remuxAviToMp4 } from './AviRemuxer';
+import { type RemuxedVideo } from './AviRemuxer';
 
 /** A storyboard video event: the file and the time (in ms) the video starts at. (StoryboardVideo) */
 export interface BeatmapVideoInfo {
@@ -67,6 +67,67 @@ function getExtension(path: string): string {
   return path.slice(dot);
 }
 
+/** A video ready for a <video> element. */
+interface PreparedVideo {
+  readonly blob: Blob;
+  /** Where the first frame is in the file (non-zero for remuxed AVIs with B-frames). */
+  readonly startOffset: number;
+}
+
+/**
+ * Recently prepared videos by file hash, most recent last. Re-selecting a set (or starting it) reuses the prepared video instead of reading
+ * and remuxing it again; preparations still in progress are shared too.
+ */
+const prepared_videos = new Map<string, Promise<PreparedVideo | null>>();
+const max_prepared_videos = 3;
+
+function prepareVideo(beatmap: WorkingBeatmap, info: BeatmapVideoInfo, storagePath: string): Promise<PreparedVideo | null> {
+  let preparation = prepared_videos.get(storagePath);
+
+  if (preparation !== undefined) {
+    prepared_videos.delete(storagePath);
+  } else {
+    preparation = (async () => {
+      const data = await beatmap.getStream(storagePath);
+      if (data === null)
+        return null;
+
+      if (getExtension(info.path).toLowerCase() !== '.avi')
+        return { blob: new Blob([data as Uint8Array<ArrayBuffer>]), startOffset: 0 };
+
+      const remuxed = await remuxInWorker(data);
+      return remuxed === null ? null : { blob: new Blob([remuxed.data], { type: 'video/mp4' }), startOffset: remuxed.startOffset };
+    })().catch(() => null);
+  }
+
+  prepared_videos.set(storagePath, preparation);
+
+  while (prepared_videos.size > max_prepared_videos)
+    prepared_videos.delete(prepared_videos.keys().next().value!);
+
+  return preparation;
+}
+
+function remuxInWorker(data: Uint8Array): Promise<RemuxedVideo | null> {
+  return new Promise(resolve => {
+    const worker = new Worker(new URL('./AviRemuxer.worker.ts', import.meta.url), { type: 'module' });
+
+    worker.onmessage = (e: MessageEvent<RemuxedVideo | null>) => {
+      worker.terminate();
+      resolve(e.data);
+    };
+
+    worker.onerror = () => {
+      worker.terminate();
+      resolve(null);
+    };
+
+    // (transfer the bytes when they are the whole buffer, as read from the file store; copy otherwise)
+    const whole = data.byteOffset === 0 && data.byteLength === data.buffer.byteLength;
+    worker.postMessage(data, whole ? [data.buffer] : []);
+  });
+}
+
 export class BeatmapBackgroundVideo extends CompositeDrawable {
   readonly beatmap: WorkingBeatmap;
 
@@ -104,25 +165,13 @@ export class BeatmapBackgroundVideo extends CompositeDrawable {
       return;
 
     const storagePath = this.beatmap.beatmapSetInfo.getPathForFile(info.path);
-    const data = storagePath === null ? null : await this.beatmap.getStream(storagePath);
-    if (data === null)
+    const video = storagePath === null ? null : await prepareVideo(this.beatmap, info, storagePath);
+    if (video === null || this.isDisposed)
       return;
 
-    let blob: Blob;
-
-    if (getExtension(info.path).toLowerCase() === '.avi') {
-      const remuxed = remuxAviToMp4(data);
-      if (remuxed === null)
-        return;
-
-      blob = new Blob([remuxed.data], { type: 'video/mp4' });
-      this.fileStartOffset = remuxed.startOffset;
-    } else {
-      blob = new Blob([data as Uint8Array<ArrayBuffer>]);
-    }
-
     this.startTime = info.startTime;
-    this.url = URL.createObjectURL(blob);
+    this.fileStartOffset = video.startOffset;
+    this.url = URL.createObjectURL(video.blob);
 
     this.bufferedContainer.add(this.video = new Video(this.url).with({
       relativeSizeAxes: Axes.Both,
