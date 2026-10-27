@@ -1,4 +1,4 @@
-// Ported from osu.Framework/Threading/Scheduler.cs and osu.Framework/Threading/ScheduledDelegate.cs
+// Ported from osu.Framework/Threading/Scheduler.cs, osu.Framework/Threading/ScheduledDelegate.cs and ScheduledDelegateWithData.cs
 // Single-threaded: there is no "main thread" distinction, so forceScheduled=false always runs inline.
 
 import { SortedList } from '../lists/SortedList';
@@ -33,7 +33,8 @@ export class ScheduledDelegate {
 
   /** @internal */ task: (() => void) | null;
 
-  constructor(task: () => void, executionTime = 0, repeatInterval = -1) {
+  /** A null task is C#'s protected constructor, for subclasses that override invokeTask (ScheduledDelegateWithData). */
+  constructor(task: (() => void) | null, executionTime = 0, repeatInterval = -1) {
     this.task = task;
     this.executionTime = executionTime;
     this.repeatInterval = repeatInterval;
@@ -92,6 +93,17 @@ export class ScheduledDelegate {
       if (this.executionTime < currentTime && !this.performRepeatCatchUpExecutions)
         this.executionTime = currentTime + this.repeatInterval;
     }
+  }
+}
+
+/** Ported from ScheduledDelegateWithData.cs. C# hides Task with `new`; here it is taskWithData, and the base task stays null. */
+class ScheduledDelegateWithData<T> extends ScheduledDelegate {
+  constructor(readonly taskWithData: (data: T) => void, public data: T, executionTime = 0, repeatInterval = -1) {
+    super(null, executionTime, repeatInterval);
+  }
+
+  protected override invokeTask(): void {
+    this.taskWithData(this.data);
   }
 }
 
@@ -263,12 +275,31 @@ export class Scheduler {
     return del;
   }
 
-  /** Adds a task which will only be run once per frame, no matter how many times it was scheduled in the previous frame. */
-  addOnce(task: () => void): boolean {
+  /**
+   * Adds a task which will only be run once per frame, no matter how many times it was scheduled in the previous frame.
+   * With data (AddOnce<T>(Action<T>, T)): tasks are deduplicated by the task alone, and the single queued instance always gets the most recent data.
+   * Returns whether this is the first queue attempt of this work.
+   */
+  addOnce(task: () => void): boolean;
+  addOnce<T>(task: (data: T) => void, data: T): boolean;
+  addOnce<T>(task: (() => void) | ((data: T) => void), ...data: [] | [T]): boolean {
+    if (data.length === 1) {
+      const existing = this.runQueue.find(sd => sd instanceof ScheduledDelegateWithData && sd.taskWithData === task) as ScheduledDelegateWithData<T> | undefined;
+
+      if (existing !== undefined) {
+        // ensure the single queued instance always has the most recent data.
+        existing.data = data[0];
+        return false;
+      }
+
+      this.enqueue(new ScheduledDelegateWithData<T>(task, data[0]));
+      return true;
+    }
+
     if (this.runQueue.some(sd => sd.task === task))
       return false;
 
-    this.enqueue(new ScheduledDelegate(task));
+    this.enqueue(new ScheduledDelegate(task as () => void));
 
     return true;
   }

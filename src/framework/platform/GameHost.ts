@@ -2,13 +2,15 @@
 // One requestAnimationFrame callback runs UpdateFrame (update + masking) followed by the DOM "draw" (element validation).
 
 import { DependencyContainer } from '../allocation/DependencyContainer';
+import { FrameworkConfigManager } from '../configuration/FrameworkConfigManager';
+import { BindableBool } from '../bindables/Bindable';
 import { Container } from '../graphics/containers/Container';
 import { InputKey, KeyBinding } from '../input/bindings/KeyBindings';
 import { DomInputHandler } from '../input/handlers/DomInputHandler';
 import { InputHandler, UserInputManager } from '../input/InputManager';
 import { PlatformAction } from '../input/PlatformAction';
 import { PlatformActionContainer } from '../input/PlatformActionContainer';
-import type { Game } from '../Game';
+import { Game } from '../Game';
 import { Axes } from '../layout/Enums';
 import { Vector2 } from '../layout/Vector2';
 import { Platform, RuntimeInfo } from '../RuntimeInfo';
@@ -17,6 +19,9 @@ import { FramedClock } from '../timing/FramedClock';
 import type { IFrameBasedClock } from '../timing/IClock';
 import { StopwatchClock } from '../timing/StopwatchClock';
 import { AudioThread } from './AudioThread';
+import { Clipboard, DomClipboard } from './Clipboard';
+import { DomTextInputSource } from './DomTextInputSource';
+import { TextInputSource } from '../input/TextInputSource';
 
 export class GameHost {
   /** The root of the scene graph. */
@@ -36,6 +41,18 @@ export class GameHost {
   /** The DOM element the scene graph is mounted into (defaults to document.body). */
   constructor(private readonly mount: HTMLElement = document.body) {}
 
+  /** Whether the game window is active (focused): the browser window has focus and the page is visible. */
+  readonly isActive = new BindableBool(true);
+
+  private readonly updateIsActive = (): void => {
+    this.isActive.value = document.visibilityState === 'visible' && document.hasFocus();
+  };
+
+  /** Whether the host can exit (desktop hosts can; the web port keeps the desktop behaviour). */
+  get canExit(): boolean {
+    return true;
+  }
+
   /** The input handlers available to the root UserInputManager. */
   readonly availableInputHandlers: InputHandler[] = [];
 
@@ -49,6 +66,11 @@ export class GameHost {
     return new UserInputManager(() => this.availableInputHandlers, () => this.domInput?.cursorInWindow ?? true);
   }
 
+  /** (CreateTextInput) */
+  protected createTextInput(): TextInputSource {
+    return new DomTextInputSource(this.mount);
+  }
+
   private bootstrapSceneGraph(game: Game): void {
     const root = this.createRoot(game);
     root.child = new PlatformActionContainer().with({
@@ -57,7 +79,12 @@ export class GameHost {
     });
 
     this.dependencies.cache(root);
+    this.dependencies.cacheAs(Game, game);
     this.dependencies.cacheAs(GameHost, this);
+    // (C# caches it in SetupForRun; the web Storage is localStorage, as for the game's config)
+    this.dependencies.cache(new FrameworkConfigManager(window.localStorage));
+    this.dependencies.cacheAs(TextInputSource, this.createTextInput());
+    this.dependencies.cacheAs(Clipboard, new DomClipboard());
 
     game.setHost(this);
 
@@ -65,6 +92,11 @@ export class GameHost {
 
     this.mount.appendChild(root.element);
     root.element.style.overflow = 'hidden';
+
+    window.addEventListener('focus', this.updateIsActive);
+    window.addEventListener('blur', this.updateIsActive);
+    document.addEventListener('visibilitychange', this.updateIsActive);
+    this.updateIsActive();
 
     //publish bootstrapped scene graph to all threads.
     this.root = root;
@@ -75,7 +107,9 @@ export class GameHost {
 
     const loop = () => {
       this.updateFrame();
-      this.rafHandle = requestAnimationFrame(loop);
+
+      if (!this.exitRequested)
+        this.rafHandle = requestAnimationFrame(loop);
     };
 
     this.rafHandle = requestAnimationFrame(loop);
@@ -87,17 +121,25 @@ export class GameHost {
     if (root === null) return;
 
     this.frameCount++;
+    this.inFrame = true;
 
-    this.audioThread.onNewFrame();
+    try {
+      this.audioThread.onNewFrame();
 
-    this.sceneGraphClock.processFrame();
+      this.sceneGraphClock.processFrame();
 
-    root.size = Vector2.componentMax(Vector2.One, new Vector2(this.mount.clientWidth || window.innerWidth, this.mount.clientHeight || window.innerHeight));
+      root.size = Vector2.componentMax(Vector2.One, new Vector2(this.mount.clientWidth || window.innerWidth, this.mount.clientHeight || window.innerHeight));
 
-    root.updateSubTree();
-    root.updateSubTreeMasking();
+      root.updateSubTree();
+      root.updateSubTreeMasking();
 
-    root.validateElementSubTree();
+      root.validateElementSubTree();
+    } finally {
+      this.inFrame = false;
+    }
+
+    if (this.exitRequested)
+      this.performExit();
   }
 
   /** GameHost.PlatformKeyBindings, with the overrides of MacOSGameHost/IOSGameHost and WindowsGameHost selected by RuntimeInfo.OS. */
@@ -115,8 +157,27 @@ export class GameHost {
     }
   }
 
+  /** Opens a URL in a new browser tab (GameHost.OpenUrlExternally). */
+  openUrlExternally(url: string): void {
+    window.open(url, '_blank', 'noopener');
+  }
+
+  private inFrame = false;
+  private exitRequested = false;
+
   exit(): void {
+    this.exitRequested = true;
+
+    // An exit requested during a frame (e.g. by a screen exiting) takes effect once that frame has completed.
+    if (!this.inFrame)
+      this.performExit();
+  }
+
+  protected performExit(): void {
     cancelAnimationFrame(this.rafHandle);
+    window.removeEventListener('focus', this.updateIsActive);
+    window.removeEventListener('blur', this.updateIsActive);
+    document.removeEventListener('visibilitychange', this.updateIsActive);
     this.domInput?.dispose();
     this.root?.dispose();
     this.root = null;

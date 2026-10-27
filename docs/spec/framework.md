@@ -46,6 +46,8 @@ easy to get wrong, the DOM mapping decisions, and known limitations.
 | DecouplingFramedClock, InterpolatingFramedClock, OffsetClock/FramedOffsetClock, Interpolation.Damp/DampContinuously | done, tested | `timing/*` |
 | BindableList | done, tested | `bindables/BindableList.ts` |
 | PathApproximator (bezier/B-spline/catmull/circular arc/linear) + CircularArcProperties, float32-exact Vector2F, .NET semantics (Math.Round half-even, invariant parsing, char.IsWhiteSpace trims), Logger (console) | done, tested | `utils/PathApproximator.ts`, `utils/CircularArcProperties.ts`, `layout/Vector2F.ts`, `utils/DotNet.ts`, `logging/Logger.ts` |
+| ExtensionMethods (SHA-256 via WebCrypto, MD5, ToStandardisedPath), GetCommonPrefix, ExcludeSystemFileNames, TextureStore/LargeTextureStore (lookup + cache, texture sources wrapped like TextureLoaderStore: png/jpg extensions), Game.Textures | done, tested | `extensions/*`, `io/ResourceStore.ts`, `graphics/textures/TextureStore.ts` |
+| NonNullableBindable, TransformBindable (`transformBindableTo`), DrawableAudioWrapper/DrawableTrack (+`volumeTo`/`balanceTo`/`frequencyTo`/`tempoTo`; no DrawableAudioMixer), ConfigManager/IniConfigManager (ini text in `localStorage`), GameHost caches the Game, DependencyKey admits private-constructor classes | done, tested | `bindables/NonNullableBindable.ts`, `transforms/TransformBindable.ts`, `graphics/audio/*`, `configuration/*` |
 | Mixer effects (AudioFilter/BQF) | **not started** (port when first needed) | |
 
 Verification: `npm test` (transforms, primitives, layout: 43 tests) and `tests/visual/framework-scene.html`, a scene that exercises masking, borders, edge effects, additive blending and per-leaf alpha.
@@ -194,6 +196,12 @@ Limitation: CSS stacking contexts isolate blending. To keep that rare, drawables
   `PlaybackConcurrency` has no audible effect.
 - `ChannelAmplitudes` reproduce BASS exactly from AnalyserNode time-domain data (measured formulas: docs/spec/main-menu.md §7.3).
 - Stores are asynchronous: `TrackStore.get` / `SampleStore.get` return Promises; a sample resolves once decoded. Byte resources are Blobs.
+  `TrackStore.getSync(name)` is C#'s synchronous `Get` for callers that already know the resource exists (beatmap tracks): it returns the
+  `TrackWeb` at once and the data follows.
+- Track loading: `TrackBass` queues its load on the audio thread and `Seek`/`Start`/`Stop` wait for their queued action, so they act after the
+  load. `TrackWeb` queues those actions until `loadedmetadata` (or failure) and runs them in order; `Start`/`Restart` report `IsRunning`
+  immediately, as after C#'s blocking call. `AudioComponent.enqueueAction` is public (C# protected) so code that C# makes wait on a
+  track's load (`WorkingBeatmap.PrepareTrackForPreview`) can queue behind it.
   The game adds `UrlResourceStore.fromManifest(ASSET_ROOT + '/osu.Game.Resources')` to `Game.resources`, as `OsuGameBase` adds
   `DllResourceStore(OsuResources.ResourceAssembly)`.
 - The AudioContext starts suspended until the first user gesture (browser autoplay policy). AudioManager resumes it on the first

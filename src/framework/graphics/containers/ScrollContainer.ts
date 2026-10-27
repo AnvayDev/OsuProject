@@ -27,7 +27,7 @@ export interface IScrollContainer {
 const distance_decay_clamping = 0.012;
 
 export abstract class ScrollContainer<T extends Drawable = Drawable> extends Container<T> implements IScrollContainer, IKeyBindingHandler<PlatformAction> {
-  readonly keyBindingActionTypes = [PlatformAction];
+  readonly keyBindingActionTypes: readonly object[] = [PlatformAction];
 
   /** Determines whether the scroll dragger appears on the left side. If not, then it always appears on the right side. */
   get scrollbarAnchor(): Anchor {
@@ -228,7 +228,7 @@ export abstract class ScrollContainer<T extends Drawable = Drawable> extends Con
   }
 
   protected override onDragStart(e: DragStartEvent): boolean {
-    if (this._isDragging || e.button !== MouseButton.Left || this.content.aliveInternalChildren.length === 0)
+    if (this.isDragging || e.button !== MouseButton.Left || this.content.aliveInternalChildren.length === 0)
       return false;
 
     if (this.parentScrollContainer !== null && this.parentScrollContainer.scrollDirection !== this.scrollDirection) {
@@ -248,7 +248,7 @@ export abstract class ScrollContainer<T extends Drawable = Drawable> extends Con
   }
 
   protected override onKeyDown(e: KeyDownEvent): boolean {
-    if (this.isHandlingKeyboardScrolling && !this._isDragging) {
+    if (this.isHandlingKeyboardScrolling && !this.isDragging) {
       switch (e.key) {
         case Key.PageUp:
           this.onUserScroll(this._target - this.displayableContent);
@@ -264,7 +264,7 @@ export abstract class ScrollContainer<T extends Drawable = Drawable> extends Con
   }
 
   protected override onMouseDown(e: MouseDownEvent): boolean {
-    if (this._isDragging || e.button !== MouseButton.Left)
+    if (this.isDragging || e.button !== MouseButton.Left)
       return false;
 
     // Continue from where we currently are scrolled to.
@@ -382,13 +382,13 @@ export abstract class ScrollContainer<T extends Drawable = Drawable> extends Con
 
   /** Scroll to the start of available content. allowDuringDrag: whether we should interrupt a user's active drag. */
   scrollToStart(animated = true, allowDuringDrag = false): void {
-    if (!this._isDragging || allowDuringDrag)
+    if (!this.isDragging || allowDuringDrag)
       this.scrollToInternal(0, animated, this.distanceDecayJump);
   }
 
   /** Scroll to the end of available content. allowDuringDrag: whether we should interrupt a user's active drag. */
   scrollToEnd(animated = true, allowDuringDrag = false): void {
-    if (!this._isDragging || allowDuringDrag)
+    if (!this.isDragging || allowDuringDrag)
       this.scrollToInternal(this.scrollableExtent, animated, this.distanceDecayJump);
   }
 
@@ -451,7 +451,7 @@ export abstract class ScrollContainer<T extends Drawable = Drawable> extends Con
     // then we should handle the clamping force. Note, that if the target is _within_
     // acceptable bounds, then we do not need special handling of the clamping force, as
     // we will naturally scroll back into acceptable bounds.
-    if (!this._isDragging && this._current !== this.clamp(this._current) && this._target !== this.clamp(this._target, Math.fround(-0.01))) {
+    if (!this.isDragging && this._current !== this.clamp(this._current) && this._target !== this.clamp(this._target, Math.fround(-0.01))) {
       // Firstly, we want to limit how far out the target may go to limit overly bouncy
       // behaviour with extreme scroll velocities.
       this._target = this.clamp(this._target, this.clampExtension);

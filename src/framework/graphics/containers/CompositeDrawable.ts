@@ -14,8 +14,8 @@ import type { IFrameBasedClock } from '../../timing/IClock';
 import { Scheduler, type ScheduledDelegate } from '../../timing/Scheduler';
 import { Easing } from '../../transforms/Easing';
 import { TransformCustom } from '../../transforms/TransformCustom';
-import type { TransformSequence } from '../../transforms/TransformSequence';
-import { AbsoluteSequenceSender } from '../../transforms/Transformable';
+import { TransformSequence } from '../../transforms/TransformSequence';
+import { AbsoluteSequenceSender, type Transformable } from '../../transforms/Transformable';
 import { InvokeOnDisposal } from '../../allocation/InvokeOnDisposal';
 import { Colour4 } from '../Colour4';
 import { ColourInfo } from '../ColourInfo';
@@ -842,10 +842,30 @@ export abstract class CompositeDrawable extends Drawable {
         this.borderElement = b;
       }
 
-      const borderColour = ColourInfo.multiply(this.borderColour, drawColour).averageColour;
-      this.borderElement.style.border = `${this.borderThickness}px solid ${borderColour.toCss()}`;
-      this.borderElement.style.borderRadius = radius > 0 ? `${radius}px` : '';
-      this.borderElement.style.display = '';
+      const borderColour = ColourInfo.multiply(this.borderColour, drawColour);
+      const b = this.borderElement;
+
+      if (borderColour.hasSingleColour) {
+        b.style.border = `${this.borderThickness}px solid ${borderColour.topLeft.toCss()}`;
+        b.style.padding = b.style.background = b.style.mask = '';
+      } else {
+        // A gradient border: the gradient fills the border box and a mask cuts out the content box (the shader interpolates the border
+        // colour over the masking rectangle the same way). Vertical and horizontal gradients are exact; other gradients use the
+        // vertical blend of the averaged edges.
+        const vertical = borderColour.topLeft.equals(borderColour.topRight) && borderColour.bottomLeft.equals(borderColour.bottomRight);
+        const horizontal = borderColour.topLeft.equals(borderColour.bottomLeft) && borderColour.topRight.equals(borderColour.bottomRight);
+        const gradient = horizontal && !vertical
+          ? `linear-gradient(to right, ${borderColour.topLeft.toCss()}, ${borderColour.topRight.toCss()})`
+          : `linear-gradient(to bottom, ${midColour(borderColour.topLeft, borderColour.topRight).toCss()}, ${midColour(borderColour.bottomLeft, borderColour.bottomRight).toCss()})`;
+
+        b.style.border = '';
+        b.style.padding = `${this.borderThickness}px`;
+        b.style.background = gradient;
+        b.style.mask = 'linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0)';
+      }
+
+      b.style.borderRadius = radius > 0 ? `${radius}px` : '';
+      b.style.display = '';
     } else if (this.borderElement !== null)
       this.borderElement.style.display = 'none';
 
@@ -979,8 +999,8 @@ export abstract class CompositeDrawable extends Drawable {
     }
   }
 
-  /** Helper function for creating and adding a transform that fades the current EdgeEffect (alpha, or to a colour). */
-  protected fadeEdgeEffectTo(newAlphaOrColour: number | Colour4, duration = 0, easing = Easing.None): TransformSequence<this> {
+  /** Helper function for creating and adding a transform that fades the current EdgeEffect (alpha, or to a colour). (Public, as C#'s IContainer extension.) */
+  fadeEdgeEffectTo(newAlphaOrColour: number | Colour4, duration = 0, easing = Easing.None): TransformSequence<this> {
     const target = typeof newAlphaOrColour === 'number'
       ? new Colour4(this.edgeEffect.colour.r, this.edgeEffect.colour.g, this.edgeEffect.colour.b, newAlphaOrColour)
       : newAlphaOrColour;
@@ -989,7 +1009,7 @@ export abstract class CompositeDrawable extends Drawable {
   }
 
   /** Helper function for creating and adding a transform that tweens the current EdgeEffect to match the given parameters. */
-  protected tweenEdgeEffectTo(newParams: EdgeEffectParameters, duration = 0, easing = Easing.None): TransformSequence<this> {
+  tweenEdgeEffectTo(newParams: EdgeEffectParameters, duration = 0, easing = Easing.None): TransformSequence<this> {
     return this.transformTo('edgeEffect', newParams, duration, easing);
   }
 
@@ -1492,4 +1512,24 @@ class AutoSizeTransform extends TransformCustom<Vector2, CompositeDrawable> {
   constructor() {
     super('baseSize');
   }
+}
+
+const midColour = (a: Colour4, b: Colour4): Colour4 => new Colour4((a.r + b.r) / 2, (a.g + b.g) / 2, (a.b + b.b) / 2, (a.a + b.a) / 2);
+
+// TransformSequenceExtensions for CompositeDrawables: the edge effect helpers, appended to a sequence.
+declare module '../../transforms/TransformSequence' {
+  interface TransformSequence<T extends Transformable> {
+    fadeEdgeEffectTo(newAlphaOrColour: number | Colour4, duration?: number, easing?: Easing): TransformSequence<T>;
+    tweenEdgeEffectTo(newParams: EdgeEffectParameters, duration?: number, easing?: Easing): TransformSequence<T>;
+  }
+}
+
+for (const name of ['fadeEdgeEffectTo', 'tweenEdgeEffectTo'] as const) {
+  Object.defineProperty(TransformSequence.prototype, name, {
+    configurable: true,
+    writable: true,
+    value(this: TransformSequence<CompositeDrawable>, ...args: unknown[]) {
+      return this.append(o => (o[name] as (...a: unknown[]) => TransformSequence<CompositeDrawable>)(...args));
+    },
+  });
 }

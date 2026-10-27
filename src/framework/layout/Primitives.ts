@@ -1,5 +1,6 @@
 // Ported from osu.Framework/Graphics/Primitives/RectangleF.cs and Quad.cs (the subset the framework uses),
-// and osu.Framework/Utils/Precision.cs.
+// osu.Framework/Utils/Precision.cs, and the IConvexPolygon intersection test (Graphics/Primitives/IPolygon.cs, ProjectionRange.cs,
+// Extensions/PolygonExtensions/PolygonExtensions.cs GetAxes and ConvexPolygonExtensions.cs).
 
 import type { Matrix3 } from './Matrix3';
 import type { MarginPadding } from './MarginPadding';
@@ -76,6 +77,11 @@ export class RectangleF {
     return RectangleF.Empty;
   }
 
+  /** Determines if this rectangle intersects with rect. */
+  intersectsWith(rect: RectangleF): boolean {
+    return rect.x < this.x + this.width && this.x < rect.x + rect.width && rect.y < this.y + this.height && this.y < rect.y + rect.height;
+  }
+
   /** Instance Intersect (C# mutates; returns the result here). */
   intersect(rect: RectangleF): RectangleF {
     return RectangleF.intersect(rect, this);
@@ -104,7 +110,78 @@ export class RectangleF {
 
 const perpDot = (a: Vector2, b: Vector2) => a.x * b.y - a.y * b.x;
 
-export class Quad {
+/** IPolygon / IConvexPolygon: vertices in screen-space counter-clockwise orientation. */
+export interface IConvexPolygon {
+  /** The vertices that define the axes spanned by this polygon. */
+  getAxisVertices(): readonly Vector2[];
+
+  /** The vertices of this polygon. */
+  getVertices(): readonly Vector2[];
+}
+
+/** PolygonExtensions.GetAxes (not normalized): the normal of each edge. */
+function getAxes(polygon: IConvexPolygon): Vector2[] {
+  const vertices = polygon.getAxisVertices();
+  const axes: Vector2[] = [];
+
+  for (let i = 0; i < vertices.length; i++) {
+    // Construct an edge between two sequential points
+    const v1 = vertices[i];
+    const v2 = vertices[i === vertices.length - 1 ? 0 : i + 1];
+    const edge = v2.sub(v1);
+
+    // Find the normal to the edge
+    axes.push(new Vector2(-edge.y, edge.x));
+  }
+
+  return axes;
+}
+
+/** ProjectionRange: how "far" along an axis the projection of vertices onto the axis would be. */
+function projectionRange(axis: Vector2, vertices: readonly Vector2[]): [number, number] {
+  if (vertices.length === 0)
+    return [0, 0];
+
+  let min = Vector2.dot(axis, vertices[0]);
+  let max = min;
+
+  for (let i = 1; i < vertices.length; i++) {
+    const val = Vector2.dot(axis, vertices[i]);
+    if (val < min)
+      min = val;
+    if (val > max)
+      max = val;
+  }
+
+  return [min, max];
+}
+
+/** Determines whether two sets of vertices intersect along a set of axes. */
+function intersectsAlong(axes: readonly Vector2[], firstVertices: readonly Vector2[], secondVertices: readonly Vector2[]): boolean {
+  for (const axis of axes) {
+    const [firstMin, firstMax] = projectionRange(axis, firstVertices);
+    const [secondMin, secondMax] = projectionRange(axis, secondVertices);
+
+    // ProjectionRange.Overlaps
+    if (!(firstMin <= secondMax && firstMax >= secondMin))
+      return false;
+  }
+
+  return true;
+}
+
+/** ConvexPolygonExtensions.Intersects: determines whether two convex polygons intersect. */
+export function intersects(first: IConvexPolygon, second: IConvexPolygon): boolean {
+  const firstVertices = first.getVertices();
+  const secondVertices = second.getVertices();
+
+  let result = intersectsAlong(getAxes(first), firstVertices, secondVertices);
+  result = result && intersectsAlong(getAxes(second), firstVertices, secondVertices);
+
+  return result;
+}
+
+export class Quad implements IConvexPolygon {
   constructor(readonly topLeft: Vector2, readonly topRight: Vector2, readonly bottomLeft: Vector2, readonly bottomRight: Vector2) {}
 
   static fromRectangle(rectangle: RectangleF): Quad {
@@ -117,6 +194,10 @@ export class Quad {
   /** operator *(Quad, Matrix3) */
   mul(m: Matrix3): Quad {
     return new Quad(m.transform(this.topLeft), m.transform(this.topRight), m.transform(this.bottomLeft), m.transform(this.bottomRight));
+  }
+
+  get centre(): Vector2 {
+    return this.topLeft.add(this.topRight).add(this.bottomLeft).add(this.bottomRight).div(4);
   }
 
   get width(): number {
@@ -134,6 +215,15 @@ export class Quad {
     const yMax = Math.max(this.topLeft.y, this.topRight.y, this.bottomLeft.y, this.bottomRight.y);
 
     return new RectangleF(xMin, yMin, xMax - xMin, yMax - yMin);
+  }
+
+  getAxisVertices(): readonly Vector2[] {
+    return this.getVertices();
+  }
+
+  /** The vertices in C#'s field order (screen-space counter-clockwise): TopLeft, BottomLeft, BottomRight, TopRight. */
+  getVertices(): readonly Vector2[] {
+    return [this.topLeft, this.bottomLeft, this.bottomRight, this.topRight];
   }
 
   contains(pos: Vector2): boolean {

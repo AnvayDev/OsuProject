@@ -1,6 +1,7 @@
 // Ported from osu.Framework/Input/InputManager.cs, PassThroughInputManager.cs, UserInputManager.cs, CustomInputManager.cs
 // and Handlers/InputHandler.cs. Touch, tablet, joystick and MIDI paths are omitted (no such devices in the web port).
 
+import type { IFocusManager } from './IFocusManager';
 import { Container } from '../graphics/containers/Container';
 import { Drawable } from '../graphics/Drawable';
 import { Axes } from '../layout/Enums';
@@ -45,7 +46,9 @@ export interface IRequireHighFrequencyMousePosition {
 
 const requiresHighFrequency = (d: Drawable) => (d as Partial<IRequireHighFrequencyMousePosition>).requireHighFrequencyMousePosition === true;
 
-export abstract class InputManager extends Container implements IInputStateChangeHandler {
+export abstract class InputManager extends Container implements IInputStateChangeHandler, IFocusManager {
+  readonly isFocusManager = true;
+
   /** The currently focused Drawable. Null if there is no current focus. */
   focusedDrawable: Drawable | null = null;
 
@@ -140,7 +143,7 @@ export abstract class InputManager extends Container implements IInputStateChang
   }
 
   /** Reset current focused drawable to the top-most drawable which is requestsFocus. */
-  triggerFocusContention(): void {
+  triggerFocusContention(_triggerSource: Drawable | null = null): void {
     if (this.focusedDrawable === null) return;
 
     this.changeFocusTo(null);

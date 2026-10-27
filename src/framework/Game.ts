@@ -1,4 +1,4 @@
-// Ported from osu.Framework/Game.cs (scene-graph structure, fonts, resources and audio; textures/shaders/config are wired by the game layer).
+// Ported from osu.Framework/Game.cs (scene-graph structure, fonts, resources, textures and audio; shaders and config are not ported).
 
 import { Container } from './graphics/containers/Container';
 import { DrawSizePreservingFillContainer } from './graphics/containers/DrawSizePreservingFillContainer';
@@ -8,10 +8,12 @@ import { Vector2 } from './layout/Vector2';
 import type { GameHost } from './platform/GameHost';
 import { DependencyContainer, type IReadOnlyDependencyContainer } from './allocation/DependencyContainer';
 import { FontStore, GlyphStore } from './text/FontStore';
+import { FrameworkConfigManager } from './configuration/FrameworkConfigManager';
 import { AudioManager } from './audio/AudioManager';
 import { SampleStore } from './audio/sample/SampleStore';
 import { TrackStore } from './audio/track/TrackStore';
 import { NamespacedResourceStore, OnlineStore, ResourceStore } from './io/ResourceStore';
+import { TextureStore } from './graphics/textures/TextureStore';
 
 /** Where generated assets (scripts/prepare-assets.mjs) are served from. */
 export const ASSET_ROOT = `${import.meta.env?.BASE_URL ?? '/'}assets`.replace(/\/\//g, '/');
@@ -36,7 +38,9 @@ export abstract class Game extends Container {
   private gameDependencies!: DependencyContainer;
 
   /** The resources of this game. The game layer adds its stores (e.g. osu-resources); framework stores namespace into it. */
-  protected resources!: ResourceStore<Blob>;
+  resources!: ResourceStore<Blob>;
+
+  textures!: TextureStore;
 
   audio!: AudioManager;
 
@@ -50,6 +54,10 @@ export abstract class Game extends Container {
 
     this.resources = new ResourceStore<Blob>();
 
+    this.textures = new TextureStore(new NamespacedResourceStore(this.resources, 'Textures'));
+    this.textures.addTextureSource(new OnlineStore());
+    this.gameDependencies.cache(this.textures);
+
     const tracks = new ResourceStore<Blob>();
     tracks.addStore(new NamespacedResourceStore(this.resources, 'Tracks'));
     tracks.addStore(new OnlineStore());
@@ -58,7 +66,7 @@ export abstract class Game extends Container {
     samples.addStore(new NamespacedResourceStore(this.resources, 'Samples'));
     samples.addStore(new OnlineStore());
 
-    this.audio = new AudioManager(this.host!.audioThread, tracks, samples);
+    this.audio = new AudioManager(this.host!.audioThread, tracks, samples, dependencies.get(FrameworkConfigManager));
     this.gameDependencies.cache(this.audio);
 
     this.gameDependencies.cacheAs(TrackStore, this.audio.tracks);
@@ -100,6 +108,14 @@ export abstract class Game extends Container {
 
   protected override addInternal(_drawable: Drawable): void {
     throw new Error('Use add or content instead.');
+  }
+
+  /** Force-closes the game (Game.Exit). */
+  exit(): void {
+    if (this.host === null)
+      throw new Error('Attempted to exit a game which has not yet been run');
+
+    this.host.exit();
   }
 
   /** @internal */

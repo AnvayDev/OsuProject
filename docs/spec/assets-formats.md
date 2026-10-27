@@ -36,9 +36,9 @@ Source: osu! 2026.1005.0-lazer (`_reference/osu`), osu-framework 2026.921.1. Pat
 
 ## 2. BeatmapImporter (`Beatmaps/BeatmapImporter.cs`)
 
-- `CreateModel` (:280-305): the first `.osu` (any depth) is decoded only for `BeatmapSetInfo.OnlineID` (`BeatmapSetID`, else -1). If there is
+- `CreateModel` (:306-334): the first `.osu` (any depth) is decoded only for `BeatmapSetInfo.OnlineID` (`BeatmapSetID`, else -1). If there is
   no `.osu`, or the file is empty → skip silently.
-- `createBeatmapDifficulties` (:330-420): only **top-level** `.osu` files (no `/` in the shortened name). For each one:
+- `createBeatmapDifficulties` (:366-457): only **top-level** `.osu` files (no `/` in the shortened name). For each one:
   - skip empty files;
   - decode;
   - `hash = SHA-256(file)`; skip duplicate content within the set;
@@ -50,10 +50,20 @@ Source: osu! 2026.1005.0-lazer (`_reference/osu`), osu-framework 2026.921.1. Pat
     `TotalObjectCount`.
 
   If none remain → throw "No valid beatmap files found in the beatmap archive."
-- `Populate` (:150-180): sets `DateAdded = now`, links beatmaps to the set and validates online IDs (`validateOnlineIds`: duplicate IDs
-  within the set, or IDs already used by another set not being reused → `ResetOnlineInfo()` for all). If online IDs were present but all were
-  lost → set `OnlineID = -1`.
+- `Populate` (:167-198): sets `DateAdded = now`, links beatmaps to the set and validates online IDs (`validateOnlineIds`: duplicate IDs
+  within the set, or IDs already used by another set not being reused → `ResetOnlineInfo()` for all). The following "all online IDs lost →
+  set `OnlineID = -1`" branch is dead code (`hadOnlineIDs` is computed after the reset), so the set keeps its `OnlineID`.
 - `UndeleteForReuse` also resets `DateAdded = now` when undeleting.
+- Import notification texts (`RealmArchiveModelImporter.cs:101-198`), shown by the notification overlay: "Beatmap import is initialising...",
+  "Imported {n} of {total} beatmaps", on failure "Beatmap import failed! Check logs for more information." (state Cancelled), on success
+  "Imported {n} of {total} beatmaps." / "Imported {n} beatmaps!" / "Imported {artist} - {title} ({creator})!", plus " Click to view." when
+  imports can be presented. A failed task doesn't advance the count; an aborted one (no `.osu`) does.
+- Port status: done and tested (`src/game/database/*`, `src/game/beatmaps/BeatmapImporter.ts`, `src/game/io/archives/*`; tests port
+  `BeatmapImporterTests` with the `virtual_quick` Renatus set, plus the intro-set hashes and a Shift-JIS archive). Not ported: the batch fast
+  path (≥10 archives), `ImportAsUpdate`, score re-attachment, directory/stable imports, deleting the source file, pausing during gameplay.
+  The zip reader parses the central directory itself (fflate inflates): central-directory order, Shift-JIS names unless the UTF-8 flag or an
+  Info-ZIP Unicode path field is set, stored and deflate entries only. Filename sorting for the set hash uses `Intl.Collator('en-US')` as the
+  closest match to .NET's culture-sensitive default comparer; this only matters for sets with several `.osu` files.
 
 ## 3. Decoding `.osu` (`Beatmaps/Formats/LegacyDecoder.cs`, `LegacyBeatmapDecoder.cs`)
 
@@ -89,7 +99,11 @@ Source: osu! 2026.1005.0-lazer (`_reference/osu`), osu-framework 2026.921.1. Pat
 
 ## 4. Post-import processing (`Beatmaps/BeatmapUpdater.cs`, `BeatmapInfoExtensions.cs:18-24`, `IBeatmap.cs:157-210`, `Beatmap.cs:80-120`)
 
-- `StarRating = ruleset.CreateDifficultyCalculator(working).Calculate().StarRating` (no mods).
+- `StarRating = ruleset.CreateDifficultyCalculator(working).Calculate().StarRating` (no mods). **Web:** no difficulty calculator is ported
+  (no gameplay). The star rating comes from the mirror lookup (osu-web `difficulty_rating` matched by MD5): measured on 2026-10-20 it matched
+  the real client's song select on all 9 difficulties checked (sets 16722 and 268431, `docs/reference/real/04-*`, `05-*`), while
+  `osu-standard-stable` 5.0.1 matched none (errors −0.17 to +0.13). A beatmap with fewer than two hit objects gets 0 (what the calculators
+  give it, e.g. the intro sets); any other beatmap keeps −1 ("-" in the UI) until looked up or when the mirror doesn't know it.
 - `Length = CalculatePlayableLength(HitObjects)` = max(end time) − first object's start time (0 if no objects).
 - `BPM = 60000 / GetMostCommonBeatLength()`. Each timing point's duration runs to the next point (the first starts at 0, the last ends at
   the last object's end time); durations are grouped by beat length rounded to 1e-3 ms; the result is the longest group, clamped to the raw
@@ -97,6 +111,11 @@ Source: osu! 2026.1005.0-lazer (`_reference/osu`), osu-framework 2026.921.1. Pat
 - `EndTimeObjectCount` / `TotalObjectCount` are taken again from the decoded (unconverted) beatmap.
 - Online metadata lookup (`BeatmapUpdaterMetadataLookup`: status, dates, online IDs) is replaced by the mirror lookup (§7). It is optional;
   without it, `Status` = None ("local").
+- `Process` runs inside the import transaction (`PostImport`), so a set appears with its final values; the carousel ignores later changes
+  that only touch star rating, length or BPM (`BeatmapCarousel.cs:423-474`). The web importer runs it before its write for the same reason.
+- Port status: `BeatmapUpdater.process` (statistics + the <2-objects rule) and the metadata/star-rating lookup (`BeatmapUpdaterMetadataLookup`
+  with `MirrorBeatmapMetadataSource`: `/api/v2/md5/{md5}` then `/api/v2/s/{setId}` for status and dates, through the shared rate limiter
+  of §7) done and tested. Sets imported before this keep their values (BackgroundDataStoreProcessor isn't ported).
 
 ## 5. Bundled sets (`Screens/Menu/IntroScreen.cs`, `IntroCircles/Triangles/Welcome.cs`)
 
@@ -111,17 +130,24 @@ check is a strong end-to-end test of the importer's set-hash computation (§1, s
 
 ## 6. Web storage (IndexedDB, replacing Realm + `files/` store)
 
-- Database `osu`:
-  - `files`: key = SHA-256 hex, value = Blob. The file store's `Add(stream)` (`Database/RealmFileStore.cs`) dedupes by hash.
-  - `beatmapSets`: key = `ID` (GUID string). The value holds the set fields, `files: [{filename, hash}]` and embedded `beatmaps[]` (each with
-    `difficulty` and `metadata`). Indexes on `hash`, `onlineID` and `deletePending`.
-- Live/realm semantics (change notifications to the carousel) become a small change-event emitter on `BeatmapManager`: added, updated,
-  removed sets.
-- `WorkingBeatmap` is created on demand from a `BeatmapInfo`:
-  - `Beatmap`: decode the `.osu` Blob (cached);
-  - background: the `BackgroundFile` Blob → texture URL;
-  - track: `AudioFile` Blob → `TrackWeb` via a TrackStore over the set's files (`BeatmapSetInfo.GetFile`, case-insensitive filename
-    lookup).
+- Database `osu` (`src/game/database/RealmAccess.ts`):
+  - `files`: key = SHA-256 hex, value = ArrayBuffer (Blobs don't survive fake-indexeddb in tests; the data is the same). `RealmFileStore.add`
+    dedupes by hash. A file's storage path is its hash.
+  - `beatmapSets`: key = `ID` (GUID string). The value holds the set fields, `files: [{filename, hash}]`, embedded `beatmaps[]` (each with
+    `difficulty`, `metadata`, ruleset short name) and an insertion sequence.
+- osu! queries realm synchronously (`Find`, `All`, `QueryBeatmapSet`), so all sets are mirrored in memory **in insertion order** (realm's
+  unsorted order, relied on by `MusicController` and the intro's random pick). A write edits copies and swaps them in after IndexedDB
+  commits: a failed write changes nothing (realm's rollback), and readers keep the objects they had (realm's detached copies; the carousel's
+  change detection compares old and new objects). `registerForNotifications(query, callback)` reports realm-style change sets (deleted
+  indices in the old results; inserted and modified ones in the new), which the carousel's `RealmDetachedBeatmapStore` will consume.
+- Startup (`RealmAccess.cleanupPendingDeletions`): sets pending deletion are removed, then files no set references.
+- `WorkingBeatmap` (`WorkingBeatmapCache`, cached per beatmap ID via weak references; `refetch` invalidates first):
+  - `Beatmap`: the `.osu` is decoded asynchronously (`loadBeatmapAsync()`; the C# getter blocks), checked against `MD5Hash`;
+  - background: `BackgroundFile` → `LargeTextureStore` (object URL, scale adjust 2, cached by hash, failures too). The panel crop
+    (512:80 strip) isn't reproduced: panels fill with the background and are always at least that wide;
+  - track: `AudioFile` → `TrackWeb` from `TrackStore.getSync` (the set's file list says whether it exists; the data arrives afterwards),
+    else a virtual track of `Length + 1000` ms. `prepareTrackForPreview` queues its length-dependent part on the track (C# blocks until
+    the track has loaded). `DummyWorkingBeatmap`: "no beatmap selected!", `Backgrounds/bg2`, 1000 ms virtual track, ruleset `dummy`.
 
 ## 7. Downloads and online metadata (web replacement for `BeatmapModelDownloader` + osu! API)
 
@@ -129,14 +155,48 @@ check is a strong end-to-end test of the importer's set-hash computation (§1, s
   - `GET /api/d/{setId}` → 302 to `storage.osu.direct/...osz?X-Amz-…`. Both send `Access-Control-Allow-Origin: <origin>`.
   - `GET /api/v2/search?query=&amount=` → `APIBeatmapSet[]` (osu! API v2 shape: covers, beatmaps[], status, ranked_date, …).
   - `GET /api/v2/s/{setId}` → `APIBeatmapSet`.
+- Search (`/api/v2/search`, OpenAPI spec at `/api/docs/json`, verified 2026-10-26) replaces osu-web's `beatmapsets/search`. It returns
+  a bare `APIBeatmapSet[]` (no cursor or total; pages by `offset`, `amount` ≤ 101). `SearchBeatmapSetsRequest` parameters map as:
+  - `q` → `q`; filters go in a `[a = 1 AND b = 2] text` prefix of `q` (Meilisearch filter syntax; unknown attributes answer 400).
+  - `m` → `mode`. Converts can't be included (`c=converts` has no equivalent).
+  - `s` (SearchCategory) → `status` list: any → none; leaderboard → `1,2,3,4`; ranked → `1,2`; qualified → `3`; loved → `4`;
+    pending → `0`; wip → `-1`; graveyard → `-2`. favourites and mine need a user: no results.
+  - `c`: spotlights → `[spotlight = true]`; featured_artists → `[track_id > 0]`; recommended, converts and follows have no
+    equivalent (recommended/follows need a user) and are dropped.
+  - `g` → `[genre_id = n]`, `l` → `[language_id = n]` (osu-web ids), `e` → `[video = true]` / `[storyboard = true]`,
+    `nsfw=false` → `[nsfw = false]`.
+  - `r` and `played` are supporter-only filters; with no user they give the SupporterOnlyFilters result before any request.
+  - `sort` → `field:dir`: title → `title`, artist → `artist`, difficulty → `beatmaps.difficulty_rating`, updated → `last_updated`,
+    ranked → `ranked_date`, plays → `play_count`, favourites → `favourite_count`. rating, relevance and nominations aren't sortable:
+    no sort parameter (the mirror's default order).
+- Preview audio: `b.ppy.sh/preview/{id}.mp3` (Ogg Vorbis, ~0.3 s) has no CORS headers, so it is streamed by the media element outside Web Audio
+  (`TrackStore.getStreamed`: element volume, no balance/amplitudes); `/api/media/preview/set/{setId}` (audio/mpeg, CORS, but 5-6 s on the first
+  request of a set) is the fallback when that can't play.
+- Cover images (`assets.ppy.sh/beatmaps/{id}/covers/*`) have no CORS headers either: TextureStore uses an http(s) name directly as the
+  texture URL (an image element can display it) instead of fetching it.
+- Port status (listing): `SearchBeatmapSetsRequest` (mapping above), `APIBeatmapSet`/`APIBeatmap`, `BeatmapListingOverlay` with its header,
+  filter control and Normal/Extra beatmap cards, `PreviewTrackManager` (previews from b.ppy.sh, falling back to the mirror) done; unit tests for the mapping, verified
+  in the browser (search, filters, paging, card size, hover expansion). No login: supporter-only filters (rank achieved, played) give the
+  supporter-required result, favouriting fails as for a logged out user, and the recommended difficulty shows no star rating.
 - Fallback mirror: nerinyan (`api.nerinyan.moe/d/{id}` → `dl.nerinyan.moe`, `Access-Control-Allow-Origin: *`). Search returned 530 at the time.
 - catboy.best answered 403 from the build environment; not used.
 - Downloaded archives go through the normal import (§1–4). Online status/dates populate `BeatmapSetInfo.Status`, `DateRanked` and
   `DateSubmitted`, as the metadata lookup does.
+- Limits (response headers, 2026-10-26): `ratelimit-limit: 120` per minute and `ratelimit-burst-limit: 25` per 5 s, shared by every
+  endpoint; `/api/d` also reports a download budget (`x-download-budget-limit: 200` downloads, 8 GiB). Every mirror request goes through
+  one sliding-window limiter (`online/api/MirrorAccess.ts`) that keeps within both rate limits.
+- 429 responses carry no CORS headers, so page code sees a bare network failure. The browser still intermittently gets a 429
+  (`retry-after: 10`) from `/api/d` even when the limiter is satisfied and the reported counters have room; curl with identical headers
+  never reproduced it. As in osu!, a failed download isn't retried (the tracker returns to NotDownloaded, the user can start it again).
+- Port status: `ModelDownloader`/`BeatmapModelDownloader`, `ArchiveDownloadRequest`/`DownloadBeatmapSetRequest` (fetch with progress from
+  the streamed body, the 60 s inactivity timeout, cancel), `DownloadTracker`/`BeatmapDownloadTracker` done and tested; verified in the
+  browser (8 MB set downloaded with progress and imported). Not ported: download notifications (no NotificationOverlay yet),
+  `DownloadAsUpdate`.
 
 ## 8. Open questions
 
 1. Which beatmaps ship with the portfolio beyond the three intro sets: a curated `.osz` list served with the site, imported on first run like
    the intro sets? It is a content decision for the site owner. Default: intro sets only, plus drag-and-drop import and mirror download.
-2. Star ratings of rulesets other than osu! need their difficulty calculators. The port starts with osu! (the default ruleset); other
-   modes keep `StarRating = -1` until ported. Under the osu! ruleset song select only lists osu! maps anyway.
+2. Star ratings come from the mirror (§4), which follows live osu-web: if osu-web deploys a newer difficulty algorithm, values drift from the
+   pinned client. Converted star ratings (the toolbar ruleset switch recomputes them in osu!) are not available from the mirror; the
+   song-select port has to choose between showing the native value or not offering the switch.

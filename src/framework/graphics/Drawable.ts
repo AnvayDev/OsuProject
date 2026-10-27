@@ -8,6 +8,7 @@
 //
 // Input handlers live in Drawable.input.ts (added with the InputManager port).
 
+import { isFocusManager, type IFocusManager } from '../input/IFocusManager';
 import { type IReadOnlyDependencyContainer } from '../allocation/DependencyContainer';
 import { Signal } from '../bindables/Signal';
 import { Anchor, Axes, FillMode, Invalidation, LoadState, RotationDirection } from '../layout/Enums';
@@ -1585,6 +1586,20 @@ export abstract class Drawable extends Transformable {
   /** Retrieve the first parent in the tree which derives from InputManager. As this is performing an upward tree traversal, avoid calling every frame. */
   getContainingInputManager(): InputManager | null {
     return Drawable.containingInputManagerResolver?.(this) ?? null;
+  }
+
+  /** Retrieve the first parent in the tree which implements IFocusManager. As this is performing an upward tree traversal, avoid calling every frame. */
+  getContainingFocusManager(): IFocusManager | null {
+    let p: Drawable | null = this._parent;
+
+    while (p !== null) {
+      if (isFocusManager(p))
+        return p;
+
+      p = p._parent;
+    }
+
+    return null;
   }
 
   /** @internal Set by InputManager.ts to resolve the containing input manager without an import cycle. */

@@ -37,6 +37,27 @@ mkdir -p _reference && cd _reference && git clone --depth 1 --branch 2026.1005.0
 No computer use / real-client access in cloud sessions: use `docs/reference/real/` screenshots and the source.
 Status (2026-10-20): specs done = carousel, intro, main-menu, framework, assets-formats; partial = controls-overlays-common. Not started:
 game-shell, song-select, toolbar-music, settings-listing, web-visual-references. src/framework is done and tested (docs/spec/framework.md §1);
-only mixer effects remain, to port when first needed. Game layer: beatmap model + .osu decoder (control points, hit objects, slider paths)
-done and tested (docs/spec/assets-formats.md §3); import/storage, star rating, downloads and all UI are next.
+only mixer effects remain, to port when first needed. Game layer: .osu decoder, beatmap import into IndexedDB, WorkingBeatmap
+(tracks, backgrounds, decoding), BeatmapManager and the dummy beatmap are done and tested (docs/spec/assets-formats.md §1-6). Shell done and
+tested: OsuGameBase/OsuGame (index.html + src/main.ts), OsuConfigManager, OsuScreen/OsuScreenStack, background screens (default rotation,
+beatmap), Parallax/Scaling/UserDim containers, MusicController, OsuColour/OsuFont/OsuSpriteText. Dev states via window.__osu (src/dev/).
+Main menu done and tested (docs/spec/main-menu.md): MainMenu, ButtonSystem/MainMenuButton, OsuLogo + TrianglesV2 + LogoVisualisation,
+side flashes, song ticker, tips, supporter display, idle return; framework TextFlowContainer. Not yet: kiai fountains, hold-to-exit.
+Toolbar done (osu.Game/Overlays/Toolbar): all buttons, ruleset selector, clock, guest user button; buttons of unported overlays show
+their names/icons but do nothing. Now playing done: NowPlayingOverlay + PlaylistOverlay (framework VirtualisedListContainer), VolumeOverlay
+(VolumeMeter/MasterVolumeMeter/MuteButton; framework GlowEffect via BufferedContainer.drawOriginal) and OsuGame's volume key actions. Intro done (docs/spec/intro.md): Loader + LoadingSpinner, IntroScreen (theme import, watchdog, "see ya" exit), IntroTriangles;
+boot = AudioUnlockScreen (web autoplay gate, src/) → Loader. Not yet: IntroCircles, IntroWelcome. Song select in progress (no spec md): carousel +
+filter pipeline + panels, SongSelect/SoloSongSelect, footer, title wedge, details area (Details/Ranking tabs, metadata wedge, offline leaderboard
+placeholder), framework TabControl, framework TextBox (web text input via hidden textarea) + search box + FilterQueryParser.
+framework Menu/Dropdown/SearchContainer + OsuDropdown/ShearedDropdown (sort/group/collection/scope), framework SliderBar + star rating DifficultyRangeSlider.
+Carousel context menus done (framework ContextMenuContainer, OsuContextMenu/OsuMenu items + samples; hide/restore,
+mark played, copy link, delete via DialogOverlay + PopupDialog/DangerousActionDialog hold-to-confirm). Not yet: tooltips, popovers, mod select,
+collections (menu entry only), editor/scores (menu entries do nothing). Song select video background (web addition, user request):
+the selected set's .osu Video event plays muted, synced to the track (BeatmapBackgroundVideo, framework web Video); H.264 AVIs are
+remuxed to MP4 in the browser (AviRemuxer + mp4-muxer); starting a beatmap (Enter/logo) pushes VideoPlayer (Player stand-in:
+no UI, song from 0, undimmed background/video; back or song end exits). Mirror metadata lookup done (status, dates, star ratings at import). Downloads done (BeatmapModelDownloader +
+BeatmapDownloadTracker, shared mirror rate limiter). Beatmap listing overlay done (main menu "browse"; mirror search, Normal/Extra cards,
+previews, downloads, PresentBeatmap): overlay base classes (WaveOverlayContainer/FullscreenOverlay/OnlineOverlay, OverlayHeader,
+OverlayScrollContainer), IOverlayManager dim, framework CircularProgress/DelayedLoadWrapper/ModelBackedDrawable. No beatmap set overlay.
+No gameplay is ported (user decision).
 Cloud screenshots: `PW_CHROMIUM=/opt/pw-browsers/chromium node scripts/shot.mjs ...` (dev server running). Recordings: docs/reference/recordings/web/*.mp4 (ffmpeg available).

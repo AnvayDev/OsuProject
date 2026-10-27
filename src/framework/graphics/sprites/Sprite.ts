@@ -1,7 +1,8 @@
 // Ported from osu.Framework/Graphics/Sprites/Sprite.cs
 // DOM: the texture is the element's background (sized by DrawTextureRectangle). DrawColourInfo is applied exactly like the
 // texture shader's `v_Colour * texel`: white keeps the texture, other colours multiply (background-blend-mode: multiply,
-// masked by the texture's own alpha), and alpha becomes the leaf element's opacity.
+// masked by the texture's own alpha), and alpha becomes the leaf element's opacity. An alpha gradient (e.g. a cover fading in from one side)
+// becomes a gradient mask layer instead.
 
 import { Axes, Invalidation } from '../../layout/Enums';
 import { RectangleF } from '../../layout/Primitives';
@@ -29,6 +30,24 @@ export function colourInfoToCss(c: ColourInfo, alphaInColour: boolean): string {
 
   // General bilinear: average the vertical gradients of both columns.
   return `linear-gradient(to bottom, ${col(c.interpolate(0.5, 0))}, ${col(c.interpolate(0.5, 1))})`;
+}
+
+/** A mask layer applying a non-uniform alpha (null when the alpha is uniform). */
+function alphaGradientMask(c: ColourInfo): string | null {
+  const { topLeft: tl, topRight: tr, bottomLeft: bl, bottomRight: br } = c;
+
+  if (tl.a === tr.a && tl.a === bl.a && tl.a === br.a)
+    return null;
+
+  const a = (x: number) => `rgba(0,0,0,${x})`;
+
+  if (tl.a === tr.a && bl.a === br.a)
+    return `linear-gradient(to bottom, ${a(tl.a)}, ${a(bl.a)})`;
+
+  if (tl.a === bl.a && tr.a === br.a)
+    return `linear-gradient(to right, ${a(tl.a)}, ${a(tr.a)})`;
+
+  return `linear-gradient(to bottom, ${a((tl.a + tr.a) / 2)}, ${a((bl.a + br.a) / 2)})`;
 }
 
 /** A sprite that displays its texture. */
@@ -160,15 +179,21 @@ export class Sprite extends Drawable {
       const pos = `${r.x}px ${r.y}px`;
       const url = `url("${tex.url}")`;
       const single = colour.tryExtractSingleColour();
-      const alpha = single !== null ? single.a : colour.averageColour.a;
+      const alphaMask = alphaGradientMask(colour);
+      const alpha = alphaMask !== null ? 1 : single !== null ? single.a : colour.averageColour.a;
 
-      if (single !== null && isWhiteRGB(single)) {
-        css = { background: `${url} ${pos} / ${size} no-repeat`, backgroundBlendMode: '', mask: '', opacity: `${alpha}` };
+      const whiteRGB = single !== null ? isWhiteRGB(single) : [colour.topLeft, colour.topRight, colour.bottomLeft, colour.bottomRight].every(isWhiteRGB);
+
+      if (whiteRGB) {
+        css = { background: `${url} ${pos} / ${size} no-repeat`, backgroundBlendMode: '', mask: alphaMask ?? '', opacity: `${alpha}` };
       } else {
+        const textureMask = `${url} ${pos} / ${size} no-repeat`;
+
         css = {
-          background: `${url} ${pos} / ${size} no-repeat, ${colourInfoToCss(colour, false)}`,
+          background: `${textureMask}, ${colourInfoToCss(colour, false)}`,
           backgroundBlendMode: 'multiply',
-          mask: `${url} ${pos} / ${size} no-repeat`,
+          mask: alphaMask !== null ? `${textureMask}, ${alphaMask}` : textureMask,
+          maskComposite: alphaMask !== null ? 'intersect' : '',
           opacity: `${alpha}`,
         };
       }
@@ -183,6 +208,8 @@ export class Sprite extends Drawable {
     style.backgroundBlendMode = css.backgroundBlendMode ?? '';
     style.setProperty('mask', css.mask ?? '');
     style.setProperty('-webkit-mask', css.mask ?? '');
+    style.setProperty('mask-composite', css.maskComposite ?? '');
+    style.setProperty('-webkit-mask-composite', css.maskComposite ? 'source-in' : '');
     style.opacity = css.opacity;
   }
 

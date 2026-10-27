@@ -30,7 +30,8 @@ Ground truth, in priority order:
   Track = `HTMLAudioElement` (object URL) → `MediaElementAudioSourceNode` → track gain → `AnalyserNode` (FFT 512 → 256 bins, smoothing 0, used as `CurrentAmplitudes`) → master gain → destination.
   Samples = decoded `AudioBuffer`s played through `AudioBufferSourceNode`s → effect gain → master gain.
 - Storage: IndexedDB (via `idb`) for imported beatmaps (content-addressed file blobs + set records). `localStorage` only for config (`OsuConfigManager`).
-- Archives: `fflate` (unzip), parsing: our port of `LegacyBeatmapDecoder` (`src/game/beatmaps/formats`), star rating: `osu-standard-stable` / `osu-taiko-stable` / `osu-catch-stable` / `osu-mania-stable`. Heavy work runs in a Web Worker.
+- Archives: `fflate` (unzip), parsing: our port of `LegacyBeatmapDecoder` (`src/game/beatmaps/formats`), star rating: the mirror's osu-web value matched by MD5 (no difficulty calculator is ported; see
+  `docs/spec/assets-formats.md` §4).
 - Online: beatmap search + download from community mirrors with CORS (`https://catboy.best` primary, `https://osu.direct` fallback). Same-origin proxy fallbacks
   exist at `/mirror/catboy/*` and `/mirror/osudirect/*` (vercel.json rewrites + vite dev proxy). Covers from `assets.ppy.sh`, previews from `b.ppy.sh` (no CORS: use `<img>`/`<audio>` only, never canvas/WebAudio analysis on them).
 - Hosting: Vercel static build (`npm run build` → `dist/`).
@@ -60,7 +61,7 @@ src/
     Game.ts                  host: rAF loop, root element, update → layout → DOM write
   game/                      port of osu.Game (mirrors its folder names where practical)
     OsuGame.ts               layering of screen stack, backgrounds, overlays, toolbar, cursor, notifications, volume, OSD
-    config/                  OsuConfigManager (localStorage), defaults copied from osu.Game/Configuration/OsuConfigManager.cs
+    configuration/           OsuConfigManager (localStorage), defaults copied from osu.Game/Configuration/OsuConfigManager.cs
     graphics/                OsuColour, OsuFont, OsuIcon, cursor/, containers/ (ParallaxContainer, BeatSyncedContainer,
                              OsuScrollContainer…), backgrounds/ (Background, Triangles, TrianglesV2), userinterface/ (controls)
     resources/               asset manifest + loaders (textures, samples, fonts)
@@ -103,68 +104,41 @@ Transforms: `fadeTo/fadeIn/fadeOut/fadeInFromZero/fadeOutFromOne/moveTo/moveToX/
 Lifecycle: `load()` (once, when added to a loaded parent), `loadComplete()`, `update()` (every frame), `dispose()`.
 Input hooks: `onHover/onHoverLost/onClick/onDoubleClick/onMouseDown/onMouseUp/onDragStart/onDrag/onDragEnd/onScroll/onKeyDown/onKeyUp/onPressed/onReleased(action)`; return `true` to block propagation.
 
-## Data layer contract (src/game/beatmaps)
+## Data layer contract (src/game/beatmaps, src/game/database)
+
+The data layer is a port of osu!'s own classes; their C# names and semantics are the contract (details: `docs/spec/assets-formats.md` §1-7).
+Models: `BeatmapSetInfo`, `BeatmapInfo`, `BeatmapMetadata`, `BeatmapDifficulty`, `RealmNamedFileUsage` (online IDs are `-1` when absent,
+statuses are `BeatmapOnlineStatus`).
 
 ```ts
-// Records stored in IndexedDB
-interface StoredFile { hash: string; blob: Blob }                      // store 'files', key = sha256 hex
-interface BeatmapSetInfo {
-  id: string;                    // local uuid
-  onlineID: number | null;       // BeatmapSetID or null
-  dateAdded: number;             // ms epoch
-  protected: boolean;            // bundled intro tracks etc. — cannot be deleted
-  files: { filename: string; hash: string }[];
-  beatmaps: BeatmapInfo[];
-  hash: string;                  // hash of all .osu hashes (dedupe)
-  status: 'local' | 'ranked' | 'approved' | 'qualified' | 'loved' | 'pending' | 'wip' | 'graveyard' | 'unknown';
+class RealmAccess {                              // IndexedDB 'osu' + an in-memory mirror in insertion order
+  static open(name?: string): Promise<RealmAccess>;   // purges pending deletions and unused files
+  allBeatmapSets(): readonly BeatmapSetInfo[]; findBeatmapSet(id): BeatmapSetInfo | null; findBeatmap(id): BeatmapInfo | null;
+  write<T>(action: (r: RealmWrite) => T): Promise<T>; // edits copies; publishes new objects after the commit
+  registerForNotifications(query, callback): { dispose() };   // realm-style ChangeSets
+  readonly files: RealmFileStore;                // hash → bytes
 }
-interface BeatmapInfo {
-  id: string; onlineID: number | null; setID: string;
-  rulesetID: 0 | 1 | 2 | 3;      // osu, taiko, catch, mania
-  difficultyName: string;
-  metadata: { title: string; titleUnicode: string; artist: string; artistUnicode: string; author: string; source: string; tags: string;
-              audioFile: string; backgroundFile: string | null; videoFile: string | null; previewTime: number /* ms, -1 = none */ };
-  difficulty: { cs: number; ar: number; od: number; hp: number; sliderMultiplier: number; sliderTickRate: number };
-  starRating: number;            // computed (stable SR via kionell ports) or from online data
-  bpm: number;                   // lazer rule (most common beat length) — see docs/spec/assets-formats.md
-  bpmMin: number; bpmMax: number;
-  length: number;                // ms, hit object span
-  drainLength: number;
-  maxCombo: number; circleCount: number; sliderCount: number; spinnerCount: number;
-  timing: { time: number; beatLength: number; meter: number; kiai: boolean; uninherited: boolean; omitFirstBarLine: boolean }[]; // compact, for BeatSync
-  firstObjectTime: number; lastObjectTime: number;
-  hash: string;                  // sha256 of .osu
-  countdown: number; audioLeadIn: number;
+class BeatmapManager {                           // + ModelManager delete/undelete
+  import(tasks: ImportTask[]): Promise<BeatmapSetInfo[]>;     // posts a ProgressNotification (.osz/.olz only)
+  importTask(task: ImportTask): Promise<BeatmapSetInfo | null>;
+  getWorkingBeatmap(beatmapInfo: BeatmapInfo | null, refetch?: boolean): WorkingBeatmap;   // synchronous, cached per ID
+  queryBeatmapSet(predicate): BeatmapSetInfo | null; getAllUsableBeatmapSets(): BeatmapSetInfo[];
+  delete(set): Promise<boolean>; deleteAll(filter?): Promise<void>; undeleteAll(): Promise<void>;
+  performWrite(set, (s) => void): Promise<void>; // Live<T>.PerformWrite
+  readonly defaultBeatmap: WorkingBeatmap;       // DummyWorkingBeatmap
+  processBeatmap: ProcessBeatmapDelegate | null; // BeatmapUpdater.process, run before an import is written
 }
-
-class BeatmapManager {
-  static instance: BeatmapManager;
-  init(): Promise<void>;                                  // opens DB, loads all sets into memory
-  getAllSets(): BeatmapSetInfo[];
-  getSet(id: string): BeatmapSetInfo | undefined;
-  import(files: File[] | FileList, opts?: { onProgress?(p: ImportProgress): void }): Promise<ImportResult[]>; // .osz, .osu (+assets), folders, images ignored
-  importFromArrayBuffer(name: string, data: ArrayBuffer, opts?): Promise<ImportResult>;
-  delete(setId: string): Promise<void>;                   // refuses protected
-  deleteAll(): Promise<void>;
-  getWorkingBeatmap(beatmap: BeatmapInfo): WorkingBeatmap; // cached LRU, lazily creates object URLs
-  // events
-  onSetAdded: Signal<BeatmapSetInfo>; onSetUpdated: Signal<BeatmapSetInfo>; onSetRemoved: Signal<string /*setId*/>;
-}
-interface WorkingBeatmap {
-  beatmapInfo: BeatmapInfo; setInfo: BeatmapSetInfo;
-  getTrackUrl(): Promise<string | null>;      // object URL, null if audio missing → caller uses TrackVirtual(length)
-  getBackgroundUrl(): Promise<string | null>; // object URL or null
-  getFileUrl(name: string): Promise<string | null>;
-  release(): void;                             // revoke object URLs
-}
-class BeatmapDownloader {
-  search(q: SearchQuery): Promise<SearchResult>;        // catboy → osu.direct → proxies
-  download(setId: number, opts: { noVideo?: boolean; onProgress?(loaded: number, total: number): void; signal?: AbortSignal }): Promise<ArrayBuffer>;
-  // track per-set state for card buttons
-  getState(setId: number): 'none' | 'downloading' | 'importing' | 'local';
-  onStateChanged: Signal<{ setId: number; state: string; progress?: number }>;
+abstract class WorkingBeatmap {
+  readonly beatmapInfo; readonly beatmapSetInfo; readonly metadata;
+  loadBeatmapAsync(): Promise<IBeatmap | null>; readonly beatmap: IBeatmap | null; readonly beatmapLoaded: boolean;
+  getBackground(): Promise<Texture | null>; getPanelBackground(): Promise<Texture | null>;
+  loadTrack(): Track; readonly track: Track; prepareTrackForPreview(looping, offset?): void; tryTransferTrack(target): boolean;
 }
 ```
+
+Downloads (planned, osu! names): `BeatmapModelDownloader` (`downloadBegan`/`downloadFailed`, `download(set)`, `getExistingDownload(set)`)
+and `BeatmapDownloadTracker` (`DownloadState`: NotDownloaded, Downloading, Importing, LocallyAvailable) over a CORS mirror (osu.direct,
+see the assets spec §7).
 
 A tiny `Signal<T>` (add/remove/emit) lives in `src/framework/bindables/Signal.ts`.
 

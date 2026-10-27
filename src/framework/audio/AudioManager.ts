@@ -1,6 +1,7 @@
 // Ported from osu.Framework/Audio/AudioManager.cs. Device management does not apply in the browser: one AudioContext plays to the default output.
 // Browsers start an AudioContext suspended until the first user gesture, so it is resumed on the first pointer/key input.
 
+import { type FrameworkConfigManager, FrameworkSetting } from '../configuration/FrameworkConfigManager';
 import type { AudioThread } from '../platform/AudioThread';
 import { BindableDouble } from '../bindables/BindableNumber';
 import type { IResourceStore } from '../io/ResourceStore';
@@ -54,11 +55,19 @@ export class AudioManager extends AudioCollectionManager<AudioComponent> {
     private readonly thread: AudioThread,
     private readonly trackStore: IResourceStore<Blob>,
     private readonly sampleStore: IResourceStore<Blob>,
+    config: FrameworkConfigManager | null = null,
     readonly context: BaseAudioContext = new AudioContext(),
   ) {
     super();
 
     thread.registerManager(this);
+
+    if (config !== null) {
+      // attach config bindables
+      config.bindWith(FrameworkSetting.VolumeUniversal, this.volume);
+      config.bindWith(FrameworkSetting.VolumeEffect, this.volumeSample);
+      config.bindWith(FrameworkSetting.VolumeMusic, this.volumeTrack);
+    }
 
     this.addItem(this.trackMixer = this.createMixer(null, 'TrackMixer'));
     this.addItem(this.sampleMixer = this.createMixer(null, 'SampleMixer'));

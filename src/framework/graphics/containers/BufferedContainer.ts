@@ -6,8 +6,11 @@
 // of sh_Blur.fs, converted from frame-buffer texels to local units: texels / FrameBufferScale = osu! screen pixels (device pixels,
 // osu! renders at full pixel density) / devicePixelRatio = CSS pixels / (local → screen scale).
 // A cached frame buffer keeps showing its last rendering: children's elements are only re-validated when the draw version changes.
-// Not ported (throws): DrawOriginal (needs a second copy of the subtree), GrayscaleStrength. CSS blur is isotropic and clamps to
-// transparent at the edges (osu! clamps to the edge texel), and anisotropic sigma / BlurRotation use max(sigma.X, sigma.Y).
+// DrawOriginal (the original drawn again with the effect) is an SVG filter: the effect is the blurred original times the effect colour (its
+// alpha may exceed 1, as GlowEffect's strength makes it, and is clamped per pixel as the GL output is), drawn behind the original, in front of
+// it, or added to it (additive effect blending in front).
+// Not ported (throws): GrayscaleStrength. CSS blur is isotropic and clamps to transparent at the edges (osu! clamps to the edge texel), and
+// anisotropic sigma / BlurRotation use max(sigma.X, sigma.Y).
 
 import { Invalidation } from '../../layout/Enums';
 import { InvalidationSource, LayoutValue } from '../../layout/Layout';
@@ -333,8 +336,6 @@ export class BufferedContainer<T extends Drawable = Drawable> extends Container<
   protected override applyElementState(): void {
     super.applyElementState();
 
-    if (this._drawOriginal)
-      throw new Error('BufferedContainer.drawOriginal is not supported by the DOM port.');
     if (this._grayscaleStrength > 0)
       throw new Error('BufferedContainer.grayscaleStrength is not supported by the DOM port.');
 
@@ -342,24 +343,32 @@ export class BufferedContainer<T extends Drawable = Drawable> extends Container<
 
     // finalEffectColour = DrawColourInfo.Colour.ApplyChild(effectColour); gradients are drawn with their average colour.
     const colour = this.frameBufferDrawColour.colour.applyChild(this._effectColour).averageColour;
-    style.opacity = colour.a >= 1 ? '' : `${Math.max(0, colour.a)}`;
+    // (the original is drawn with the frame buffer's colour, without the effect colour)
+    const opacity = this._drawOriginal ? this.frameBufferDrawColour.colour.averageColour.a : colour.a;
+    style.opacity = opacity >= 1 ? '' : `${Math.max(0, opacity)}`;
 
     const filters: string[] = [];
 
     const sigma = Math.max(this._blurSigma.x, this._blurSigma.y);
     const radius = kernelSize(sigma);
+    let cssSigma = 0;
 
     if (radius > 0) {
       const scale = this._blurSigma.x >= this._blurSigma.y ? this._frameBufferScale.x : this._frameBufferScale.y;
       const m = this.drawInfo.matrix;
       const localToScreen = Math.sqrt(Math.abs(m.m11 * m.m22 - m.m12 * m.m21)) || 1;
-      const cssSigma = effectiveKernelSigma(radius, sigma) / scale / devicePixelRatioOf(this.element) / localToScreen;
-      filters.push(`blur(${cssSigma}px)`);
+      cssSigma = effectiveKernelSigma(radius, sigma) / scale / devicePixelRatioOf(this.element) / localToScreen;
     }
 
     const r = Math.min(1, Math.max(0, colour.r)), g = Math.min(1, Math.max(0, colour.g)), b = Math.min(1, Math.max(0, colour.b));
 
-    if (r !== 1 || g !== 1 || b !== 1) {
+    if (this._drawOriginal) {
+      if (colour.a > 0)
+        filters.push(`url(#${this.ensureEffectFilter(cssSigma, r, g, b, colour.a)})`);
+    } else if (cssSigma > 0)
+      filters.push(`blur(${cssSigma}px)`);
+
+    if (!this._drawOriginal && (r !== 1 || g !== 1 || b !== 1)) {
       if (r === g && g === b)
         filters.push(`brightness(${r})`);
       else
@@ -374,7 +383,9 @@ export class BufferedContainer<T extends Drawable = Drawable> extends Container<
     style.clipPath = `inset(${local.y}px ${size.x - local.right}px ${size.y - local.bottom}px ${local.x}px)`;
 
     style.backgroundColor = this._backgroundColour.a > 0 ? this._backgroundColour.toCss() : '';
-    style.mixBlendMode = this.drawEffectBlending === BlendingParameters.Additive ? 'plus-lighter' : '';
+    // (with drawOriginal, the effect blending only applies to the effect: the element is the original, drawn with the frame buffer's blending)
+    const blending = this._drawOriginal ? this.frameBufferDrawColour.blending : this.drawEffectBlending;
+    style.mixBlendMode = blending === BlendingParameters.Additive ? 'plus-lighter' : '';
   }
 
   private framebufferRectangleInLocalSpace(): RectangleF {
@@ -416,9 +427,84 @@ export class BufferedContainer<T extends Drawable = Drawable> extends Container<
     return (this.filterMatrix!.parentNode as SVGFilterElement).id;
   }
 
+  private effectSvg: SVGSVGElement | null = null;
+  private effectFilterKey = '';
+
+  /** The drawOriginal filter: the original, and its blur (standard deviation sigma, local units) times the effect colour. */
+  private ensureEffectFilter(sigma: number, r: number, g: number, b: number, a: number): string {
+    const ns = 'http://www.w3.org/2000/svg';
+
+    if (this.effectSvg === null) {
+      const svg = document.createElementNS(ns, 'svg');
+      svg.setAttribute('width', '0');
+      svg.setAttribute('height', '0');
+      svg.style.position = 'absolute';
+
+      const filter = document.createElementNS(ns, 'filter');
+      filter.id = `buffered-effect-${nextFilterId++}`;
+      filter.setAttribute('color-interpolation-filters', 'sRGB');
+      // (the padded frame buffer already bounds the effect; the clip path cuts it to the frame buffer rectangle)
+      filter.setAttribute('x', '-50%');
+      filter.setAttribute('y', '-50%');
+      filter.setAttribute('width', '200%');
+      filter.setAttribute('height', '200%');
+
+      svg.appendChild(filter);
+      document.body.appendChild(svg);
+      this.effectSvg = svg;
+    }
+
+    const filter = this.effectSvg.firstChild as SVGFilterElement;
+    const additive = this.drawEffectBlending === BlendingParameters.Additive;
+    const key = `${sigma}|${r},${g},${b},${a}|${this._effectPlacement}|${additive}`;
+
+    if (key !== this.effectFilterKey) {
+      this.effectFilterKey = key;
+      filter.replaceChildren();
+
+      const blur = document.createElementNS(ns, 'feGaussianBlur');
+      blur.setAttribute('in', 'SourceGraphic');
+      blur.setAttribute('stdDeviation', `${sigma}`);
+      blur.setAttribute('result', 'blurred');
+
+      const tint = document.createElementNS(ns, 'feColorMatrix');
+      tint.setAttribute('in', 'blurred');
+      tint.setAttribute('type', 'matrix');
+      tint.setAttribute('values', `${r} 0 0 0 0 0 ${g} 0 0 0 0 0 ${b} 0 0 0 0 0 ${a} 0`);
+      tint.setAttribute('result', 'effect');
+
+      filter.append(blur, tint);
+
+      if (this._effectPlacement === EffectPlacement.InFront && additive) {
+        const add = document.createElementNS(ns, 'feComposite');
+        add.setAttribute('in', 'SourceGraphic');
+        add.setAttribute('in2', 'effect');
+        add.setAttribute('operator', 'arithmetic');
+        add.setAttribute('k2', '1');
+        add.setAttribute('k3', '1');
+        filter.appendChild(add);
+      } else {
+        const merge = document.createElementNS(ns, 'feMerge');
+        const layers = this._effectPlacement === EffectPlacement.InFront ? ['SourceGraphic', 'effect'] : ['effect', 'SourceGraphic'];
+
+        for (const layer of layers) {
+          const node = document.createElementNS(ns, 'feMergeNode');
+          node.setAttribute('in', layer);
+          merge.appendChild(node);
+        }
+
+        filter.appendChild(merge);
+      }
+    }
+
+    return filter.id;
+  }
+
   override dispose(): void {
     this.filterSvg?.remove();
     this.filterSvg = null;
+    this.effectSvg?.remove();
+    this.effectSvg = null;
     super.dispose();
   }
 

@@ -9,10 +9,14 @@
 import { Vector2 } from '../../layout/Vector2';
 import { InputHandler } from '../InputManager';
 import { Key, keyFromDomCode, mouseButtonFromDom, type MouseButton } from '../Key';
+import { TEXT_INPUT_ATTRIBUTE } from '../../platform/DomTextInputSource';
 import { KeyboardKeyInput, MouseButtonInput, MousePositionAbsoluteInput, MouseScrollRelativeInput } from '../StateChanges';
 
 const precise_scroll_debounce = 100;
 const mac_precise_scale_factor = 0.1 / 8;
+
+/** Keys whose default action in the game's text input would leave it (Tab) or produce non-text input (Enter). */
+const textInputBlockedKeys = new Set<Key>([Key.Tab, Key.Enter, Key.KeypadEnter]);
 
 /** Keys whose browser default action must stay available (reload, devtools, fullscreen). */
 const passthroughKeys = new Set<Key>([Key.F5, Key.F11, Key.F12]);
@@ -71,10 +75,13 @@ export class DomInputHandler extends InputHandler {
       const key = keyFromDomCode(e.code);
       if (key === Key.Unknown) return;
 
-      // let text inputs receive their keys (osu! TextBox handles text through the platform text input path).
-      if (isEditable(e.target)) return;
+      // the game's own text input (DomTextInputSource) gets both: the key event here, and its default action producing text there.
+      const ownTextInput = e.target instanceof HTMLElement && e.target.hasAttribute(TEXT_INPUT_ATTRIBUTE);
 
-      if (!passthroughKeys.has(key) && !(e.ctrlKey || e.metaKey))
+      // let other text inputs receive their keys.
+      if (!ownTextInput && isEditable(e.target)) return;
+
+      if (!passthroughKeys.has(key) && !(e.ctrlKey || e.metaKey) && !(ownTextInput && !textInputBlockedKeys.has(key)))
         e.preventDefault();
 
       if (e.repeat) return; // the InputManager synthesises key repeat itself (250 ms / 70 ms).

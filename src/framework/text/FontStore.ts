@@ -158,18 +158,58 @@ export class TexturedCharacterGlyph implements ITexturedCharacterGlyph {
 /** Looks up glyphs by font name (ITexturedGlyphLookupStore). */
 export interface ITexturedGlyphLookupStore {
   get(fontName: string | null, character: string): ITexturedCharacterGlyph | null;
+
+  /** Retrieves a glyph, loading it first if needed (texture-backed stores such as OsuIconStore load lazily). */
+  getAsync?(fontName: string | null, character: string): Promise<ITexturedCharacterGlyph | null>;
 }
 
 const pageLoads = new Map<string, Promise<void>>();
+/** Decoded pages (null: failed to load). */
+const decodedPages = new Map<string, HTMLImageElement | null>();
+const glyphImageUrls = new Map<string, string>();
 
-/** Ensures an atlas page image is decoded (so glyphs appear on the first frame they are shown). */
-export function loadPage(url: string): Promise<void> {
+/**
+ * The URL of an image of only the glyph's rectangle of its atlas page (a data URL cropped from the decoded page, so that many glyphs can be
+ * mask layers of a single element), or null while the page isn't decoded.
+ */
+export function glyphImageUrl(tex: GlyphTexture): string | null {
+  if (tex.x === 0 && tex.y === 0 && tex.width === tex.pageWidth && tex.height === tex.pageHeight)
+    return tex.pageUrl;
+
+  const key = `${tex.pageUrl}|${tex.x},${tex.y},${tex.width},${tex.height}`;
+  let url = glyphImageUrls.get(key);
+
+  if (url === undefined) {
+    const page = decodedPages.get(tex.pageUrl);
+    if (page == null)
+      return null;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = tex.width;
+    canvas.height = tex.height;
+    canvas.getContext('2d')!.drawImage(page, -tex.x, -tex.y);
+
+    url = canvas.toDataURL();
+    glyphImageUrls.set(key, url);
+  }
+
+  return url;
+}
+
+/**
+ * Ensures an atlas page image is decoded (so glyphs appear on the first frame they are shown).
+ * Returns nothing once the page is decoded, so loads of drawables using it stay synchronous, as osu! gets cached glyph textures.
+ */
+export function loadPage(url: string): Promise<void> | void {
+  if (decodedPages.has(url))
+    return;
+
   let p = pageLoads.get(url);
 
   if (p === undefined) {
     const img = new Image();
     img.src = url;
-    p = img.decode().catch(() => undefined);
+    p = img.decode().then(() => void decodedPages.set(url, img), () => void decodedPages.set(url, null));
     pageLoads.set(url, p);
   }
 
@@ -179,7 +219,7 @@ export function loadPage(url: string): Promise<void> {
 /** A font store (FontStore with scaleAdjust = 100: the raw pixel height of the fonts). Nested stores are searched after own glyph stores. */
 export class FontStore implements ITexturedGlyphLookupStore {
   private readonly glyphStores: GlyphStore[] = [];
-  private readonly nestedFontStores: FontStore[] = [];
+  private readonly nestedFontStores: ITexturedGlyphLookupStore[] = [];
   private readonly namespacedGlyphCache = new Map<string, ITexturedCharacterGlyph | null>();
 
   constructor(readonly scaleAdjust = 100) {}
@@ -189,14 +229,31 @@ export class FontStore implements ITexturedGlyphLookupStore {
     this.namespacedGlyphCache.clear();
   }
 
-  addStore(store: FontStore): void {
+  addStore(store: ITexturedGlyphLookupStore): void {
     this.nestedFontStores.push(store);
     this.namespacedGlyphCache.clear();
   }
 
   /** Loads all glyph store metrics (C# loads them asynchronously when added). */
   loadAll(): Promise<void> {
-    return Promise.all([...this.glyphStores.map(s => s.loadFontAsync()), ...this.nestedFontStores.map(s => s.loadAll())]).then(() => undefined);
+    const nested = this.nestedFontStores.filter((s): s is FontStore => s instanceof FontStore);
+    return Promise.all([...this.glyphStores.map(s => s.loadFontAsync()), ...nested.map(s => s.loadAll())]).then(() => undefined);
+  }
+
+  async getAsync(fontName: string | null, character: string): Promise<ITexturedCharacterGlyph | null> {
+    const key = `${fontName}\u0000${character}`;
+
+    if (this.get(fontName, character) === null) {
+      for (const store of this.nestedFontStores) {
+        if (store.getAsync !== undefined && await store.getAsync(fontName, character) !== null) {
+          // The miss was cached before the nested store had loaded the glyph.
+          this.namespacedGlyphCache.delete(key);
+          break;
+        }
+      }
+    }
+
+    return this.get(fontName, character);
   }
 
   get(fontName: string | null, character: string): ITexturedCharacterGlyph | null {

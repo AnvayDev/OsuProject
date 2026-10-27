@@ -1,8 +1,9 @@
-// Ported from osu.Game/Beatmaps/BeatmapSetInfo.cs and BeatmapSetInfoExtensions.GetFile.
+// Ported from osu.Game/Beatmaps/BeatmapSetInfo.cs and BeatmapSetInfoExtensions.GetFile/GetPathForFile.
 
 import type { RealmNamedFileUsage } from '../models/RealmFile';
 import type { BeatmapInfo } from './BeatmapInfo';
 import { BeatmapMetadata } from './BeatmapMetadata';
+import { getDisplayTitle } from './BeatmapMetadataInfoExtensions';
 import { BeatmapOnlineStatus } from './BeatmapOnlineStatus';
 
 export class BeatmapSetInfo {
@@ -76,7 +77,15 @@ export class BeatmapSetInfo {
     return matches[0] ?? null;
   }
 
+  /**
+   * BeatmapSetInfoExtensions.GetPathForFile: the storage path for the file in this beatmapset with the given filename, if any exists,
+   * otherwise null. The lookup is case insensitive. The storage path is the file's hash: the IndexedDB file store is keyed by it.
+   */
+  getPathForFile(filename: string): string | null {
+    return this.getFile(filename)?.file.hash ?? null;
+  }
+
   toString(): string {
-    return this.metadata.toString();
+    return getDisplayTitle(this.metadata);
   }
 }

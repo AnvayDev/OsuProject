@@ -1,11 +1,16 @@
 // Ported from osu.Framework/Audio/Track/TrackBass.cs, on an HTMLAudioElement (streamed, seekable) routed through Web Audio:
 // MediaElementSource → [AmplitudeProcessor, pre-volume like BASSmix] → Gain (AggregateVolume) → StereoPanner (AggregateBalance) → mixer.
+// A track of a cross-origin URL without CORS headers (TrackStore.getStreamed) can't pass through Web Audio (it would output silence): it plays
+// from the element alone, with AggregateVolume as the element's volume (clamped to [0, 1]), no balance, no amplitudes and no mixer effects.
 //
 // Deviations (no BASS_FX): playbackRate = |AggregateFrequency| × AggregateTempo, clamped to the media element's [0.0625, 16]. preservesPitch is on
 // only while the frequency is 1, so frequency and tempo changes together get pitch frequency × tempo (BASS: frequency only). Reverse playback
 // (negative frequency) plays forwards. Frequency 0 pauses, as in BassRelativeFrequencyHandler.
 // Looping from restart point 0 uses the element's seamless loop, like the BASS loop flag. Otherwise 'ended' seeks to RestartPoint
 // (TrackBass's end sync).
+// TrackBass queues its load on the audio thread and Seek/Start/Stop wait for their queued action, so they act after the load. Here the data
+// may still be arriving (a Promise) and Length is only known on 'loadedmetadata': until then actions queue and run in order once loaded, and
+// Start/Restart report IsRunning straight away, as they would after C#'s blocking call.
 
 import { AmplitudeProcessor } from '../AmplitudeProcessor';
 import { ChannelAmplitudes } from './ChannelAmplitudes';
@@ -16,7 +21,13 @@ const max_playback_rate = 16;
 
 export class TrackWeb extends Track {
   private readonly audio: HTMLAudioElement;
-  private readonly url: string;
+  private url: string | null = null;
+
+  /** Actions waiting for the track to load (null once loaded or failed). */
+  private loadQueue: (() => void)[] | null = [];
+
+  /** Whether the element plays a cross-origin URL directly (not routed through Web Audio). */
+  private readonly streamed: boolean;
 
   private gain: GainNode | null = null;
   private panner: StereoPannerNode | null = null;
@@ -32,8 +43,10 @@ export class TrackWeb extends Track {
   }
 
   /** @internal */
-  constructor(data: Blob, name: string) {
+  constructor(data: Blob | Promise<Blob | null> | string, name: string) {
     super(name);
+
+    this.streamed = typeof data === 'string';
 
     // todo: support this internally to match the underlying Track implementation (which can support this).
     const tempo_minimum_supported = 0.05;
@@ -43,7 +56,6 @@ export class TrackWeb extends Track {
         throw new Error(`TrackWeb does not support Tempo specifications below ${tempo_minimum_supported}. Use Frequency instead.`);
     });
 
-    this.url = URL.createObjectURL(data);
     this.audio = new Audio();
     this.audio.preload = 'auto';
     this.audio.addEventListener('loadedmetadata', () => {
@@ -56,18 +68,62 @@ export class TrackWeb extends Track {
         this.lastSeekablePosition = this.length - 1000 / 44100;
 
         this._isLoaded = true;
+        this.runLoadQueue();
       }
     });
     this.audio.addEventListener('ended', () => this.onEnded());
-    this.audio.addEventListener('error', () => this.raiseFailed());
-    this.audio.src = this.url;
+    this.audio.addEventListener('error', () => {
+      this.raiseFailed();
+      this.runLoadQueue();
+    });
+
+    if (typeof data === 'string')
+      this.audio.src = data;
+    else if (data instanceof Blob)
+      this.setSource(data);
+    else {
+      void data.then(blob => {
+        if (this.isDisposed)
+          return;
+
+        if (blob === null) {
+          this.raiseFailed();
+          this.runLoadQueue();
+          return;
+        }
+
+        this.setSource(blob);
+      });
+    }
 
     this.invalidateState();
   }
 
+  private setSource(data: Blob): void {
+    this.url = URL.createObjectURL(data);
+    this.audio.src = this.url;
+  }
+
+  /** Queued actions run after the load, whether it succeeded or not (a failed TrackBass runs them against an empty stream). */
+  private runLoadQueue(): void {
+    const queue = this.loadQueue;
+    this.loadQueue = null;
+    queue?.forEach(action => action());
+  }
+
+  override enqueueAction(action: () => void): Promise<void> {
+    if (this.loadQueue === null)
+      return super.enqueueAction(action);
+
+    return new Promise(resolve => this.loadQueue!.push(() => {
+      action();
+      resolve();
+    }));
+  }
+
   /** @internal */
   override attachToContext(context: BaseAudioContext): void {
-    if (this.source !== null)
+    if (this.source !== null || this.streamed)
       return;
 
     this.source = (context as AudioContext).createMediaElementSource(this.audio);
@@ -135,7 +191,7 @@ export class TrackWeb extends Track {
   }
 
   override stop(): void {
-    this.stopInternal();
+    void this.enqueueAction(() => this.stopInternal());
     this._isRunning = this.isPlayed = false;
   }
 
@@ -147,8 +203,27 @@ export class TrackWeb extends Track {
     if (this.isDisposed)
       throw new Error(`Cannot access a disposed ${this.constructor.name}.`);
 
-    if (this.startInternal())
+    const queued = this.loadQueue !== null;
+    if (queued)
       this._isRunning = this.isPlayed = true;
+
+    void this.enqueueAction(() => {
+      if (this.startInternal())
+        this._isRunning = this.isPlayed = true;
+      else if (queued)
+        this._isRunning = this.isPlayed = false;
+    });
+  }
+
+  override restart(): void {
+    if (this.loadQueue === null) {
+      super.restart();
+      return;
+    }
+
+    // Seek(RestartPoint) must read the restart point after anything queued before it (e.g. WorkingBeatmap.prepareTrackForPreview).
+    this._isRunning = this.isPlayed = true;
+    void this.enqueueAction(() => super.restart());
   }
 
   private startInternal(): boolean {
@@ -180,7 +255,7 @@ export class TrackWeb extends Track {
     const conservativeLength = this.length === 0 ? Number.MAX_VALUE : this.lastSeekablePosition;
     const conservativeClamped = Math.min(Math.max(seek, 0), conservativeLength);
 
-    this.seekInternal(seek);
+    void this.enqueueAction(() => this.seekInternal(seek));
 
     return conservativeClamped === seek;
   }
@@ -224,6 +299,8 @@ export class TrackWeb extends Track {
 
     if (this.gain !== null)
       this.gain.gain.value = this.aggregateVolume.value;
+    if (this.streamed)
+      this.audio.volume = Math.min(Math.max(this.aggregateVolume.value, 0), 1);
     if (this.panner !== null)
       this.panner.pan.value = this.aggregateBalance.value;
 
@@ -245,7 +322,7 @@ export class TrackWeb extends Track {
 
       // Do not resume the track if a play wasn't requested at all or has been paused via Stop().
       if (this.isPlayed)
-        this.startInternal();
+        void this.enqueueAction(() => this.startInternal());
     }
   }
 
@@ -261,7 +338,8 @@ export class TrackWeb extends Track {
       this.audio.pause();
       this.audio.removeAttribute('src');
       this.audio.load();
-      URL.revokeObjectURL(this.url);
+      if (this.url !== null)
+        URL.revokeObjectURL(this.url);
       this.panner?.disconnect();
     }
 
