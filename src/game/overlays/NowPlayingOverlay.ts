@@ -105,7 +105,7 @@ export class NowPlayingOverlay extends OsuFocusedOverlayContainer implements INa
     await super.load(dependencies);
 
     this.musicController = dependencies.resolve(MusicController);
-    this.beatmap = dependencies.resolve(Bindable<WorkingBeatmap>, 'WorkingBeatmap');
+    this.beatmap = dependencies.resolve(Bindable<WorkingBeatmap>, 'WorkingBeatmap').getBoundCopy();
     this.colours = dependencies.resolve(OsuColour);
 
     this.children = [

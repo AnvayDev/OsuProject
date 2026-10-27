@@ -79,7 +79,7 @@ export class FilterControl extends OverlayContainer {
     const r = super.load(dependencies);
 
     this.songSelect = dependencies.get(ISongSelect);
-    this.ruleset = dependencies.resolve(Bindable<RulesetInfo>, 'RulesetInfo');
+    this.ruleset = dependencies.resolve(Bindable<RulesetInfo>, 'RulesetInfo').getBoundCopy();
     this.config = dependencies.resolve(OsuConfigManager);
 
     this.relativeSizeAxes = Axes.X;

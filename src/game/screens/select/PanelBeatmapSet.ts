@@ -83,8 +83,8 @@ export class PanelBeatmapSet extends Panel {
     this.colourProvider = dependencies.resolve(OverlayColourProvider);
     this.beatmaps = dependencies.resolve(BeatmapManager);
     this.songSelect = dependencies.get(ISongSelect);
-    this.ruleset = dependencies.resolve(Bindable<RulesetInfo>, 'RulesetInfo');
-    this.globalBeatmap = dependencies.resolve(Bindable<WorkingBeatmap>, 'WorkingBeatmap');
+    this.ruleset = dependencies.resolve(Bindable<RulesetInfo>, 'RulesetInfo').getBoundCopy();
+    this.globalBeatmap = dependencies.resolve(Bindable<WorkingBeatmap>, 'WorkingBeatmap').getBoundCopy();
     this.game = dependencies.get(OsuGame);
 
     this.height = PanelBeatmapSet.HEIGHT;

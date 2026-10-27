@@ -93,7 +93,7 @@ export class SpreadDisplay extends OsuAnimatedButton {
     const r = super.load(dependencies);
 
     this.songSelect = dependencies.get(ISongSelect);
-    this.ruleset = dependencies.resolve(Bindable<RulesetInfo>, 'RulesetInfo');
+    this.ruleset = dependencies.resolve(Bindable<RulesetInfo>, 'RulesetInfo').getBoundCopy();
     this.colours = dependencies.resolve(OsuColour);
     const configManager = dependencies.resolve(OsuConfigManager);
 

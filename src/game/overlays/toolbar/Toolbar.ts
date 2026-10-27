@@ -84,7 +84,7 @@ export class Toolbar extends OverlayContainer implements IKeyBindingHandler<Glob
   protected override load(dependencies: IReadOnlyDependencyContainer): Promise<void> | void {
     const r = super.load(dependencies);
 
-    this.ruleset = dependencies.resolve(Bindable<RulesetInfo>, 'RulesetInfo');
+    this.ruleset = dependencies.resolve(Bindable<RulesetInfo>, 'RulesetInfo').getBoundCopy();
     const osuGame = dependencies.get(OsuGame);
 
     let background!: ToolbarBackground;
