@@ -1,4 +1,5 @@
 // Ported from osu.Game/Beatmaps/BeatmapImporter.cs (ImportAsUpdate, score re-attachment and the stable directory import are not ported).
+// Web addition: difficulties whose audio file is missing from the archive are skipped (see createBeatmapDifficulties).
 
 import { computeMD5Hash, computeSHA2Hash } from '@fw/extensions/ExtensionMethods';
 import { Logger, LoggingTarget } from '@fw/logging/Logger';
@@ -200,6 +201,15 @@ export class BeatmapImporter extends RealmArchiveModelImporter {
 
       if (ruleset?.available !== true) {
         RealmArchiveModelImporter.logForModel(beatmapSet, `Skipping import of ${file.filename} due to missing local ruleset ${decodedInfo.ruleset.onlineID}.`);
+        continue;
+      }
+
+      // Web addition: the mirror serves sets whose audio was removed (DMCA takedowns) or that arrived damaged without it. Such difficulties
+      // can't be played or previewed, so they are left out (and a set left with none fails to import, which fails its download).
+      const audioFile = decoded.metadata.audioFile;
+
+      if (audioFile && audioFile.toLowerCase() !== 'virtual' && beatmapSet.getFile(audioFile) === null) {
+        RealmArchiveModelImporter.logForModel(beatmapSet, `Skipping import of ${file.filename} due to its missing audio file ${audioFile}.`);
         continue;
       }
 

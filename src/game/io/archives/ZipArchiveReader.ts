@@ -1,7 +1,8 @@
 // Ported from osu.Game/IO/Archives/ZipArchiveReader.cs. SharpCompress is replaced by a central-directory reader with fflate's inflate, which keeps
 // SharpCompress's behaviours that osu! relies on: entries in central-directory order, names decoded as Shift-JIS (code page 932) unless the
 // entry has the UTF-8 flag or an Info-ZIP Unicode path field, directory entries (name ending in '/', or '\' with no data), duplicate names
-// throwing on lookup, and lazy decompression per GetStream. Only the stored and deflate methods are supported (SharpCompress has more).
+// throwing on lookup, lazy decompression per GetStream, and the CRC-32 check of each extracted entry (a damaged download fails to import).
+// Only the stored and deflate methods are supported (SharpCompress has more).
 
 import { inflateSync } from 'fflate';
 import { excludeSystemFileNames } from '@fw/io/ResourceStore';
@@ -11,6 +12,7 @@ interface ZipEntry {
   readonly key: string;
   readonly flags: number;
   readonly method: number;
+  readonly crc: number;
   readonly compressedSize: number;
   readonly size: number;
   readonly localHeaderOffset: number;
@@ -108,6 +110,7 @@ function readCentralDirectory(data: Uint8Array): ZipEntry[] {
 
     const flags = view.getUint16(offset + 8, true);
     const method = view.getUint16(offset + 10, true);
+    const crc = view.getUint32(offset + 16, true);
     let compressedSize = view.getUint32(offset + 20, true);
     let size = view.getUint32(offset + 24, true);
     const nameLength = view.getUint16(offset + 28, true);
@@ -139,7 +142,7 @@ function readCentralDirectory(data: Uint8Array): ZipEntry[] {
 
     const isDirectory = key.endsWith('/') || (compressedSize === 0 && size === 0 && key.endsWith('\\'));
 
-    entries.push({ key, flags, method, compressedSize, size, localHeaderOffset, isDirectory });
+    entries.push({ key, flags, method, crc, compressedSize, size, localHeaderOffset, isDirectory });
 
     offset += 46 + nameLength + extraLength + commentLength;
   }
@@ -164,14 +167,45 @@ function readEntryData(data: Uint8Array, entry: ZipEntry): Uint8Array {
   const start = localDataOffset(data, entry);
   const compressed = data.subarray(start, start + entry.compressedSize);
 
+  let result: Uint8Array;
+
   switch (entry.method) {
     case 0:
-      return compressed.slice();
+      result = compressed.slice();
+      break;
 
     case 8:
-      return inflateSync(compressed, { out: new Uint8Array(entry.size) });
+      result = inflateSync(compressed, { out: new Uint8Array(entry.size) });
+      break;
 
     default:
       throw new Error(`Unsupported compression method ${entry.method} for "${entry.key}"`);
   }
+
+  if (result.length !== entry.size || crc32(result) !== entry.crc)
+    throw new Error(`Bad CRC for "${entry.key}": the archive is damaged`);
+
+  return result;
+}
+
+const crc_table = (() => {
+  const table = new Uint32Array(256);
+
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++)
+      c = (c & 1) !== 0 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+
+  return table;
+})();
+
+function crc32(data: Uint8Array): number {
+  let c = 0xFFFFFFFF;
+
+  for (let i = 0; i < data.length; i++)
+    c = crc_table[(c ^ data[i]) & 0xFF] ^ (c >>> 8);
+
+  return (c ^ 0xFFFFFFFF) >>> 0;
 }
