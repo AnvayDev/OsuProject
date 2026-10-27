@@ -1,7 +1,8 @@
 // Web addition (user request, not in osu!): song select plays the beatmap's video behind the UI, muted and synced to the music, in place of
 // the still background. osu! only shows videos in gameplay, as part of the storyboard (StoryboardVideo / DrawableStoryboardVideo), so the
-// lookup follows LegacyStoryboardDecoder's Video event handling (from the .osu file; .osb storyboards aren't read). Browsers only decode
-// some formats (mp4/m4v/mov with H.264 in Chromium): any other video stays hidden and the background image shows as before.
+// lookup follows LegacyStoryboardDecoder's Video event handling (from the .osu file; .osb storyboards aren't read). Browsers play MP4/M4V/MOV
+// (H.264) directly; AVI files, which most beatmaps use, are rewrapped into MP4 first (AviRemuxer: H.264 only). Any other video (FLV, WMV,
+// MPEG-1, non-H.264 AVI) stays hidden and the background image shows as before.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { BufferedContainer } from '@fw/graphics/containers/BufferedContainer';
@@ -13,6 +14,7 @@ import { Easing } from '@fw/transforms/Easing';
 import { parseIntInvariant } from '@fw/utils/DotNet';
 import type { WorkingBeatmap } from '../../beatmaps/WorkingBeatmap';
 import { SupportedExtensions } from '../../utils/SupportedExtensions';
+import { remuxAviToMp4 } from './AviRemuxer';
 
 /** A storyboard video event: the file and the time (in ms) the video starts at. (StoryboardVideo) */
 export interface BeatmapVideoInfo {
@@ -74,7 +76,14 @@ export class BeatmapBackgroundVideo extends CompositeDrawable {
   private readonly bufferedContainer: BufferedContainer;
 
   private video: Video | null = null;
-  private startTime = 0;
+  private _startTime = 0;
+
+  /** The track time (in ms) at which the video starts (the Video event's offset). */
+  get startTime(): number {
+    return this._startTime;
+  }
+  /** Where the first frame is in the played file (non-zero for remuxed AVIs with B-frames). */
+  private fileStartOffset = 0;
   private url: string | null = null;
 
   constructor(beatmap: WorkingBeatmap) {
@@ -94,7 +103,7 @@ export class BeatmapBackgroundVideo extends CompositeDrawable {
 
   /** Whether the beatmap has a video this background can play (known once loaded). */
   get hasVideo(): boolean {
-    return this.video !== null;
+    return this.video !== null && !this.video.failed;
   }
 
   protected override async load(dependencies: IReadOnlyDependencyContainer): Promise<void> {
@@ -109,8 +118,21 @@ export class BeatmapBackgroundVideo extends CompositeDrawable {
     if (data === null)
       return;
 
-    this.startTime = info.startTime;
-    this.url = URL.createObjectURL(new Blob([data as Uint8Array<ArrayBuffer>]));
+    let blob: Blob;
+
+    if (getExtension(info.path).toLowerCase() === '.avi') {
+      const remuxed = remuxAviToMp4(data);
+      if (remuxed === null)
+        return;
+
+      blob = new Blob([remuxed.data], { type: 'video/mp4' });
+      this.fileStartOffset = remuxed.startOffset;
+    } else {
+      blob = new Blob([data as Uint8Array<ArrayBuffer>]);
+    }
+
+    this._startTime = info.startTime;
+    this.url = URL.createObjectURL(blob);
 
     this.bufferedContainer.add(this.video = new Video(this.url).with({
       relativeSizeAxes: Axes.Both,
@@ -142,12 +164,14 @@ export class BeatmapBackgroundVideo extends CompositeDrawable {
 
     const track = this.trackSource.trackLoaded ? this.trackSource.track : null;
 
-    this.video.playbackPosition = (track?.currentTime ?? 0) - this.startTime;
+    const position = (track?.currentTime ?? 0) - this._startTime;
+
+    this.video.playbackPosition = position + this.fileStartOffset;
     this.video.playing = track?.isRunning ?? false;
     this.video.rate = track?.rate ?? 1;
 
     // the video replaces the background image only while it has a frame for the current time.
-    const visible = this.video.loaded && this.video.playbackPosition >= 0 && this.video.playbackPosition < this.video.duration;
+    const visible = this.video.loaded && position >= 0 && this.video.playbackPosition < this.video.duration;
 
     if (visible !== this.shown) {
       this.shown = visible;

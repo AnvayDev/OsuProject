@@ -105,6 +105,12 @@ export class BackgroundScreenBeatmap extends BackgroundScreen {
 
   private videoCancellationSource: AbortController | null = null;
 
+  /** (Web addition) The track time at which the shown video starts, or null if no video is shown. */
+  get videoStartTime(): number | null {
+    const video = this.dimmable.video;
+    return video?.hasVideo ? video.startTime : null;
+  }
+
   /** (Web addition) Replaces the video when the beatmap set changes; difficulties of a set share their video. */
   private updateVideo(): void {
     const beatmap = this.showVideo.value ? this._beatmap : null;

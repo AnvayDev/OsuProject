@@ -23,6 +23,13 @@ export class Video extends Drawable {
     return this._loaded;
   }
 
+  private _failed = false;
+
+  /** Whether the browser couldn't load or decode the video. */
+  get failed(): boolean {
+    return this._failed;
+  }
+
   /** The video's duration in ms (NaN until loaded). */
   get duration(): number {
     return this.videoElement.duration * 1000;
@@ -40,6 +47,7 @@ export class Video extends Drawable {
     el.playsInline = true;
     el.preload = 'auto';
     el.addEventListener('loadeddata', () => this._loaded = true, { once: true });
+    el.addEventListener('error', () => this._failed = true, { once: true });
     el.src = url;
   }
 

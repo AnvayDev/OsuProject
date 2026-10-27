@@ -1,5 +1,6 @@
 // Ported from osu.Game/Screens/Select/SoloSongSelect.cs
-// Gameplay isn't ported (by decision), so starting a beatmap only plays the confirm sample where C# pushes the PlayerLoader. The editor isn't
+// Gameplay isn't ported (by decision): where C# pushes the PlayerLoader, starting a beatmap plays the confirm sample and restarts the music at
+// the beatmap's video (web addition, user request), so the background video plays from its beginning. The editor isn't
 // ported (Edit does nothing), scores aren't (there are no local scores to clear), and neither are mods or the touch input detector.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
@@ -13,6 +14,8 @@ import { MenuItemType } from '../../graphics/userInterface/MenuItemType';
 import { OsuMenuItem } from '../../graphics/userInterface/OsuMenuItem';
 import { OsuMenuItemSpacer } from '../../graphics/userInterface/OsuMenuItemSpacer';
 import { OsuGame } from '../../OsuGame';
+import { MusicController } from '../../overlays/MusicController';
+import { BackgroundScreenBeatmap } from '../backgrounds/BackgroundScreenBeatmap';
 import { SongSelect } from './SongSelect';
 
 export class SoloSongSelect extends SongSelect {
@@ -20,10 +23,14 @@ export class SoloSongSelect extends SongSelect {
 
   private beatmapManager!: BeatmapManager;
 
+  // (OsuScreen and SongSelect each hold a private MusicController too)
+  private soloMusic!: MusicController;
+
   protected override load(dependencies: IReadOnlyDependencyContainer): Promise<void> | void {
     const r = super.load(dependencies);
 
     this.beatmapManager = dependencies.resolve(BeatmapManager);
+    this.soloMusic = dependencies.resolve(MusicController);
 
     void dependencies.resolve(AudioManager).samples.get('SongSelect/confirm-selection').then(s => this.sampleConfirmSelection = s);
 
@@ -67,6 +74,18 @@ export class SoloSongSelect extends SongSelect {
 
   protected override onStart(): void {
     this.sampleConfirmSelection?.play();
+
+    this.applyToBackground(b => {
+      const videoStartTime = b instanceof BackgroundScreenBeatmap ? b.videoStartTime : null;
+
+      if (videoStartTime === null)
+        return;
+
+      this.soloMusic.seekTo(Math.max(0, videoStartTime));
+
+      if (!this.soloMusic.isPlaying)
+        this.soloMusic.play();
+    });
   }
 
   /** (The editor isn't ported: C# selects the beatmap and pushes an EditorLoader.) */
