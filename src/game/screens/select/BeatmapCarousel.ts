@@ -186,7 +186,7 @@ export class BeatmapCarousel extends Carousel<BeatmapInfo> {
 
                 if (item.model instanceof GroupedBeatmapSet) {
                   const groupedSet = item.model;
-                  if (oldItems!.includes(groupedSet.beatmapSet))
+                  if (oldItems!.some(s => s.equals(groupedSet.beatmapSet)))
                     return false;
 
                   this.selectRecommendedDifficultyForBeatmapSet(groupedSet);
@@ -237,6 +237,11 @@ export class BeatmapCarousel extends Carousel<BeatmapInfo> {
           // have been processed) if it becomes an issue for animation or performance reasons.
           for (const beatmap of oldSetBeatmaps) {
             const previousIndex = this.items.indexOf(beatmap);
+
+            // (C#'s ReplaceRange / RemoveAt throw for an index of -1; a JS splice at -1 would replace the last item instead, silently
+            // dropping an unrelated beatmap from the carousel. A beatmap which isn't tracked has nothing to replace.)
+            if (previousIndex < 0)
+              continue;
 
             // we're intentionally being lenient with there being two difficulties with equal online ID or difficulty name.
             // this can be the case when the user modifies the beatmap using the editor's "external edit" feature.

@@ -37,3 +37,36 @@ describe('BindableList', () => {
     expect(() => list.add(1)).toThrow();
   });
 });
+
+describe('BindableList equality (List<T> / EqualityComparer<T>.Default)', () => {
+  class Model {
+    constructor(readonly id: number) {}
+
+    equals(other: Model | null): boolean {
+      return other !== null && other.id === this.id;
+    }
+  }
+
+  it('finds, contains and removes items by equals(), returning the list\'s own instance', () => {
+    const original = new Model(2);
+    const list = new BindableList<Model>([new Model(1), original, new Model(3)]);
+    const removed: Model[] = [];
+    list.bindCollectionChanged((_, e) => removed.push(...(e.oldItems ?? [])));
+
+    expect(list.indexOf(new Model(2))).toBe(1);
+    expect(list.contains(new Model(3))).toBe(true);
+    expect(list.indexOf(new Model(4))).toBe(-1);
+
+    expect(list.remove(new Model(2))).toBe(true);
+    expect(removed).toEqual([original]);
+    expect(removed[0]).toBe(original);
+  });
+
+  it('keeps reference equality for items without equals()', () => {
+    const a = { v: 1 };
+    const list = new BindableList([a]);
+
+    expect(list.indexOf({ v: 1 })).toBe(-1);
+    expect(list.indexOf(a)).toBe(0);
+  });
+});
