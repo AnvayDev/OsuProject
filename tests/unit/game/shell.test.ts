@@ -26,6 +26,7 @@ import { DummyWorkingBeatmap } from '@game/beatmaps/DummyWorkingBeatmap';
 import '@game/beatmaps/formats/LegacyBeatmapDecoder';
 import type { WorkingBeatmap } from '@game/beatmaps/WorkingBeatmap';
 import { IntroSequence } from '@game/configuration/IntroSequence';
+import { ToolbarClockDisplayMode } from '@game/configuration/ToolbarClockDisplayMode';
 import { OsuConfigManager, OsuSetting } from '@game/configuration/OsuConfigManager';
 import { ImportTask } from '@game/database/ImportTask';
 import { RealmAccess } from '@game/database/RealmAccess';
@@ -123,6 +124,21 @@ afterEach(() => {
 });
 
 describe('OsuConfigManager', () => {
+  it.each([
+    ToolbarClockDisplayMode.Full,
+    ToolbarClockDisplayMode.DigitalWithRuntime,
+    ToolbarClockDisplayMode.Digital,
+    ToolbarClockDisplayMode.Analog,
+  ])('keeps clock mode %s numeric after saving and reloading', mode => {
+    const storage = new MemoryStorage();
+    const config = new OsuConfigManager(storage);
+    config.setValue(OsuSetting.ToolbarClockDisplayMode, mode);
+    config.save();
+
+    const reloaded = new OsuConfigManager(storage);
+    expect(reloaded.get(OsuSetting.ToolbarClockDisplayMode)).toBe(mode);
+  });
+
   it('writes "key = value" lines on save and reads them back', () => {
     const storage = new MemoryStorage();
     const config = new OsuConfigManager(storage);
