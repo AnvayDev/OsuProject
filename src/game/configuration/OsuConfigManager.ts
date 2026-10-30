@@ -40,7 +40,7 @@ export class OsuConfigManager extends IniConfigManager<OsuSetting> {
     this.setDefault(OsuSetting.BeatmapListingCardSize, BeatmapCardSize.Normal);
     this.setDefaultBool(OsuSetting.BeatmapListingFeaturedArtistFilter, true);
 
-    this.setDefault(OsuSetting.ToolbarClockDisplayMode, ToolbarClockDisplayMode.Full);
+    this.setDefaultInt(OsuSetting.ToolbarClockDisplayMode, ToolbarClockDisplayMode.Full, ToolbarClockDisplayMode.Analog, ToolbarClockDisplayMode.Full);
 
     this.setDefaultBool(OsuSetting.SongSelectBackgroundBlur, false);
 

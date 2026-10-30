@@ -1,6 +1,6 @@
 // Ported from osu.Framework/Graphics/Sprites/Sprite.cs
 // DOM: the texture is the element's background (sized by DrawTextureRectangle). DrawColourInfo is applied exactly like the
-// texture shader's `v_Colour * texel`: white keeps the texture, other colours multiply (background-blend-mode: multiply,
+// texture shader's `v_Colour * texel`: white keeps the texture, uniform grey uses brightness(), other colours multiply (background-blend-mode: multiply,
 // masked by the texture's own alpha), and alpha becomes the leaf element's opacity. An alpha gradient (e.g. a cover fading in from one side)
 // becomes a gradient mask layer instead.
 
@@ -186,6 +186,10 @@ export class Sprite extends Drawable {
 
       if (whiteRGB) {
         css = { background: `${url} ${pos} / ${size} no-repeat`, backgroundBlendMode: '', mask: alphaMask ?? '', opacity: `${alpha}` };
+      } else if (single !== null && single.r === single.g && single.g === single.b) {
+        // Menu dimming must not use the remote texture as a mask: masks require CORS even when the image itself can be displayed.
+        // brightness() multiplies RGB while preserving the texture's alpha, without loading a second image.
+        css = { background: `${url} ${pos} / ${size} no-repeat`, filter: `brightness(${single.r})`, opacity: `${alpha}` };
       } else {
         const textureMask = `${url} ${pos} / ${size} no-repeat`;
 
@@ -211,6 +215,7 @@ export class Sprite extends Drawable {
     style.setProperty('mask-composite', css.maskComposite ?? '');
     style.setProperty('-webkit-mask-composite', css.maskComposite ? 'source-in' : '');
     style.opacity = css.opacity;
+    style.filter = css.filter ?? '';
   }
 
   override toString(): string {
