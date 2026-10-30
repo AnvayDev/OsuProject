@@ -64,7 +64,13 @@ const srgbMultiplyAlpha = (c: Colour4, alpha: number) => new Colour4(c.r, c.g, c
 
 /** Bilinear interpolation of raw (sRGB) components, as in ColourInfo.Interpolate(Vector2). */
 function interpolateVector(c: ColourInfo, x: number, y: number): Colour4 {
-  const mix = (tl: number, tr: number, bl: number, br: number) => (1 - y) * ((1 - x) * tl + x * tr) + y * ((1 - x) * bl + x * br);
+  // Difference-form lerps preserve constant channels exactly. Weighted sums can turn white into
+  // 0.9999999999999999 and make the DOM renderer select a different tint/mask path while scrolling.
+  const mix = (tl: number, tr: number, bl: number, br: number) => {
+    const top = tl + x * (tr - tl);
+    const bottom = bl + x * (br - bl);
+    return top + y * (bottom - top);
+  };
   const { topLeft: tl, topRight: tr, bottomLeft: bl, bottomRight: br } = c;
 
   return new Colour4(mix(tl.r, tr.r, bl.r, br.r), mix(tl.g, tr.g, bl.g, br.g), mix(tl.b, tr.b, bl.b, br.b), mix(tl.a, tr.a, bl.a, br.a));

@@ -213,7 +213,7 @@ export class BeatmapCardNormal extends BeatmapCard {
       ],
     });
 
-    this.cardContent.expandedContent = new Container().with({
+    this.cardContent.expandedContent = () => new Container().with({
       relativeSizeAxes: Axes.X,
       autoSizeAxes: Axes.Y,
       padding: MarginPadding.of({ horizontal: 8, vertical: 10 }),

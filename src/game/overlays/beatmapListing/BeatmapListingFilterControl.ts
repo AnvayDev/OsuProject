@@ -4,6 +4,7 @@
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { Bindable } from '@fw/bindables/Bindable';
+import { Game } from '@fw/Game';
 import { Colour4 } from '@fw/graphics/Colour4';
 import { CompositeDrawable } from '@fw/graphics/containers/CompositeDrawable';
 import { Container } from '@fw/graphics/containers/Container';
@@ -43,6 +44,8 @@ export class BeatmapListingFilterControl extends CompositeDrawable {
   /** Fired when search criteria change. */
   searchStarted: (() => void) | null = null;
 
+  searchFailed: (() => void) | null = null;
+
   /** Any time the search text box receives key events (even while masked). */
   typingStarted: (() => void) | null = null;
 
@@ -72,6 +75,8 @@ export class BeatmapListingFilterControl extends CompositeDrawable {
   private lastResponse: SearchBeatmapSetsResponse | null = null;
 
   private config!: OsuConfigManager;
+  private game!: Game;
+  private nextRequestTime = 0;
 
   constructor() {
     super();
@@ -129,6 +134,7 @@ export class BeatmapListingFilterControl extends CompositeDrawable {
     const r = super.load(dependencies);
 
     this.config = dependencies.resolve(OsuConfigManager);
+    this.game = dependencies.resolve(Game);
     this.sortControlBackground.colour = dependencies.resolve(OverlayColourProvider).background4;
 
     return r;
@@ -187,11 +193,8 @@ export class BeatmapListingFilterControl extends CompositeDrawable {
       return;
 
     // there may already be an active request.
-    if (this.getSetsRequest !== null)
+    if (this.getSetsRequest !== null || this.time.current < this.nextRequestTime)
       return;
-
-    if (this.lastResponse !== null)
-      this._currentPage++;
 
     this.performRequest();
   }
@@ -227,9 +230,10 @@ export class BeatmapListingFilterControl extends CompositeDrawable {
       this.searchControl.played.value,
       this.searchControl.explicitContent.value);
 
-    // (APIAccess runs the success callback on the update thread)
-    request.success.add(response => this.schedule(() => {
-      if (this.getSetsRequest !== request)
+    // APIAccess dispatches on the game's update thread. The filter's own scheduler stops
+    // when the header scrolls offscreen, exactly when pagination needs to complete.
+    request.success.add(response => this.game.schedule(() => {
+      if (this.isDisposed || this.getSetsRequest !== request)
         return;
 
       const sets = [...response.beatmapSets];
@@ -237,6 +241,9 @@ export class BeatmapListingFilterControl extends CompositeDrawable {
       // If the previous request returned a null cursor, the API is indicating we can't paginate further (maybe there are no more beatmaps left).
       if (sets.length === 0 || response.cursor === null)
         this.noMoreResults = true;
+
+      if (this.lastResponse !== null)
+        this._currentPage++;
 
       if (this._currentPage === 0)
         this.searchControl.beatmapSet = sets[0] ?? null;
@@ -261,12 +268,24 @@ export class BeatmapListingFilterControl extends CompositeDrawable {
       this.searchFinished?.({ type: SearchResultType.ResultsReturned, results: sets });
     }));
 
+    request.failure.add(() => this.game.schedule(() => {
+      if (this.isDisposed || this.getSetsRequest !== request)
+        return;
+
+      this.getSetsRequest = null;
+      // Keep the previous cursor so pagination retries the failed page, with backoff rather
+      // than issuing a request every frame while the user remains at the bottom.
+      this.nextRequestTime = this.time.current + 2000;
+      this.searchFailed?.();
+    }));
+
     void request.perform();
   }
 
   private resetSearch(): void {
     this.noMoreResults = false;
     this._currentPage = 0;
+    this.nextRequestTime = 0;
 
     this.lastResponse = null;
 

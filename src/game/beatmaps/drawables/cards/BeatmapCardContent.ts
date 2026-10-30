@@ -24,8 +24,24 @@ export class BeatmapCardContent extends CompositeDrawable {
     this.bodyContent.child = value;
   }
 
-  set expandedContent(value: Drawable) {
-    this.dropdownScroll.child = value;
+  private createExpandedContent: (() => Drawable) | null = null;
+
+  set expandedContent(value: Drawable | (() => Drawable)) {
+    // In the DOM renderer, every hidden difficulty row still owns elements and participates in
+    // geometry invalidation. Construct these rows only when the card is first expanded.
+    this.createExpandedContent = typeof value === 'function' ? value : null;
+    if (typeof value !== 'function')
+      this.dropdownScroll.child = value;
+    else if (this._expanded.value)
+      this.loadExpandedContent();
+  }
+
+  private loadExpandedContent(): void {
+    if (this.createExpandedContent === null)
+      return;
+
+    this.dropdownScroll.child = this.createExpandedContent();
+    this.createExpandedContent = null;
   }
 
   get expanded(): Bindable<boolean> {
@@ -154,6 +170,7 @@ export class BeatmapCardContent extends CompositeDrawable {
     this.scaleTo(this._expanded.value ? 1.03 : 1, 500, Easing.OutQuint);
 
     if (this._expanded.value) {
+      this.loadExpandedContent();
       this.background.fadeIn(BeatmapCardConstants.TRANSITION_DURATION, Easing.OutQuint);
       this.dropdownContent.fadeIn(BeatmapCardConstants.TRANSITION_DURATION, Easing.OutQuint);
       this.borderContainer.fadeIn(BeatmapCardConstants.TRANSITION_DURATION, Easing.OutQuint);

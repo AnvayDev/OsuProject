@@ -1248,7 +1248,10 @@ export abstract class Drawable extends Transformable {
       colour = ci.colour.applyChild(ourColour);
     else {
       // Cannot use ToParentSpace here, because ToParentSpace depends on DrawInfo to be completed
-      const interp = Quad.fromRectangle(this.drawRectangle).mul(this.drawInfo.matrix.multiply(this._parent!.drawInfo.matrixInverse));
+      // Use the local matrix directly: cancelling two world matrices introduces scroll-dependent
+      // roundoff into an otherwise unchanged gradient (and needlessly computes an inverse).
+      void this.drawInfo;
+      const interp = Quad.fromRectangle(this.drawRectangle).mul(this.localDrawInfo.matrix);
       const parentSize = this._parent!.drawSize;
 
       const rel = (v: Vector2): [number, number] => [v.x / parentSize.x, v.y / parentSize.y];

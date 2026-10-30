@@ -159,6 +159,7 @@ export class Sprite extends Drawable {
   }
 
   private lastBackground = '';
+  private readonly appliedCss: Record<string, string> = {};
 
   protected override applyElementState(): void {
     super.applyElementState();
@@ -208,14 +209,27 @@ export class Sprite extends Drawable {
       return;
 
     this.lastBackground = key;
-    style.background = css.background;
-    style.backgroundBlendMode = css.backgroundBlendMode ?? '';
-    style.setProperty('mask', css.mask ?? '');
-    style.setProperty('-webkit-mask', css.mask ?? '');
-    style.setProperty('mask-composite', css.maskComposite ?? '');
-    style.setProperty('-webkit-mask-composite', css.maskComposite ? 'source-in' : '');
-    style.opacity = css.opacity;
-    style.filter = css.filter ?? '';
+    // Fades change opacity without changing the image or mask. Rewriting those shorthands can
+    // restart image/mask painting, so cache each property independently of the whole draw state.
+    const properties: Record<string, string> = {
+      background: css.background,
+      'background-blend-mode': css.backgroundBlendMode ?? '',
+      mask: css.mask ?? '',
+      '-webkit-mask': css.mask ?? '',
+      'mask-composite': css.maskComposite ?? '',
+      '-webkit-mask-composite': css.maskComposite ? 'source-in' : '',
+      opacity: css.opacity,
+      filter: css.filter ?? '',
+    };
+    const maskChanged = this.appliedCss.mask !== properties.mask;
+    for (const [property, value] of Object.entries(properties)) {
+      // A mask shorthand resets its composite mode even when that mode's value is unchanged.
+      if (this.appliedCss[property] === value && !(maskChanged && property.endsWith('mask-composite')))
+        continue;
+
+      style.setProperty(property, value);
+      this.appliedCss[property] = value;
+    }
   }
 
   override toString(): string {
