@@ -1,8 +1,9 @@
 // Web addition (user request, not in osu!): song select plays the beatmap's video behind the UI, muted and synced to the music, in place of
 // the still background. osu! only shows videos in gameplay, as part of the storyboard (StoryboardVideo / DrawableStoryboardVideo), so the
 // lookup follows LegacyStoryboardDecoder's Video event handling (from the .osu file; .osb storyboards aren't read). Browsers play MP4/M4V/MOV
-// (H.264) directly; AVI files, which most beatmaps use, are rewrapped into MP4 first (AviRemuxer, in a worker: H.264 only). Any other video (FLV, WMV,
-// MPEG-1, non-H.264 AVI) stays hidden and the background image shows as before.
+// with H.264 (or VP8/VP9/AV1) directly; AVI files with H.264, which most beatmaps use, are rewrapped into MP4 (AviRemuxer, in a worker). Every
+// other video (FLV, WMV, MPEG-1/2, Xvid/DivX AVI, MPEG-4 Part 2 MP4) is converted by ffmpeg.wasm (VideoTranscoder); until a video is ready,
+// or if it can't be converted, the background image shows as before.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { BufferedContainer } from '@fw/graphics/containers/BufferedContainer';
@@ -15,6 +16,7 @@ import { parseIntInvariant } from '@fw/utils/DotNet';
 import type { WorkingBeatmap } from '../../beatmaps/WorkingBeatmap';
 import { SupportedExtensions } from '../../utils/SupportedExtensions';
 import { type RemuxedVideo } from './AviRemuxer';
+import { isNativelyPlayableMp4, transcodeToMp4 } from './VideoTranscoder';
 
 /** A storyboard video event: the file and the time (in ms) the video starts at. (StoryboardVideo) */
 export interface BeatmapVideoInfo {
@@ -67,6 +69,9 @@ function getExtension(path: string): string {
   return path.slice(dot);
 }
 
+/** Containers browsers play (when their codec is one browsers decode). */
+const native_extensions = ['.mp4', '.m4v', '.mov'];
+
 /** A video ready for a <video> element. */
 interface PreparedVideo {
   readonly blob: Blob;
@@ -76,7 +81,7 @@ interface PreparedVideo {
 
 /**
  * Recently prepared videos by file hash, most recent last. Re-selecting a set (or starting it) reuses the prepared video instead of reading
- * and remuxing it again; preparations still in progress are shared too.
+ * and converting it again; preparations still in progress are shared too.
  */
 const prepared_videos = new Map<string, Promise<PreparedVideo | null>>();
 const max_prepared_videos = 3;
@@ -92,12 +97,27 @@ function prepareVideo(beatmap: WorkingBeatmap, info: BeatmapVideoInfo, storagePa
       if (data === null)
         return null;
 
-      if (getExtension(info.path).toLowerCase() !== '.avi')
+      const extension = getExtension(info.path).toLowerCase();
+
+      if (native_extensions.includes(extension) && isNativelyPlayableMp4(data))
         return { blob: new Blob([data as Uint8Array<ArrayBuffer>]), startOffset: 0 };
 
-      const remuxed = await remuxInWorker(data);
-      return remuxed === null ? null : { blob: new Blob([remuxed.data], { type: 'video/mp4' }), startOffset: remuxed.startOffset };
+      if (extension === '.avi') {
+        // (the worker takes the bytes; FFmpeg needs its own copy should the remux fail)
+        const remuxed = await remuxInWorker(data.slice());
+        if (remuxed !== null)
+          return { blob: new Blob([remuxed.data], { type: 'video/mp4' }), startOffset: remuxed.startOffset };
+      }
+
+      const converted = await transcodeToMp4(data, extension);
+      return converted === null ? null : { blob: new Blob([converted as Uint8Array<ArrayBuffer>], { type: 'video/mp4' }), startOffset: 0 };
     })().catch(() => null);
+
+    // (a failed preparation, e.g. a conversion replaced by a newer one, is retried when its beatmap is selected again)
+    void preparation.then(video => {
+      if (video === null && prepared_videos.get(storagePath) === preparation)
+        prepared_videos.delete(storagePath);
+    });
   }
 
   prepared_videos.set(storagePath, preparation);

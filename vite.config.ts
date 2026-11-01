@@ -10,6 +10,8 @@ export default defineConfig({
     },
   },
   worker: { format: 'es' },
+  // ffmpeg.wasm starts its worker from a URL relative to its own module, which pre-bundling would move.
+  optimizeDeps: { exclude: ['@ffmpeg/ffmpeg'] },
   build: { target: 'es2022', sourcemap: true, chunkSizeWarningLimit: 2000 },
   server: {
     // dev-only proxies mirroring vercel.json rewrites
