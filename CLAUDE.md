@@ -55,7 +55,8 @@ mark played, copy link, delete via DialogOverlay + PopupDialog/DangerousActionDi
 collections (menu entry only), editor/scores (menu entries do nothing). Song select video background (web addition, user request):
 the selected set's .osu Video event plays muted, synced to the track (BeatmapBackgroundVideo, framework web Video); H.264 AVIs are
 remuxed to MP4 in the browser (AviRemuxer + mp4-muxer); every other format (FLV, WMV, MPEG-1/2, Xvid AVI, MPEG-4 Part 2 MP4) is converted by
-ffmpeg.wasm (VideoTranscoder: core loaded on first use, H.264 copied, else x264 ultrafast at most 720p; results cached in memory only); starting a beatmap (Enter/logo) pushes VideoPlayer (Player stand-in:
+ffmpeg.wasm (VideoTranscoder: core loaded on first use, H.264 copied, else x264 superfast CRF 16 at source resolution; conversions stored in
+IndexedDB 'convertedVideos' by source hash, deleted with the file by RealmFileStore.cleanup); starting a beatmap (Enter/logo) pushes VideoPlayer (Player stand-in:
 no UI, song from 0, undimmed background/video; back or song end exits). Mirror metadata lookup done (status, dates, star ratings at import). Downloads done (BeatmapModelDownloader +
 BeatmapDownloadTracker, shared mirror rate limiter). Beatmap listing overlay done (main menu "browse"; mirror search (keyword results fetched once and sorted client-side), Normal/Extra cards,
 previews, downloads, PresentBeatmap): overlay base classes (WaveOverlayContainer/FullscreenOverlay/OnlineOverlay, OverlayHeader,

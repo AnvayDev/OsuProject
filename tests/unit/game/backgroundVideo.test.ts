@@ -20,23 +20,28 @@ describe('findVideo (LegacyStoryboardDecoder video events)', () => {
 });
 
 describe('isNativelyPlayableMp4 (which MP4/MOV videos need converting)', () => {
-  // A minimal 'stsd' box per track: size, type, version/flags, entry count, then the first sample entry's size and type.
-  const stsd = (entry: string) => {
-    const box = new Uint8Array(24);
-    const view = new DataView(box.buffer);
-    view.setUint32(0, 24);
-    box.set(new TextEncoder().encode('stsd'), 4);
-    view.setUint32(12, 1);
-    view.setUint32(16, 8);
-    box.set(new TextEncoder().encode(entry), 20);
-    return box;
+  const box = (type: string, ...children: Uint8Array[]) => {
+    const size = 8 + children.reduce((n, c) => n + c.length, 0);
+    const out = new Uint8Array(size);
+    new DataView(out.buffer).setUint32(0, size);
+    out.set(new TextEncoder().encode(type), 4);
+    let offset = 8;
+    for (const c of children) { out.set(c, offset); offset += c.length; }
+    return out;
+  };
+  // a track's sample description: version/flags, entry count 1, then the first sample entry (its size and codec type)
+  const track = (entry: string) => {
+    const stsd = new Uint8Array(16);
+    new DataView(stsd.buffer).setUint32(4, 1);
+    new DataView(stsd.buffer).setUint32(8, 8);
+    stsd.set(new TextEncoder().encode(entry), 12);
+    return box('trak', box('mdia', box('minf', box('stbl', box('stsd', stsd)))));
   };
   const file = (...entries: string[]) => {
-    const boxes = entries.map(stsd);
-    const out = new Uint8Array(8 + boxes.reduce((n, b) => n + b.length, 0));
-    let offset = 8;
-    for (const b of boxes) { out.set(b, offset); offset += b.length; }
-    return out;
+    const ftyp = box('ftyp', new TextEncoder().encode('isom'));
+    // (media data that happens to contain the bytes of a sample description must not count)
+    const mdat = box('mdat', new TextEncoder().encode('stsd\0\0\0\0\0\0\0\x01\0\0\0\x08avc1'));
+    return box('', ftyp, mdat, box('moov', ...entries.map(track))).subarray(8);
   };
 
   it('plays H.264, VP9 and AV1 tracks directly, whatever track comes first', () => {
@@ -47,6 +52,7 @@ describe('isNativelyPlayableMp4 (which MP4/MOV videos need converting)', () => {
 
   it('converts MPEG-4 Part 2 and files without a recognisable track', () => {
     expect(isNativelyPlayableMp4(file('mp4a', 'mp4v'))).toBe(false);
+    expect(isNativelyPlayableMp4(file())).toBe(false);
     expect(isNativelyPlayableMp4(new Uint8Array(64))).toBe(false);
   });
 });

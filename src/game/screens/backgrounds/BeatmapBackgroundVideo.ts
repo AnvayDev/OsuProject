@@ -2,8 +2,8 @@
 // the still background. osu! only shows videos in gameplay, as part of the storyboard (StoryboardVideo / DrawableStoryboardVideo), so the
 // lookup follows LegacyStoryboardDecoder's Video event handling (from the .osu file; .osb storyboards aren't read). Browsers play MP4/M4V/MOV
 // with H.264 (or VP8/VP9/AV1) directly; AVI files with H.264, which most beatmaps use, are rewrapped into MP4 (AviRemuxer, in a worker). Every
-// other video (FLV, WMV, MPEG-1/2, Xvid/DivX AVI, MPEG-4 Part 2 MP4) is converted by ffmpeg.wasm (VideoTranscoder); until a video is ready,
-// or if it can't be converted, the background image shows as before.
+// other video (FLV, WMV, MPEG-1/2, Xvid/DivX AVI, MPEG-4 Part 2 MP4) is converted by ffmpeg.wasm (VideoTranscoder), once: conversions are
+// stored with the beatmap files (RealmFileStore). Until a video is ready, or if it can't be converted, the background image shows as before.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { BufferedContainer } from '@fw/graphics/containers/BufferedContainer';
@@ -11,9 +11,12 @@ import { CompositeDrawable } from '@fw/graphics/containers/CompositeDrawable';
 import { Video } from '@fw/graphics/video/Video';
 import { Anchor, Axes } from '@fw/layout/Enums';
 import type { Vector2 } from '@fw/layout/Vector2';
+import { Logger } from '@fw/logging/Logger';
 import { Easing } from '@fw/transforms/Easing';
 import { parseIntInvariant } from '@fw/utils/DotNet';
 import type { WorkingBeatmap } from '../../beatmaps/WorkingBeatmap';
+import { RealmAccess } from '../../database/RealmAccess';
+import type { RealmFileStore } from '../../database/RealmFileStore';
 import { SupportedExtensions } from '../../utils/SupportedExtensions';
 import { type RemuxedVideo } from './AviRemuxer';
 import { isNativelyPlayableMp4, transcodeToMp4 } from './VideoTranscoder';
@@ -86,12 +89,14 @@ interface PreparedVideo {
 const prepared_videos = new Map<string, Promise<PreparedVideo | null>>();
 const max_prepared_videos = 3;
 
-function prepareVideo(beatmap: WorkingBeatmap, info: BeatmapVideoInfo, storagePath: string): Promise<PreparedVideo | null> {
+function prepareVideo(beatmap: WorkingBeatmap, info: BeatmapVideoInfo, storagePath: string, files: RealmFileStore): Promise<PreparedVideo | null> {
   let preparation = prepared_videos.get(storagePath);
 
   if (preparation !== undefined) {
     prepared_videos.delete(storagePath);
   } else {
+    let cancelled = false;
+
     preparation = (async () => {
       const data = await beatmap.getStream(storagePath);
       if (data === null)
@@ -102,20 +107,38 @@ function prepareVideo(beatmap: WorkingBeatmap, info: BeatmapVideoInfo, storagePa
       if (native_extensions.includes(extension) && isNativelyPlayableMp4(data))
         return { blob: new Blob([data as Uint8Array<ArrayBuffer>]), startOffset: 0 };
 
+      const stored = await files.getConvertedVideo(storagePath);
+      if (stored !== null)
+        return { blob: new Blob([stored as Uint8Array<ArrayBuffer>], { type: 'video/mp4' }), startOffset: 0 };
+
+      let source: Uint8Array | null = data;
+
       if (extension === '.avi') {
-        // (the worker takes the bytes; FFmpeg needs its own copy should the remux fail)
-        const remuxed = await remuxInWorker(data.slice());
+        const remuxed = await remuxInWorker(data);
         if (remuxed !== null)
           return { blob: new Blob([remuxed.data], { type: 'video/mp4' }), startOffset: remuxed.startOffset };
+
+        // (the remux worker took the bytes)
+        source = await beatmap.getStream(storagePath);
+        if (source === null)
+          return null;
       }
 
-      const converted = await transcodeToMp4(data, extension);
-      return converted === null ? null : { blob: new Blob([converted as Uint8Array<ArrayBuffer>], { type: 'video/mp4' }), startOffset: 0 };
+      const converted = await transcodeToMp4(source, extension);
+
+      if (typeof converted === 'string') {
+        cancelled = converted === 'cancelled';
+        return null;
+      }
+
+      // (playing it doesn't depend on keeping it, e.g. when storage is full)
+      await files.addConvertedVideo(storagePath, converted).catch(e => Logger.error(e, 'Could not store a converted video'));
+      return { blob: new Blob([converted as Uint8Array<ArrayBuffer>], { type: 'video/mp4' }), startOffset: 0 };
     })().catch(() => null);
 
-    // (a failed preparation, e.g. a conversion replaced by a newer one, is retried when its beatmap is selected again)
-    void preparation.then(video => {
-      if (video === null && prepared_videos.get(storagePath) === preparation)
+    // (a conversion replaced by a newer one is started again when its beatmap is selected again; a failed one isn't retried)
+    void preparation.then(() => {
+      if (cancelled && prepared_videos.get(storagePath) === preparation)
         prepared_videos.delete(storagePath);
     });
   }
@@ -185,7 +208,7 @@ export class BeatmapBackgroundVideo extends CompositeDrawable {
       return;
 
     const storagePath = this.beatmap.beatmapSetInfo.getPathForFile(info.path);
-    const video = storagePath === null ? null : await prepareVideo(this.beatmap, info, storagePath);
+    const video = storagePath === null ? null : await prepareVideo(this.beatmap, info, storagePath, dependencies.get(RealmAccess)!.files);
     if (video === null || this.isDisposed)
       return;
 
