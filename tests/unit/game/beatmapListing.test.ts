@@ -110,10 +110,20 @@ describe('SearchBeatmapSetsRequest', () => {
     expect(titles).toEqual([...titles].sort());
     expect(cursors).toEqual([50, 100, null]);
 
-    // every hit is fetched once, for all three pages: 100 per request up to the keyword hit cap.
+    // every hit is fetched once for all three pages, 100 per request, stopping at the first short page (130 hits: 0, then 100-300).
     const offsets = fetchMock.mock.calls.map(([url]) => Number(new URL(url).searchParams.get('offset')));
-    expect(offsets).toEqual([0, 100, 200, 300, 400, 500, 600, 700, 800, 900]);
-    expect(new URL(fetchMock.mock.calls[0][0]).searchParams.get('sort')).toBe('title:asc');
+    expect(offsets).toEqual([0, 100, 200, 300]);
+    // the hits don't depend on the sort, so they are fetched unsorted...
+    expect(new URL(fetchMock.mock.calls[0][0]).searchParams.has('sort')).toBe(false);
+
+    // ...and another sort of the same search is served without fetching again.
+    const r = new SearchBeatmapSetsRequest('title', new RulesetInfo(), null, null, SearchCategory.Any, SortCriteria.Title, SortDirection.Descending);
+    let firstPage: string[] = [];
+    r.success.add(response => firstPage = response.beatmapSets.map(b => b.title));
+    await r.perform();
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(firstPage).toEqual([...titles].reverse().slice(0, 50));
   });
 });
 

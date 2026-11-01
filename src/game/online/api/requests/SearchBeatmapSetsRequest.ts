@@ -4,7 +4,7 @@
 // The mirror has no cursor: the cursor is the offset of the next page, null once a page comes back short.
 // With keywords, the mirror (a Meilisearch index) ranks by relevance first and only applies the sort within equally relevant results, where
 // osu-web sorts the whole result set. So keyword searches with a sort other than relevance fetch every hit (the index caps keyword searches
-// at max_keyword_hits), sort them here, and are paged from that list.
+// at max_keyword_hits) once per search, sort them here, and are paged from that list: changing the sort fetches nothing.
 
 import { Signal } from '@fw/bindables/Signal';
 import { Logger, LoggingTarget } from '@fw/logging/Logger';
@@ -31,8 +31,11 @@ const mirror_page_size = 100;
 /** The most hits the mirror returns for a keyword search (Meilisearch's default maxTotalHits). */
 const max_keyword_hits = 1000;
 
-/** The last keyword search fetched in full (by its uri without paging), so further pages of it are served from memory. */
-let fullResults: { key: string; sets: Promise<unknown[]> } | null = null;
+/** Pages fetched in parallel while fetching every hit of a keyword search (one round trip for up to 400 hits). */
+const pages_per_batch = 4;
+
+/** The last keyword search fetched in full (by its parameters without paging or sort), so its pages and other sorts are served from memory. */
+let fullResults: { key: string; sets: Promise<MirrorBeatmapSetJson[]> } | null = null;
 
 interface MirrorBeatmapSetJson {
   id: number;
@@ -219,8 +222,17 @@ export class SearchBeatmapSetsRequest {
     return params;
   }
 
-  /** Every hit of a keyword search, sorted by the requested attribute. Shared by the search's pages. */
-  private fetchAllSorted(params: URLSearchParams): Promise<unknown[]> {
+  /** Every hit of a keyword search, sorted by the requested attribute. The hits are shared by the search's pages and sorts. */
+  private async fetchAllSorted(params: URLSearchParams): Promise<MirrorBeatmapSetJson[]> {
+    const hits = await this.fetchAllHits(params);
+    return sortSets(hits, sortAttribute(this.sortCriteria)!, this.sortDirection === SortDirection.Descending);
+  }
+
+  private fetchAllHits(params: URLSearchParams): Promise<MirrorBeatmapSetJson[]> {
+    // (the set of hits doesn't depend on the sort)
+    params = new URLSearchParams(params);
+    params.delete('sort');
+
     const key = params.toString();
 
     if (fullResults?.key === key)
@@ -234,29 +246,44 @@ export class SearchBeatmapSetsRequest {
       const uri = `${MIRROR_ROOT}/v2/search?${pageParams}`;
       Logger.log(`Performing request ${uri}`, LoggingTarget.Network);
 
-      // (not tied to this request's cancellation: later pages of the same search reuse the result)
-      const response = await mirrorFetch(uri);
-      if (!response.ok)
-        throw new Error(`${response.status} ${response.statusText}`);
+      // (not tied to this request's cancellation: later pages of the same search reuse the result.)
+      // One failed page would fail the whole sorted search, so a page is retried once (the mirror's errors and rate limit responses
+      // carry no CORS headers, so any failure reads as a network error).
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const response = await mirrorFetch(uri);
+          if (!response.ok)
+            throw new Error(`${response.status} ${response.statusText}`);
 
-      return await response.json() as MirrorBeatmapSetJson[];
+          return await response.json() as MirrorBeatmapSetJson[];
+        } catch (e) {
+          if (attempt > 0)
+            throw e;
+
+          // (after a pause: a failure is often a dropped connection, which an immediate retry can still be routed to)
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
     };
 
     const sets = (async () => {
-      const first = await fetchPage(0);
-      let all = first;
+      const all: MirrorBeatmapSetJson[] = [];
+      let offset = 0;
 
-      if (first.length === mirror_page_size) {
-        const offsets: number[] = [];
-        for (let offset = mirror_page_size; offset < max_keyword_hits; offset += mirror_page_size)
-          offsets.push(offset);
-
+      // a few pages at a time until one comes back short: the hit count isn't known up front, and fetching every possible page would spend
+      // the mirror's shared rate limit (MirrorAccess) on empty pages.
+      while (offset < max_keyword_hits) {
+        const offsets = Array.from({ length: pages_per_batch }, (_, i) => offset + i * mirror_page_size).filter(o => o < max_keyword_hits);
         const pages = await Promise.all(offsets.map(fetchPage));
-        all = [first, ...pages].flat();
+
+        all.push(...pages.flat());
+        offset += offsets.length * mirror_page_size;
+
+        if (pages.some(p => p.length < mirror_page_size))
+          break;
       }
 
-      const attribute = sortAttribute(this.sortCriteria)!;
-      return sortSets(all, attribute, this.sortDirection === SortDirection.Descending);
+      return all;
     })();
 
     fullResults = { key, sets };
