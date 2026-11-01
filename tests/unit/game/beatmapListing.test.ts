@@ -83,6 +83,38 @@ describe('SearchBeatmapSetsRequest', () => {
 
     expect(cursors).toEqual([50, null]);
   });
+
+  it('sorts keyword searches over every hit, as osu-web does (the mirror only sorts within relevance), fetching them once', async () => {
+    // 130 hits in a relevance order that isn't title order.
+    const hits = Array.from({ length: 130 }, (_, i) => ({ id: i + 1, title: `Title ${String((i * 37) % 130).padStart(3, '0')}` }));
+    const fetchMock = vi.fn(async (url: string) => {
+      const p = new URL(url).searchParams;
+      const offset = Number(p.get('offset') ?? 0);
+      return new Response(JSON.stringify(hits.slice(offset, offset + Number(p.get('amount')))));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const titles: string[] = [];
+    const cursors: (number | null)[] = [];
+
+    for (const cursor of [null, 50, 100]) {
+      const r = new SearchBeatmapSetsRequest('title', new RulesetInfo(), cursor, null, SearchCategory.Any, SortCriteria.Title, SortDirection.Ascending);
+      r.success.add(response => {
+        titles.push(...response.beatmapSets.map(b => b.title));
+        cursors.push(response.cursor);
+      });
+      await r.perform();
+    }
+
+    expect(titles).toHaveLength(130);
+    expect(titles).toEqual([...titles].sort());
+    expect(cursors).toEqual([50, 100, null]);
+
+    // every hit is fetched once, for all three pages: 100 per request up to the keyword hit cap.
+    const offsets = fetchMock.mock.calls.map(([url]) => Number(new URL(url).searchParams.get('offset')));
+    expect(offsets).toEqual([0, 100, 200, 300, 400, 500, 600, 700, 800, 900]);
+    expect(new URL(fetchMock.mock.calls[0][0]).searchParams.get('sort')).toBe('title:asc');
+  });
 });
 
 describe('APIBeatmapSet', () => {

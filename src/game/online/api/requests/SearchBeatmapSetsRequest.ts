@@ -2,6 +2,9 @@
 // SearchBeatmapSetsResponse.cs.
 // Web: the search is the mirror's /api/v2/search; osu-web's parameters are mapped onto it as docs/spec/assets-formats.md §7 describes.
 // The mirror has no cursor: the cursor is the offset of the next page, null once a page comes back short.
+// With keywords, the mirror (a Meilisearch index) ranks by relevance first and only applies the sort within equally relevant results, where
+// osu-web sorts the whole result set. So keyword searches with a sort other than relevance fetch every hit (the index caps keyword searches
+// at max_keyword_hits), sort them here, and are paged from that list.
 
 import { Signal } from '@fw/bindables/Signal';
 import { Logger, LoggingTarget } from '@fw/logging/Logger';
@@ -21,6 +24,60 @@ import { APIBeatmapSet } from './responses/APIBeatmapSet';
 
 /** osu-web's search page size. */
 const page_size = 50;
+
+/** The mirror's largest page. */
+const mirror_page_size = 100;
+
+/** The most hits the mirror returns for a keyword search (Meilisearch's default maxTotalHits). */
+const max_keyword_hits = 1000;
+
+/** The last keyword search fetched in full (by its uri without paging), so further pages of it are served from memory. */
+let fullResults: { key: string; sets: Promise<unknown[]> } | null = null;
+
+interface MirrorBeatmapSetJson {
+  id: number;
+  title?: string;
+  artist?: string;
+  ranked_date?: string | null;
+  last_updated?: string | null;
+  play_count?: number;
+  favourite_count?: number;
+  beatmaps?: { difficulty_rating?: number }[];
+}
+
+/** The value the mirror sorts by for a sort attribute (difficulty: the easiest beatmap ascending, the hardest descending, as the mirror does). */
+function sortValue(set: MirrorBeatmapSetJson, attribute: string, descending: boolean): string | number | null {
+  switch (attribute) {
+    case 'title': return set.title?.toLowerCase() ?? null;
+    case 'artist': return set.artist?.toLowerCase() ?? null;
+    case 'last_updated': return set.last_updated ? Date.parse(set.last_updated) : null;
+    case 'ranked_date': return set.ranked_date ? Date.parse(set.ranked_date) : null;
+    case 'play_count': return set.play_count ?? null;
+    case 'favourite_count': return set.favourite_count ?? null;
+
+    case 'beatmaps.difficulty_rating': {
+      const ratings = (set.beatmaps ?? []).map(b => b.difficulty_rating ?? 0);
+      return ratings.length === 0 ? null : descending ? Math.max(...ratings) : Math.min(...ratings);
+    }
+
+    default: return null;
+  }
+}
+
+/** Sorts mirror results by an attribute (missing values last, ties by newest set). */
+function sortSets(sets: MirrorBeatmapSetJson[], attribute: string, descending: boolean): MirrorBeatmapSetJson[] {
+  const keyed = sets.map(set => ({ set, value: sortValue(set, attribute, descending) }));
+
+  keyed.sort((a, b) => {
+    if (a.value === null || b.value === null)
+      return a.value === b.value ? b.set.id - a.set.id : a.value === null ? 1 : -1;
+
+    const c = a.value < b.value ? -1 : a.value > b.value ? 1 : 0;
+    return c === 0 ? b.set.id - a.set.id : descending ? -c : c;
+  });
+
+  return keyed.map(k => k.set);
+}
 
 /** (SearchBeatmapSetsResponse) */
 export interface SearchBeatmapSetsResponse {
@@ -90,6 +147,26 @@ export class SearchBeatmapSetsRequest {
 
   /** The mirror request URL, or null when the search can't have results (it needs a user). */
   get uri(): string | null {
+    const params = this.searchParams();
+
+    if (params === null)
+      return null;
+
+    params.set('amount', page_size.toString());
+
+    if (this.cursor !== null)
+      params.set('offset', this.cursor.toString());
+
+    return `${MIRROR_ROOT}/v2/search?${params}`;
+  }
+
+  /** Whether the search has keywords and a sort the mirror only applies within equally relevant results (see the header). */
+  private get sortsClientSide(): boolean {
+    return !!this.query?.trim() && sortAttribute(this.sortCriteria) !== null;
+  }
+
+  /** The search's parameters, without paging. */
+  private searchParams(): URLSearchParams | null {
     const params = new URLSearchParams();
     const filters: string[] = [];
 
@@ -139,12 +216,57 @@ export class SearchBeatmapSetsRequest {
     if (sort !== null)
       params.set('sort', `${sort}:${this.sortDirection === SortDirection.Descending ? 'desc' : 'asc'}`);
 
-    params.set('amount', page_size.toString());
+    return params;
+  }
 
-    if (this.cursor !== null)
-      params.set('offset', this.cursor.toString());
+  /** Every hit of a keyword search, sorted by the requested attribute. Shared by the search's pages. */
+  private fetchAllSorted(params: URLSearchParams): Promise<unknown[]> {
+    const key = params.toString();
 
-    return `${MIRROR_ROOT}/v2/search?${params}`;
+    if (fullResults?.key === key)
+      return fullResults.sets;
+
+    const fetchPage = async (offset: number): Promise<MirrorBeatmapSetJson[]> => {
+      const pageParams = new URLSearchParams(params);
+      pageParams.set('amount', mirror_page_size.toString());
+      pageParams.set('offset', offset.toString());
+
+      const uri = `${MIRROR_ROOT}/v2/search?${pageParams}`;
+      Logger.log(`Performing request ${uri}`, LoggingTarget.Network);
+
+      // (not tied to this request's cancellation: later pages of the same search reuse the result)
+      const response = await mirrorFetch(uri);
+      if (!response.ok)
+        throw new Error(`${response.status} ${response.statusText}`);
+
+      return await response.json() as MirrorBeatmapSetJson[];
+    };
+
+    const sets = (async () => {
+      const first = await fetchPage(0);
+      let all = first;
+
+      if (first.length === mirror_page_size) {
+        const offsets: number[] = [];
+        for (let offset = mirror_page_size; offset < max_keyword_hits; offset += mirror_page_size)
+          offsets.push(offset);
+
+        const pages = await Promise.all(offsets.map(fetchPage));
+        all = [first, ...pages].flat();
+      }
+
+      const attribute = sortAttribute(this.sortCriteria)!;
+      return sortSets(all, attribute, this.sortDirection === SortDirection.Descending);
+    })();
+
+    fullResults = { key, sets };
+    // a failed fetch isn't kept, so the search can be retried.
+    sets.catch(() => {
+      if (fullResults?.sets === sets)
+        fullResults = null;
+    });
+
+    return sets;
   }
 
   /** (APIAccess.Queue → Perform) */
@@ -155,7 +277,12 @@ export class SearchBeatmapSetsRequest {
     try {
       let beatmapSets: APIBeatmapSet[] = [];
 
-      if (uri !== null) {
+      if (uri !== null && this.sortsClientSide) {
+        const all = await this.fetchAllSorted(this.searchParams()!);
+        this.abortController.signal.throwIfAborted();
+
+        beatmapSets = all.slice(offset, offset + page_size).map(s => APIBeatmapSet.fromJson(s));
+      } else if (uri !== null) {
         Logger.log(`Performing request ${uri}`, LoggingTarget.Network);
 
         const response = await mirrorFetch(uri, () => ({ signal: this.abortController.signal }));
