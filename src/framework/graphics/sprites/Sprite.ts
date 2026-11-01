@@ -164,7 +164,6 @@ export class Sprite extends Drawable {
   protected override applyElementState(): void {
     super.applyElementState();
 
-    const style = this.element.style;
     const colour = this.drawColourInfo.colour;
     const tex = this._texture;
 
@@ -224,12 +223,22 @@ export class Sprite extends Drawable {
     const maskChanged = this.appliedCss.mask !== properties.mask;
     for (const [property, value] of Object.entries(properties)) {
       // A mask shorthand resets its composite mode even when that mode's value is unchanged.
-      if (this.appliedCss[property] === value && !(maskChanged && property.endsWith('mask-composite')))
-        continue;
-
-      style.setProperty(property, value);
-      this.appliedCss[property] = value;
+      this.setElementStyle(property, value, maskChanged && property.endsWith('mask-composite'));
     }
+  }
+
+  /**
+   * Writes a style property of the element unless the last value written through here is the same (or force is set). Returns whether it
+   * was written. Subclasses drawing more than the texture (e.g. CircularProgress's mask) write through here too, so either side sees the
+   * other's writes.
+   */
+  protected setElementStyle(property: string, value: string, force = false): boolean {
+    if (this.appliedCss[property] === value && !force)
+      return false;
+
+    this.element.style.setProperty(property, value);
+    this.appliedCss[property] = value;
+    return true;
   }
 
   override toString(): string {

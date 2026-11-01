@@ -1200,21 +1200,21 @@ export abstract class Drawable extends Transformable {
   private localDrawInfo = new DrawInfo();
 
   private computeDrawInfo(): DrawInfo {
+    const di = this._parent?.drawInfo.clone() ?? new DrawInfo();
+
     let pos = this.drawPosition.add(this.anchorPosition);
+    const drawScale = this.drawScale;
 
     if (this._parent !== null)
       pos = pos.add(this._parent.childOffset);
 
+    di.applyTransform(pos, drawScale, this.rotation, this.shear, this.originPosition);
+
     const local = new DrawInfo();
-    local.applyTransform(pos, this.drawScale, this.rotation, this.shear, this.originPosition);
+    local.applyTransform(pos, drawScale, this.rotation, this.shear, this.originPosition);
     this.localDrawInfo = local;
 
-    if (this._parent === null)
-      return local.clone();
-
-    // Applying the transform to the parent's DrawInfo (as C# does) equals composing the local transform with it.
-    const parent = this._parent.drawInfo;
-    return new DrawInfo(local.matrix.multiply(parent.matrix), parent.matrixInverse.multiply(local.matrixInverse));
+    return di;
   }
 
   /** Contains the linear transformation of this Drawable that is used during draw. */
