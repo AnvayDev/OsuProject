@@ -13,6 +13,12 @@ function defaultEquals<T>(a: T, b: T): boolean {
 }
 
 function indexOfEqual<T>(collection: readonly T[], item: T): number {
+  // (the same instance is the common case: find it at native speed, and only compare by equals() when it isn't there)
+  const index = collection.indexOf(item);
+
+  if (index >= 0 || item === null || typeof item !== 'object' || typeof (item as { equals?: unknown }).equals !== 'function')
+    return index;
+
   for (let i = 0; i < collection.length; i++) {
     if (defaultEquals(item, collection[i]))
       return i;

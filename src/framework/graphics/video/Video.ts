@@ -79,7 +79,8 @@ export class Video extends Drawable {
     // positive: the video is behind the requested position.
     const drift = position - el.currentTime * 1000;
 
-    const shouldPlay = this.playing && this.rate > 0 && position < this.duration;
+    // (before the video's start, hold its first frame instead of decoding ahead of the requested position)
+    const shouldPlay = this.playing && this.rate > 0 && this.playbackPosition >= 0 && position < this.duration;
 
     if (!shouldPlay) {
       if (!el.paused)

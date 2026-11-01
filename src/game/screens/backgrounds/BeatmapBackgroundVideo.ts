@@ -188,6 +188,11 @@ export class BeatmapBackgroundVideo extends CompositeDrawable {
     return data === null ? null : findVideo(new TextDecoder().decode(data));
   }
 
+  /** Whether a video was found and prepared (known once loaded). */
+  get hasVideo(): boolean {
+    return this.video !== null;
+  }
+
   /** Smoothly adjusts the blur of the video over time (as Background.blurTo). */
   blurTo(newBlurSigma: Vector2, duration = 0, easing = Easing.None): void {
     this.bufferedContainer.transformTo('blurSigma', newBlurSigma, duration, easing);

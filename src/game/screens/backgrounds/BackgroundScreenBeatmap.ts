@@ -106,17 +106,22 @@ export class BackgroundScreenBeatmap extends BackgroundScreen {
 
   private videoCancellationSource: AbortController | null = null;
 
+  /** The set whose video is shown or being looked up (null when none is). */
+  private videoSetId: string | null = null;
+
   /** (Web addition) Replaces the video when the beatmap set changes; difficulties of a set share their video. */
   private updateVideo(): void {
     const beatmap = this.showVideo.value ? this._beatmap : null;
-    const current = this.dimmable.video;
+    const setId = beatmap?.beatmapSetInfo.id ?? null;
 
     // the playing track moves between a set's difficulties (MusicController transfers it), so follow the current beatmap's.
-    if (current !== null && beatmap !== null && current.beatmap.beatmapSetInfo.id === beatmap.beatmapSetInfo.id) {
-      current.trackSource = beatmap;
+    if (setId !== null && setId === this.videoSetId) {
+      if (this.dimmable.video !== null)
+        this.dimmable.video.trackSource = beatmap!;
       return;
     }
 
+    this.videoSetId = setId;
     this.videoCancellationSource?.abort();
     this.videoLoadDelegate?.cancel();
     this.dimmable.video = null;
@@ -129,10 +134,14 @@ export class BackgroundScreenBeatmap extends BackgroundScreen {
     // reading (and remuxing) a video is expensive: only start once the selection has settled, so skipping through sets loads nothing.
     this.videoLoadDelegate = this.scheduler.addDelayed(() => {
       void this.loadComponentAsync(new BeatmapBackgroundVideo(beatmap), v => {
-        if (!source.signal.aborted)
-          this.dimmable.video = v;
-        else
+        // most sets have no video: don't keep an (always present) layer for them.
+        if (source.signal.aborted || !v.hasVideo) {
           v.dispose();
+          return;
+        }
+
+        v.trackSource = this._beatmap ?? beatmap;
+        this.dimmable.video = v;
       });
     }, BackgroundScreenBeatmap.VIDEO_LOAD_DELAY);
   }
