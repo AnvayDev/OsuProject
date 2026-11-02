@@ -26,12 +26,12 @@ const card_normal_height = 80;
 export class BeatmapCardThumbnail extends Container {
   readonly dimmed = new BindableBool();
 
-  /** (new Padding: the foreground's) */
-  override get padding(): MarginPadding {
+  /** C#'s `new Padding` (the foreground's padding). Renamed: CompositeDrawable reads `padding` for its own layout, so it can't be overridden. */
+  get thumbnailPadding(): MarginPadding {
     return this.foreground.padding;
   }
 
-  override set padding(value: MarginPadding) {
+  set thumbnailPadding(value: MarginPadding) {
     this.foreground.padding = value;
   }
 

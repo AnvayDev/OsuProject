@@ -201,7 +201,7 @@ export class BeatmapCardNormal extends BeatmapCard {
         this.thumbnail = new BeatmapCardThumbnail(this.beatmapSet, this.beatmapSet).with({
           name: 'Left (icon) area',
           size: new Vector2(BeatmapCardNormal.HEIGHT),
-          padding: MarginPadding.of({ right: BeatmapCard.CORNER_RADIUS }),
+          thumbnailPadding: MarginPadding.of({ right: BeatmapCard.CORNER_RADIUS }),
           child: leftIconArea = new FillFlowContainer().with({
             margin: new MarginPadding(4),
             autoSizeAxes: Axes.Both,
