@@ -34,34 +34,6 @@ enum ChildLifeStateChange {
 
 const amount_children_required_for_masking_check = 2;
 
-// Web: osu!framework runs LoadComponentsAsync on a background thread, so even a large load never delays a frame. Here it runs on the main
-// thread, in slices: once a slice has taken background_load_slice ms, the remaining children (and components) load in a later task, after
-// the browser had the chance to render a frame. Synchronous loads (children added to loaded composites, LoadComponent) are never split.
-const background_load_slice = 5;
-
-/** When the running background load slice ends (performance.now()), or null outside background loads. */
-let backgroundSliceEnd: number | null = null;
-
-function backgroundSliceExpired(): boolean {
-  return backgroundSliceEnd !== null && performance.now() > backgroundSliceEnd;
-}
-
-function runBackgroundSlice<T>(action: () => T): T {
-  const previous = backgroundSliceEnd;
-  backgroundSliceEnd ??= performance.now() + background_load_slice;
-
-  try {
-    return action();
-  } finally {
-    backgroundSliceEnd = previous;
-  }
-}
-
-/** Continues a background load in a new slice, in a later task. */
-function nextBackgroundSlice(action: () => Promise<unknown> | void): Promise<void> {
-  return new Promise<void>(resolve => setTimeout(resolve, 0)).then(() => runBackgroundSlice(action)).then(() => undefined);
-}
-
 /** A drawable consisting of a composite of child drawables which are manipulated by the composite's derived class. */
 export abstract class CompositeDrawable extends Drawable {
   // #region Construction and disposal
@@ -120,31 +92,17 @@ export abstract class CompositeDrawable extends Drawable {
     const deps = new DependencyContainer(this.dependencies);
 
     return new Promise<T[]>((resolve, reject) => {
-      // Emulates the background load thread: never run inline with the caller, and never for longer than a slice at a time.
+      // Emulates the background load thread: never run inline with the caller.
       queueMicrotask(() => {
-        const loadables: T[] = [];
+        const loads: Promise<void>[] = [];
+        const loadables = components.filter(c => {
+          if (c.isDisposed || this.isDisposed) return false;
+          const r = c.loadDrawable(this.clock, deps);
+          if (r instanceof Promise) loads.push(r);
+          return true;
+        });
 
-        const loadFrom = (start: number): Promise<unknown> => {
-          const loads: Promise<unknown>[] = [];
-
-          for (let i = start; i < components.length; i++) {
-            if (i > start && backgroundSliceExpired()) {
-              loads.push(nextBackgroundSlice(() => loadFrom(i)));
-              break;
-            }
-
-            const c = components[i];
-            if (c.isDisposed || this.isDisposed) continue;
-
-            const r = c.loadDrawable(this.clock, deps);
-            if (r instanceof Promise) loads.push(r);
-            loadables.push(c);
-          }
-
-          return Promise.all(loads);
-        };
-
-        runBackgroundSlice(() => loadFrom(0)).then(() => {
+        Promise.all(loads).then(() => {
           if (loadables.length === 0 || this.isDisposed)
             return;
 
@@ -173,41 +131,10 @@ export abstract class CompositeDrawable extends Drawable {
     // We are in a potentially async context, so let's aggressively load all our children
     // regardless of their alive state. this also gives children a clock so they can be checked
     // for their correct alive state in the case LifetimeStart is set to a definite value.
-    const remaining = this.loadChildrenFrom(this.internalChildrenList.toArray(), 0);
+    for (const c of this.internalChildrenList.toArray())
+      this.loadChild(c);
 
-    if (remaining === undefined)
-      return r;
-
-    return r instanceof Promise ? Promise.all([r, remaining]).then(() => undefined) : remaining;
-  }
-
-  /** Loads children from index start on. Within a background load, the children left once the slice is over load in later slices. */
-  private loadChildrenFrom(children: readonly Drawable[], start: number): Promise<void> | undefined {
-    for (let i = start; i < children.length; i++) {
-      if (i > start && backgroundSliceExpired())
-        return nextBackgroundSlice(() => this.loadRemainingChildren(children, i));
-
-      this.loadChild(children[i]);
-    }
-
-    return undefined;
-  }
-
-  /** A later slice of loadChildrenFrom. Our own load has returned by now (its child loads were collected then), so these are awaited here. */
-  private loadRemainingChildren(children: readonly Drawable[], start: number): Promise<unknown> {
-    const loads: Promise<unknown>[] = [];
-
-    for (let i = start; i < children.length; i++) {
-      if (i > start && backgroundSliceExpired()) {
-        loads.push(nextBackgroundSlice(() => this.loadRemainingChildren(children, i)));
-        break;
-      }
-
-      const r = this.loadChild(children[i]);
-      if (r !== undefined) loads.push(r);
-    }
-
-    return Promise.all(loads);
+    return r;
   }
 
   protected override loadAsyncComplete(): void {
@@ -224,9 +151,9 @@ export abstract class CompositeDrawable extends Drawable {
       this.pendingChildLoads.push(p);
   }
 
-  private loadChild(child: Drawable): Promise<void> | undefined {
+  private loadChild(child: Drawable): void {
     if (this.isDisposed)
-      return undefined;
+      return;
 
     const r = child.loadDrawable(this.clock, this.dependencies!);
 
@@ -237,11 +164,10 @@ export abstract class CompositeDrawable extends Drawable {
         if (!this.isDisposed && child.parent === null && this.internalChildrenList.toArray().includes(child))
           child.parent = this;
       });
-      return r;
+      return;
     }
 
     child.parent = this;
-    return undefined;
   }
 
   protected override disposeInternal(isDisposing: boolean): void {
