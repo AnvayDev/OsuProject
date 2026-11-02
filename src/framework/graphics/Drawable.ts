@@ -49,6 +49,9 @@ const isFinite2 = (v: Vector2) => Number.isFinite(v.x) && Number.isFinite(v.y);
 
 const visibility_cutoff = 0.0001;
 
+/** How many frames an element made a layer for moving stays one after it stopped (see Drawable.layerWhileMoving): about half a second. */
+const layer_settle_frames = 30;
+
 const MIN_VALUE = -Number.MAX_VALUE;
 const MAX_VALUE = Number.MAX_VALUE;
 
@@ -75,13 +78,25 @@ export abstract class Drawable extends Transformable {
   /** Creates the element representing this drawable. Override to use a different tag (e.g. a canvas). */
   protected createElement(): HTMLElement {
     const el = document.createElement('div');
-    el.style.position = 'absolute';
-    el.style.left = '0';
-    el.style.top = '0';
-    el.style.transformOrigin = '0 0';
-    el.style.boxSizing = 'border-box';
-    el.style.pointerEvents = 'none';
+    el.className = Drawable.elementClass();
     return el;
+  }
+
+  private static elementClassName: string | null = null;
+
+  /**
+   * The class giving every drawable's element its default styles (absolute at 0,0, transform origin 0,0, border-box, no pointer events). One
+   * stylesheet rule instead of six inline styles per element: the inline writes were parsed one by one for every drawable created.
+   */
+  private static elementClass(): string {
+    if (Drawable.elementClassName === null) {
+      const style = document.createElement('style');
+      style.textContent = '.osu-drawable{position:absolute;left:0;top:0;transform-origin:0 0;box-sizing:border-box;pointer-events:none}';
+      document.head.appendChild(style);
+      Drawable.elementClassName = 'osu-drawable';
+    }
+
+    return Drawable.elementClassName;
   }
 
   /** Disposes this drawable. */
@@ -1437,7 +1452,22 @@ export abstract class Drawable extends Transformable {
       this.appliedInvalidationID = this.invalidationID;
       this.applyElementState();
     }
+
+    if (this.layered && Drawable.elementFrame - this.movedFrame > layer_settle_frames) {
+      this.layered = false;
+      this.element.style.willChange = '';
+    }
   }
+
+  /**
+   * @internal DOM only: while this element's position changes (and for layer_settle_frames after), it is made a compositor layer (CSS
+   * will-change), so the browser moves its cached raster instead of repainting the whole subtree every frame (scrolled content, sliding
+   * overlays). At rest the hint is removed and the element is drawn exactly as without it.
+   */
+  layerWhileMoving = false;
+
+  private layered = false;
+  private movedFrame = 0;
 
   private lastTransformCss = '';
   private lastLeft = NaN;
@@ -1475,10 +1505,25 @@ export abstract class Drawable extends Transformable {
   }
 
   private writeElementPosition(left: number, top: number, transformCss: string): void {
+    if (left === this.lastLeft && top === this.lastTop && transformCss === this.lastTransformCss)
+      return;
+
+    // (the first write places the element; only later ones move it)
+    const moved = !Number.isNaN(this.lastLeft);
+
     const style = this.element.style;
     if (left !== this.lastLeft) style.left = `${this.lastLeft = left}px`;
     if (top !== this.lastTop) style.top = `${this.lastTop = top}px`;
     if (transformCss !== this.lastTransformCss) style.transform = this.lastTransformCss = transformCss;
+
+    if (moved && this.layerWhileMoving) {
+      this.movedFrame = Drawable.elementFrame;
+
+      if (!this.layered) {
+        this.layered = true;
+        style.willChange = 'transform';
+      }
+    }
   }
 
   /** @internal Positions this (proxied) drawable's element inside its proxy's element: our DrawInfo in the proxy's space. */
