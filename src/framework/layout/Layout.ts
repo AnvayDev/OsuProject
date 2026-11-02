@@ -87,47 +87,45 @@ export class InvalidationList {
   private childInvalidation = Invalidation.None;
 
   constructor(initialState: Invalidation) {
-    this.selfInvalidation = InvalidationList.invalidateFlags(this.selfInvalidation, initialState)[1];
-    this.parentInvalidation = InvalidationList.invalidateFlags(this.parentInvalidation, initialState)[1];
-    this.childInvalidation = InvalidationList.invalidateFlags(this.childInvalidation, initialState)[1];
+    // (non-layout flags are never stored: they always propagate)
+    this.selfInvalidation = this.parentInvalidation = this.childInvalidation = initialState & Invalidation.Layout;
   }
+
+  // (C#'s invalidate/validate helpers return a tuple of struct values; as JS arrays, destructured on every invalidation of every drawable,
+  // they allocated and dominated loading and per-frame invalidation, so the same bit operations are written out inline.)
 
   /** Invalidates a InvalidationSource with given Invalidation flags. Returns whether any invalidation occurred. */
   invalidate(source: InvalidationSource, flags: Invalidation): boolean {
-    let result: boolean;
+    // Remove all non-layout flags, as they should always propagate and are thus not to be stored.
+    const stored = flags & Invalidation.Layout;
 
     switch (source) {
-      case InvalidationSource.Self:
-        [result, this.selfInvalidation] = InvalidationList.invalidateFlags(this.selfInvalidation, flags);
+      case InvalidationSource.Self: {
+        const result = (this.selfInvalidation & flags) !== flags;
+        this.selfInvalidation |= stored;
         return result;
+      }
 
-      case InvalidationSource.Parent:
-        [result, this.parentInvalidation] = InvalidationList.invalidateFlags(this.parentInvalidation, flags);
+      case InvalidationSource.Parent: {
+        const result = (this.parentInvalidation & flags) !== flags;
+        this.parentInvalidation |= stored;
         return result;
+      }
 
-      default:
-        [result, this.childInvalidation] = InvalidationList.invalidateFlags(this.childInvalidation, flags);
+      default: {
+        const result = (this.childInvalidation & flags) !== flags;
+        this.childInvalidation |= stored;
         return result;
+      }
     }
   }
 
   /** Validates all InvalidationSources with given Invalidation flags. Returns whether any InvalidationSource was validated. */
   validate(validation: Invalidation): boolean {
-    let a: boolean, b: boolean, c: boolean;
-    [a, this.selfInvalidation] = InvalidationList.validateFlags(this.selfInvalidation, validation);
-    [b, this.parentInvalidation] = InvalidationList.validateFlags(this.parentInvalidation, validation);
-    [c, this.childInvalidation] = InvalidationList.validateFlags(this.childInvalidation, validation);
-    return a || b || c;
-  }
-
-  private static invalidateFlags(target: Invalidation, flags: Invalidation): [boolean, Invalidation] {
-    // Remove all non-layout flags, as they should always propagate and are thus not to be stored.
-    const result = target | (flags & Invalidation.Layout);
-    return [(target & flags) !== flags, result];
-  }
-
-  private static validateFlags(target: Invalidation, flags: Invalidation): [boolean, Invalidation] {
-    const result = target & ~flags;
-    return [(target & flags) !== 0, result];
+    const result = ((this.selfInvalidation | this.parentInvalidation | this.childInvalidation) & validation) !== 0;
+    this.selfInvalidation &= ~validation;
+    this.parentInvalidation &= ~validation;
+    this.childInvalidation &= ~validation;
+    return result;
   }
 }
