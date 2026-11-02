@@ -52,7 +52,8 @@ filter pipeline + panels, SongSelect/SoloSongSelect, footer, title wedge, detail
 stats (success rate, user rating, rating spread, points of failure; lookup via catboy.best GetBeatmapSetRequest), offline leaderboard placeholder), framework TabControl, framework TextBox (web text input via hidden textarea) + search box + FilterQueryParser.
 framework Menu/Dropdown/SearchContainer + OsuDropdown/ShearedDropdown (sort/group/collection/scope), framework SliderBar + star rating DifficultyRangeSlider.
 Carousel context menus done (framework ContextMenuContainer, OsuContextMenu/OsuMenu items + samples; hide/restore,
-mark played, copy link, delete via DialogOverlay + PopupDialog/DangerousActionDialog hold-to-confirm). Not yet: tooltips, popovers, mod select,
+mark played, copy link, delete via DialogOverlay + PopupDialog/DangerousActionDialog hold-to-confirm). Tooltips done (framework TooltipContainer +
+OsuTooltipContainer in OsuGameBase; IHasTooltip/IHasCustomTooltip duck-typed; DateTooltip). Not yet: popovers, mod select,
 collections (menu entry only), editor/scores (menu entries do nothing). Song select video background (web addition, user request):
 the selected set's .osu Video event plays muted, synced to the track (BeatmapBackgroundVideo, framework web Video); H.264 AVIs are
 remuxed to MP4 in the browser (AviRemuxer + mp4-muxer); every other format (FLV, WMV, MPEG-1/2, Xvid AVI, MPEG-4 Part 2 MP4) is converted by

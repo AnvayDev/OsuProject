@@ -207,6 +207,14 @@ export class FavouriteButton extends OsuClickableContainer {
 
   private onlineBeatmapSet: APIBeatmapSet | null = null;
 
+  override get tooltipText(): string {
+    return this.isFavourite ? 'Unfavourite this beatmap' : 'Favourite this beatmap';
+  }
+
+  override set tooltipText(value: string) {
+    super.tooltipText = value;
+  }
+
   private updateFavouriteState(): void {
     // (Enabled = onlineBeatmapSet != null: toggling needs a login, see the header)
     this.enabled.value = false;

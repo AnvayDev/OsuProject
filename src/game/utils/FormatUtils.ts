@@ -27,3 +27,13 @@ const short_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 export function toLocalisedMediumDate(dateTime: Date): string {
   return `${dateTime.getUTCDate()} ${short_months[dateTime.getUTCMonth()]} ${dateTime.getUTCFullYear()}`;
 }
+
+/**
+ * Finds the number of digits after the decimal point (FormatUtils.FindPrecision). C# counts on a decimal; on a double, the digits of its
+ * shortest round-trip representation are counted instead (repeatedly multiplying by 10 would pick up binary rounding errors).
+ */
+export function findPrecision(d: number): number {
+  const [mantissa, exponent] = Math.abs(d).toExponential().split('e');
+  const fractionDigits = mantissa.split('.')[1]?.length ?? 0;
+  return Math.max(0, fractionDigits - Number(exponent));
+}

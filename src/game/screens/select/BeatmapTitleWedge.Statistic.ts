@@ -1,5 +1,4 @@
 // Ported from osu.Game/Screens/Select/BeatmapTitleWedge.Statistic.cs (+ BeatmapTitleWedge.StatisticPlayCount.cs)
-// Tooltips aren't ported yet: tooltipText is stored only.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { Colour4 } from '@fw/graphics/Colour4';

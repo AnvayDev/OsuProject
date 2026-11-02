@@ -1,7 +1,7 @@
 // Ported from osu.Game/OsuGameBase.cs
 // The core of the game minus its UI: resources, config, the beatmap data layer, the global Beatmap/Ruleset bindables and the music controller.
 // Not ported (online, gameplay, skinning or not needed yet): API access and spectator/multiplayer/metadata clients, scores, skins, the
-// difficulty cache, the ruleset config cache, key binding store, GlobalActionContainer, GlobalCursorDisplay, OsuTooltipContainer, the safe area
+// difficulty cache, the ruleset config cache, key binding store, GlobalCursorDisplay, the safe area
 // container and the beatmap clock. The content chain is CreateScalingContainer() → content.
 // Storage is window.localStorage (config) and IndexedDB (RealmAccess).
 
@@ -26,6 +26,7 @@ import type { ControlPointInfo } from './beatmaps/controlPoints/ControlPointInfo
 import { FramedBeatmapClock } from './beatmaps/FramedBeatmapClock';
 import { IBeatSyncProvider } from './beatmaps/IBeatSyncProvider';
 import { GlobalActionContainer } from './input/bindings/GlobalActionContainer';
+import { OsuTooltipContainer } from './graphics/cursor/OsuTooltipContainer';
 import { OsuMenuSamples } from './graphics/userInterface/OsuMenuSamples';
 import { BeatmapModelDownloader } from './beatmaps/BeatmapModelDownloader';
 import { BeatmapUpdater } from './beatmaps/BeatmapUpdater';
@@ -167,7 +168,8 @@ export class OsuGameBase extends Game {
     const scalingContainer = this.createScalingContainer();
     scalingContainer.add(globalBindings = new GlobalActionContainer(this).with({
       relativeSizeAxes: Axes.Both,
-      child: this.osuContent = new Container().with({ relativeSizeAxes: Axes.Both }),
+      // (GlobalCursorDisplay isn't ported: the browser draws the cursor)
+      child: this.osuContent = new OsuTooltipContainer().with({ relativeSizeAxes: Axes.Both }),
     }));
     super.content.add(scalingContainer);
 

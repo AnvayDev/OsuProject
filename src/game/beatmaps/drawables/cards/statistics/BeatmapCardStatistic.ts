@@ -1,5 +1,4 @@
 // Ported from osu.Game/Beatmaps/Drawables/Cards/Statistics/BeatmapCardStatistic.cs
-// Tooltips (IHasTooltip, IHasCustomTooltip) aren't ported yet: tooltipText is stored only.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { CompositeDrawable } from '@fw/graphics/containers/CompositeDrawable';

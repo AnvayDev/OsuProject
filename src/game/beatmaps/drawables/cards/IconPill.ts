@@ -1,4 +1,4 @@
-// Ported from osu.Game/Beatmaps/Drawables/Cards/IconPill.cs (tooltips aren't ported yet: tooltipText is informational).
+// Ported from osu.Game/Beatmaps/Drawables/Cards/IconPill.cs
 
 import { Colour4 } from '@fw/graphics/Colour4';
 import { CircularContainer } from '@fw/graphics/containers/CircularContainer';

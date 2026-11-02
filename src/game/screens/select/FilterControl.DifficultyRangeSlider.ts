@@ -124,6 +124,18 @@ class DifficultyBoundSliderBar extends BoundSliderBar {
     return false;
   }
 
+  override get tooltipText(): string {
+    if (this.current.isDefault && this.isUpperBound)
+      return 'no limit';
+
+    // (SongSelectStrings.Stars, Current.Value.ToLocalisableString("0.##"))
+    return `${Number(this.current.value.toFixed(2))} stars`;
+  }
+
+  protected override set tooltipText(value: string) {
+    super.tooltipText = value;
+  }
+
   private colours!: OsuColour;
 
   constructor(slider: ShearedRangeSlider, isUpper: boolean) {
