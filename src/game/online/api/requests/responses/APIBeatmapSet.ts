@@ -20,6 +20,14 @@ export interface BeatmapSetOnlineAvailability {
   readonly externalLink: string | null;
 }
 
+/** (BeatmapSetOnlineGenre / BeatmapSetOnlineLanguage) */
+export interface BeatmapSetOnlineGenre {
+  readonly id: number;
+  readonly name: string;
+}
+
+export type BeatmapSetOnlineLanguage = BeatmapSetOnlineGenre;
+
 /** (BeatmapSetHypeStatus) */
 export interface BeatmapSetHypeStatus {
   readonly current: number;
@@ -87,6 +95,9 @@ export class APIBeatmapSet implements IBeatmapSetInfo {
   tags = '';
 
   beatmaps: APIBeatmap[] = [];
+  ratings: number[] = [];
+  genre: BeatmapSetOnlineGenre = { id: 0, name: '' };
+  language: BeatmapSetOnlineLanguage = { id: 0, name: '' };
 
   static fromJson(json: any): APIBeatmapSet {
     const s = new APIBeatmapSet();
@@ -140,6 +151,9 @@ export class APIBeatmapSet implements IBeatmapSetInfo {
     s.source = json.source ?? '';
     s.tags = json.tags ?? '';
     s.beatmaps = (json.beatmaps ?? []).map((b: any) => APIBeatmap.fromJson(b));
+    s.ratings = json.ratings ?? [];
+    s.genre = { id: json.genre?.id ?? 0, name: json.genre?.name ?? '' };
+    s.language = { id: json.language?.id ?? 0, name: json.language?.name ?? '' };
 
     return s;
   }

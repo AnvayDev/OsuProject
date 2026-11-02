@@ -1,7 +1,8 @@
 // Ported from osu.Game/Screens/Select/SongSelect.cs
 // Not ported yet: the title wedge and details area (the left wedges), which follow. Not ported at all: mods (ModSelectOverlay, ModSpeedHotkeyHandler), skinning (SkinnableContainer), the volume
 // overlay (GlobalScrollAdjustsVolume), popovers (PopoverContainer passes its child through), dialogs,
-// the difficulty recommender (online user statistics: the first beatmap is recommended), online lookups and gameplay.
+// the difficulty recommender (online user statistics: the first beatmap is recommended) and gameplay. The online beatmap set lookup uses a mirror
+// (GetBeatmapSetRequest).
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { DependencyContainer } from '@fw/allocation/DependencyContainer';
@@ -23,7 +24,7 @@ import type { InputManager } from '@fw/input/InputManager';
 import { Anchor, Axes, FillDirection } from '@fw/layout/Enums';
 import { MarginPadding } from '@fw/layout/MarginPadding';
 import { Vector2 } from '@fw/layout/Vector2';
-import { Logger } from '@fw/logging/Logger';
+import { Logger, LoggingTarget } from '@fw/logging/Logger';
 import type { ScreenExitEvent, ScreenTransitionEvent } from '@fw/screens/IScreen';
 import { RunState, type ScheduledDelegate } from '@fw/timing/Scheduler';
 import { Easing } from '@fw/transforms/Easing';
@@ -44,6 +45,8 @@ import { IDialogOverlay } from '../../overlays/IDialogOverlay';
 import { BeatmapDeleteDialog } from './BeatmapDeleteDialog';
 import { GlobalAction } from '../../input/bindings/GlobalAction';
 import { OsuGame } from '../../OsuGame';
+import { GetBeatmapSetRequest } from '../../online/api/requests/GetBeatmapSetRequest';
+import type { APIBeatmapSet } from '../../online/api/requests/responses/APIBeatmapSet';
 import { DuckParameters, MusicController, type TrackChangeDirection } from '../../overlays/MusicController';
 import { OverlayColourProvider } from '../../overlays/OverlayColourProvider';
 import { OverlayColourScheme } from '../../overlays/OverlayColourScheme';
@@ -159,6 +162,7 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
     // [Cached] colourProvider, and ISongSelect is a [Cached] interface.
     dependencies.cache(this.colourProvider);
     dependencies.cacheAs(ISongSelect, this as ISongSelect);
+    dependencies.cacheAs(Bindable<BeatmapSetLookupResult | null>, this.lastLookupResult, 'BeatmapSetLookupResult');
 
     return dependencies;
   }
@@ -460,6 +464,52 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
 
   // #endregion
 
+  // #region Online lookups
+
+  /**
+   * Result of the latest online beatmap set lookup.
+   * Note that this being null or InProgress is different from being Completed with a null result.
+   * The former indicates a lookup never occurring or being in progress, while the latter indicates a completed lookup with no result.
+   * (C#: [Cached(typeof(IBindable<BeatmapSetLookupResult?>))]; cached here as a Bindable named 'BeatmapSetLookupResult'.)
+   */
+  private readonly lastLookupResult = new Bindable<BeatmapSetLookupResult | null>(null);
+
+  private onlineLookupCancellation: AbortController | null = null;
+
+  private fetchOnlineInfo(force = false): void {
+    const beatmapSetInfo = this.beatmap.value.beatmapSetInfo;
+
+    if (this.lastLookupResult.value?.result?.onlineID === beatmapSetInfo.onlineID && !force)
+      return;
+
+    this.onlineLookupCancellation?.abort();
+    this.onlineLookupCancellation = null;
+
+    if (beatmapSetInfo.onlineID < 0) {
+      this.lastLookupResult.value = BeatmapSetLookupResult.completed(null);
+      return;
+    }
+
+    this.lastLookupResult.value = BeatmapSetLookupResult.inProgress();
+    const cancellation = this.onlineLookupCancellation = new AbortController();
+
+    // (RealmPopulatingOnlineLookupSource also writes the online data back to realm; the import's metadata lookup already does that here.)
+    new GetBeatmapSetRequest(beatmapSetInfo.onlineID).perform(cancellation.signal).then(
+      result => this.schedule(() => {
+        if (!cancellation.signal.aborted)
+          this.lastLookupResult.value = BeatmapSetLookupResult.completed(result);
+      }),
+      e => {
+        if (cancellation.signal.aborted)
+          return;
+
+        Logger.log(`Error when fetching online beatmap set: ${e}`, LoggingTarget.Network);
+        this.schedule(() => this.lastLookupResult.value = BeatmapSetLookupResult.completed(null));
+      });
+  }
+
+  // #endregion
+
   // #region Selection handling
 
   /**
@@ -636,7 +686,7 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
     this.beatmap.bindValueChanged(this.updateVariousState, true);
   }
 
-  private readonly updateVariousState = (_e: ValueChangedEvent<WorkingBeatmap>): void => {
+  private readonly updateVariousState = (e: ValueChangedEvent<WorkingBeatmap>): void => {
     if (!this.isCurrentScreen())
       return;
 
@@ -645,6 +695,7 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
     this.ensurePlayingSelected();
     this.updateBackgroundDim();
     this.updateWedgeVisibility();
+    this.fetchOnlineInfo(e.oldValue === e.newValue);
   };
 
   private onLeavingScreen(): void {
@@ -1023,4 +1074,22 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
   }
 
   // #endregion
+}
+
+export enum BeatmapSetLookupStatus {
+  InProgress,
+  Completed,
+}
+
+/** (SongSelect.BeatmapSetLookupResult) */
+export class BeatmapSetLookupResult {
+  private constructor(readonly status: BeatmapSetLookupStatus, readonly result: APIBeatmapSet | null) {}
+
+  static inProgress(): BeatmapSetLookupResult {
+    return new BeatmapSetLookupResult(BeatmapSetLookupStatus.InProgress, null);
+  }
+
+  static completed(beatmapSet: APIBeatmapSet | null): BeatmapSetLookupResult {
+    return new BeatmapSetLookupResult(BeatmapSetLookupStatus.Completed, beatmapSet);
+  }
 }
