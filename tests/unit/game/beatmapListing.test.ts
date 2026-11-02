@@ -83,6 +83,48 @@ describe('SearchBeatmapSetsRequest', () => {
 
     expect(cursors).toEqual([50, null]);
   });
+
+  it('sorts keyword searches over every hit, as osu-web does (the mirror only sorts within relevance), fetching them once', async () => {
+    // 130 hits in a relevance order that isn't title order.
+    const hits = Array.from({ length: 130 }, (_, i) => ({ id: i + 1, title: `Title ${String((i * 37) % 130).padStart(3, '0')}` }));
+    const fetchMock = vi.fn(async (url: string) => {
+      const p = new URL(url).searchParams;
+      const offset = Number(p.get('offset') ?? 0);
+      return new Response(JSON.stringify(hits.slice(offset, offset + Number(p.get('amount')))));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const titles: string[] = [];
+    const cursors: (number | null)[] = [];
+
+    for (const cursor of [null, 50, 100]) {
+      const r = new SearchBeatmapSetsRequest('title', new RulesetInfo(), cursor, null, SearchCategory.Any, SortCriteria.Title, SortDirection.Ascending);
+      r.success.add(response => {
+        titles.push(...response.beatmapSets.map(b => b.title));
+        cursors.push(response.cursor);
+      });
+      await r.perform();
+    }
+
+    expect(titles).toHaveLength(130);
+    expect(titles).toEqual([...titles].sort());
+    expect(cursors).toEqual([50, 100, null]);
+
+    // every hit is fetched once for all three pages, 100 per request, stopping at the first short page (130 hits: 0, then 100-300).
+    const offsets = fetchMock.mock.calls.map(([url]) => Number(new URL(url).searchParams.get('offset')));
+    expect(offsets).toEqual([0, 100, 200, 300]);
+    // the hits don't depend on the sort, so they are fetched unsorted...
+    expect(new URL(fetchMock.mock.calls[0][0]).searchParams.has('sort')).toBe(false);
+
+    // ...and another sort of the same search is served without fetching again.
+    const r = new SearchBeatmapSetsRequest('title', new RulesetInfo(), null, null, SearchCategory.Any, SortCriteria.Title, SortDirection.Descending);
+    let firstPage: string[] = [];
+    r.success.add(response => firstPage = response.beatmapSets.map(b => b.title));
+    await r.perform();
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(firstPage).toEqual([...titles].reverse().slice(0, 50));
+  });
 });
 
 describe('APIBeatmapSet', () => {

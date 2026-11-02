@@ -2,9 +2,16 @@
 // (TrianglesV2, LogoVisualisation). The element holds a <canvas> covering the draw rectangle at screen resolution (draw size × screen-space
 // scale × devicePixelRatio). Like a DrawNode, it draws in ApplyState (applyElementState) whenever the drawable is invalidated with
 // Invalidation.DrawNode, in local draw-space units, with the drawable's DrawColourInfo (which already carries every ancestor's colour and alpha).
+// The canvas may extend past the draw rectangle (drawOverflow), as a DrawNode isn't clipped to its drawable; a drawable without size (e.g. a
+// particle emitter) then draws in the overflow area only.
 
 import { Invalidation } from '../layout/Enums';
+import { MarginPadding } from '../layout/MarginPadding';
 import { Drawable } from './Drawable';
+
+const resolution_headroom = 1.1;
+
+const no_overflow = new MarginPadding();
 
 export abstract class CanvasDrawable extends Drawable {
   // (createElement runs inside the Drawable constructor, before this class's fields are defined, so the canvas is read from the element.)
@@ -13,6 +20,7 @@ export abstract class CanvasDrawable extends Drawable {
   }
 
   private contextBacking: CanvasRenderingContext2D | null | undefined;
+  private appliedOverflow: MarginPadding = no_overflow;
 
   protected override createElement(): HTMLElement {
     const el = super.createElement();
@@ -29,11 +37,16 @@ export abstract class CanvasDrawable extends Drawable {
   }
 
   /**
-   * How far (in draw-space units) drawing may extend outside the draw rectangle on every side. A DrawNode is not clipped to its drawable's
+   * How far (in draw-space units) drawing may extend outside the draw rectangle on each side. A DrawNode is not clipped to its drawable's
    * bounds, so drawables that draw outside them (e.g. visualiser bars) need the canvas enlarged by this much.
    */
-  protected get drawOverflow(): number {
-    return 0;
+  protected get drawOverflow(): MarginPadding {
+    return no_overflow;
+  }
+
+  /** Frees the canvas's backing store (e.g. while there is nothing to draw); the next draw allocates it again. */
+  protected releaseCanvas(): void {
+    this.canvas.width = this.canvas.height = 0;
   }
 
   /** Requests a redraw on the next element validation (DrawNode invalidation). */
@@ -50,34 +63,50 @@ export abstract class CanvasDrawable extends Drawable {
       return;
 
     const size = this.drawSize;
-    if (size.x <= 0 || size.y <= 0)
+    const overflow = this.drawOverflow;
+    const totalWidth = size.x + overflow.totalHorizontal;
+    const totalHeight = size.y + overflow.totalVertical;
+
+    if (size.x < 0 || size.y < 0 || totalWidth <= 0 || totalHeight <= 0)
       return;
 
-    // Pixels per draw-space unit on screen.
-    const quad = this.screenSpaceDrawQuad;
+    // Pixels per draw-space unit on screen (from the DrawInfo matrix when there is no draw rectangle to measure).
     const ratio = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
-    const scale = Math.max(quad.width / size.x, quad.height / size.y, 1e-3) * ratio;
+    let scale: number;
 
-    const overflow = this.drawOverflow;
-    const totalWidth = size.x + overflow * 2;
-    const totalHeight = size.y + overflow * 2;
+    if (size.x > 0 && size.y > 0) {
+      const quad = this.screenSpaceDrawQuad;
+      scale = Math.max(quad.width / size.x, quad.height / size.y, 1e-3) * ratio;
+    } else {
+      const m = this.drawInfo.matrix;
+      scale = Math.max(Math.hypot(m.m11, m.m12), Math.hypot(m.m21, m.m22), 1e-3) * ratio;
+    }
 
-    const width = Math.max(1, Math.ceil(totalWidth * scale));
-    const height = Math.max(1, Math.ceil(totalHeight * scale));
+    const requiredWidth = Math.max(1, Math.ceil(totalWidth * scale));
+    const requiredHeight = Math.max(1, Math.ceil(totalHeight * scale));
 
-    if (canvas.width !== width) canvas.width = width;
-    if (canvas.height !== height) canvas.height = height;
+    // Resizing a canvas reallocates (and clears) its backing store. Animated scales (e.g. the menu logo's beat pulse) change the required
+    // resolution every frame, so a resolution of up to resolution_headroom² times the required one is kept, and growth allocates headroom.
+    if (canvas.width < requiredWidth || canvas.height < requiredHeight
+        || canvas.width > requiredWidth * resolution_headroom ** 2 || canvas.height > requiredHeight * resolution_headroom ** 2) {
+      canvas.width = Math.ceil(requiredWidth * resolution_headroom);
+      canvas.height = Math.ceil(requiredHeight * resolution_headroom);
+    }
 
-    const cssOffset = `${-overflow}px`;
-    if (canvas.style.left !== cssOffset) {
-      canvas.style.left = canvas.style.top = cssOffset;
-      canvas.style.width = `calc(100% + ${overflow * 2}px)`;
-      canvas.style.height = `calc(100% + ${overflow * 2}px)`;
+    const width = canvas.width;
+    const height = canvas.height;
+
+    if (overflow !== this.appliedOverflow) {
+      this.appliedOverflow = overflow;
+      canvas.style.left = `${-overflow.left}px`;
+      canvas.style.top = `${-overflow.top}px`;
+      canvas.style.width = `calc(100% + ${overflow.totalHorizontal}px)`;
+      canvas.style.height = `calc(100% + ${overflow.totalVertical}px)`;
     }
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, width, height);
-    ctx.setTransform(width / totalWidth, 0, 0, height / totalHeight, overflow * width / totalWidth, overflow * height / totalHeight);
+    ctx.setTransform(width / totalWidth, 0, 0, height / totalHeight, overflow.left * width / totalWidth, overflow.top * height / totalHeight);
 
     this.draw(ctx, size.x, size.y);
   }

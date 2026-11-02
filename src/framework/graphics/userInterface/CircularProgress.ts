@@ -62,12 +62,11 @@ export class CircularProgress extends Sprite {
     const mask = `conic-gradient(#000 ${sweep}deg, transparent ${sweep}deg), `
       + `radial-gradient(closest-side, transparent ${inner}%, #000 ${inner}%, #000 100%, transparent 100%)`;
 
-    // (always written: Sprite.applyElementState resets the mask when the background changes)
-
-    const style = this.element.style;
-    style.setProperty('mask', mask);
-    style.setProperty('-webkit-mask', mask);
-    style.setProperty('mask-composite', 'intersect');
-    style.setProperty('-webkit-mask-composite', 'source-in');
+    // (written only when changed, also by Sprite.applyElementState: re-parsing the gradients on every DrawInfo invalidation is costly)
+    const maskChanged = this.setElementStyle('mask', mask);
+    this.setElementStyle('-webkit-mask', mask);
+    // a mask shorthand resets its composite mode
+    this.setElementStyle('mask-composite', 'intersect', maskChanged);
+    this.setElementStyle('-webkit-mask-composite', 'source-in', maskChanged);
   }
 }

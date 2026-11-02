@@ -20,7 +20,7 @@ class ProxyDrawable extends Drawable {
     original.lifetimeChanged.add(() => this.lifetimeChanged.emit(this));
 
     const target = this.ultimateOriginal;
-    target.element.style.display = 'none';
+    target.setElementDisplay('none');
     this.element.appendChild(target.element);
   }
 
@@ -96,9 +96,7 @@ class ProxyDrawable extends Drawable {
       this.element.appendChild(el);
 
     const visible = this.validatedFrame === Drawable.elementFrame && !target.isDisposed;
-    const display = visible ? '' : 'none';
-    if (el.style.display !== display)
-      el.style.display = display;
+    target.setElementDisplay(visible ? '' : 'none');
 
     if (visible)
       target.applyProxiedElementPosition(this);

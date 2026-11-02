@@ -213,7 +213,7 @@ export class BeatmapCardExtra extends BeatmapCard {
         this.thumbnail = new BeatmapCardThumbnail(this.beatmapSet, this.beatmapSet).with({
           name: 'Left (icon) area',
           size: new Vector2(height),
-          padding: MarginPadding.of({ right: BeatmapCard.CORNER_RADIUS }),
+          thumbnailPadding: MarginPadding.of({ right: BeatmapCard.CORNER_RADIUS }),
           child: leftIconArea = new FillFlowContainer().with({
             margin: new MarginPadding(4),
             autoSizeAxes: Axes.Both,
@@ -225,7 +225,7 @@ export class BeatmapCardExtra extends BeatmapCard {
       ],
     });
 
-    this.cardContent.expandedContent = new Container().with({
+    this.cardContent.expandedContent = () => new Container().with({
       relativeSizeAxes: Axes.X,
       autoSizeAxes: Axes.Y,
       padding: MarginPadding.of({ horizontal: 8, vertical: 10 }),

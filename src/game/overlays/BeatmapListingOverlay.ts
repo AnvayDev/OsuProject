@@ -82,6 +82,7 @@ export class BeatmapListingOverlay extends OnlineOverlay<BeatmapListingHeader> {
     this.filterControl.typingStarted = () => this.onTypingStarted();
     this.filterControl.searchStarted = () => this.onSearchStarted();
     this.filterControl.searchFinished = result => this.onSearchFinished(result);
+    this.filterControl.searchFailed = () => this.loading.hide();
   }
 
   protected override loadComplete(): void {

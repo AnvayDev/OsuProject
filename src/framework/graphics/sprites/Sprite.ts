@@ -159,11 +159,11 @@ export class Sprite extends Drawable {
   }
 
   private lastBackground = '';
+  private readonly appliedCss: Record<string, string> = {};
 
   protected override applyElementState(): void {
     super.applyElementState();
 
-    const style = this.element.style;
     const colour = this.drawColourInfo.colour;
     const tex = this._texture;
 
@@ -208,14 +208,37 @@ export class Sprite extends Drawable {
       return;
 
     this.lastBackground = key;
-    style.background = css.background;
-    style.backgroundBlendMode = css.backgroundBlendMode ?? '';
-    style.setProperty('mask', css.mask ?? '');
-    style.setProperty('-webkit-mask', css.mask ?? '');
-    style.setProperty('mask-composite', css.maskComposite ?? '');
-    style.setProperty('-webkit-mask-composite', css.maskComposite ? 'source-in' : '');
-    style.opacity = css.opacity;
-    style.filter = css.filter ?? '';
+    // Fades change opacity without changing the image or mask. Rewriting those shorthands can
+    // restart image/mask painting, so cache each property independently of the whole draw state.
+    const properties: Record<string, string> = {
+      background: css.background,
+      'background-blend-mode': css.backgroundBlendMode ?? '',
+      mask: css.mask ?? '',
+      '-webkit-mask': css.mask ?? '',
+      'mask-composite': css.maskComposite ?? '',
+      '-webkit-mask-composite': css.maskComposite ? 'source-in' : '',
+      opacity: css.opacity,
+      filter: css.filter ?? '',
+    };
+    const maskChanged = this.appliedCss.mask !== properties.mask;
+    for (const [property, value] of Object.entries(properties)) {
+      // A mask shorthand resets its composite mode even when that mode's value is unchanged.
+      this.setElementStyle(property, value, maskChanged && property.endsWith('mask-composite'));
+    }
+  }
+
+  /**
+   * Writes a style property of the element unless the last value written through here is the same (or force is set). Returns whether it
+   * was written. Subclasses drawing more than the texture (e.g. CircularProgress's mask) write through here too, so either side sees the
+   * other's writes.
+   */
+  protected setElementStyle(property: string, value: string, force = false): boolean {
+    if (this.appliedCss[property] === value && !force)
+      return false;
+
+    this.element.style.setProperty(property, value);
+    this.appliedCss[property] = value;
+    return true;
   }
 
   override toString(): string {

@@ -1,11 +1,11 @@
 // Ported from osu.Game/Screens/Menu/MainMenu.cs
 // Not ported yet: HoldToExitGameOverlay, the exit confirmation dialog (there is no dialog overlay, so exiting never asks), GlobalScrollAdjustsVolume
-// (no volume overlay), KiaiMenuFountains, the login overlay / mobile disclaimer shown on the first logo click, the storage error dialog,
-// ISamplePlaybackDisabler (only the fountains use it), and the screens the buttons open (song select, editor, settings, beatmap listing,
-// online play): their actions do nothing yet.
+// (no volume overlay), the login overlay / mobile disclaimer shown on the first logo click, the storage error dialog, and the screens the
+// buttons open (song select, editor, settings, beatmap listing, online play): their actions do nothing yet.
 
-import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
+import { DependencyContainer, type IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { AudioManager } from '@fw/audio/AudioManager';
+import { BindableBool } from '@fw/bindables/Bindable';
 import { Logger } from '@fw/logging/Logger';
 import { PerformFromMenuRunner } from '../../PerformFromMenuRunner';
 import type { WorkingBeatmap } from '../../beatmaps/WorkingBeatmap';
@@ -21,6 +21,7 @@ import { MarginPadding } from '@fw/layout/MarginPadding';
 import { Vector2 } from '@fw/layout/Vector2';
 import type { ScreenExitEvent, ScreenTransitionEvent } from '@fw/screens/IScreen';
 import { Easing } from '@fw/transforms/Easing';
+import { ISamplePlaybackDisabler } from '../../audio/ISamplePlaybackDisabler';
 import { ParallaxContainer } from '../../graphics/containers/ParallaxContainer';
 import { OsuColour } from '../../graphics/OsuColour';
 import { MusicController } from '../../overlays/MusicController';
@@ -29,6 +30,7 @@ import type { BackgroundScreen } from '../BackgroundScreen';
 import { BackgroundScreenDefault } from '../backgrounds/BackgroundScreenDefault';
 import { OsuScreen } from '../OsuScreen';
 import { ButtonSystem, ButtonSystemState } from './ButtonSystem';
+import { KiaiMenuFountains } from './KiaiMenuFountains';
 import { MenuSideFlashes } from './MenuSideFlashes';
 import { MenuTipDisplay } from './MenuTipDisplay';
 import { OnlineMenuBanner } from './OnlineMenuBanner';
@@ -37,7 +39,7 @@ import { SoloSongSelect } from '../select/SoloSongSelect';
 import { SongTicker } from './SongTicker';
 import { SupporterDisplay } from './SupporterDisplay';
 
-export class MainMenu extends OsuScreen {
+export class MainMenu extends OsuScreen implements ISamplePlaybackDisabler {
   static readonly FADE_IN_DURATION = 300;
 
   static readonly FADE_OUT_DURATION = 400;
@@ -61,6 +63,14 @@ export class MainMenu extends OsuScreen {
   override get allowGlobalTrackControl(): boolean | null {
     return true;
   }
+
+  readonly isSamplePlaybackDisabler = true;
+
+  get samplePlaybackDisabled(): BindableBool {
+    return this._samplePlaybackDisabled;
+  }
+
+  private readonly _samplePlaybackDisabled = new BindableBool();
 
   private sideFlashes!: MenuSideFlashes;
 
@@ -115,6 +125,8 @@ export class MainMenu extends OsuScreen {
         origin: Anchor.TopRight,
         margin: MarginPadding.of({ right: 15, top: 5 }),
       }),
+      // (SeasonalUIConfig.ENABLED is false: the fountains, not Empty())
+      new KiaiMenuFountains(),
       this.bottomElementsFlow = new FillFlowContainer().with({
         autoSizeAxes: Axes.Both,
         direction: FillDirection.Vertical,
@@ -232,6 +244,8 @@ export class MainMenu extends OsuScreen {
 
     this.supporterDisplay
       .fadeOut(500, Easing.OutQuint);
+
+    this._samplePlaybackDisabled.value = true;
   }
 
   override onResuming(e: ScreenTransitionEvent): void {
@@ -251,6 +265,15 @@ export class MainMenu extends OsuScreen {
     this.bottomElementsFlow
       .scaleTo(1, 1000, Easing.OutQuint)
       .fadeIn(1000, Easing.OutQuint);
+
+    this._samplePlaybackDisabled.value = false;
+  }
+
+  // (ISamplePlaybackDisabler is [Cached] in C#: implementations are cached for their children.)
+  protected override createChildDependencies(parent: IReadOnlyDependencyContainer): IReadOnlyDependencyContainer {
+    const dependencies = new DependencyContainer(super.createChildDependencies(parent));
+    dependencies.cacheAs(ISamplePlaybackDisabler, this);
+    return dependencies;
   }
 
   private loadSongSelect(): void {

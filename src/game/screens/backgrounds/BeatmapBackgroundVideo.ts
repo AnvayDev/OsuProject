@@ -1,8 +1,9 @@
 // Web addition (user request, not in osu!): song select plays the beatmap's video behind the UI, muted and synced to the music, in place of
 // the still background. osu! only shows videos in gameplay, as part of the storyboard (StoryboardVideo / DrawableStoryboardVideo), so the
 // lookup follows LegacyStoryboardDecoder's Video event handling (from the .osu file; .osb storyboards aren't read). Browsers play MP4/M4V/MOV
-// (H.264) directly; AVI files, which most beatmaps use, are rewrapped into MP4 first (AviRemuxer, in a worker: H.264 only). Any other video (FLV, WMV,
-// MPEG-1, non-H.264 AVI) stays hidden and the background image shows as before.
+// with H.264 (or VP8/VP9/AV1) directly; AVI files with H.264, which most beatmaps use, are rewrapped into MP4 (AviRemuxer, in a worker). Every
+// other video (FLV, WMV, MPEG-1/2, Xvid/DivX AVI, MPEG-4 Part 2 MP4) is converted by ffmpeg.wasm (VideoTranscoder), once: conversions are
+// stored with the beatmap files (RealmFileStore). Until a video is ready, or if it can't be converted, the background image shows as before.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { BufferedContainer } from '@fw/graphics/containers/BufferedContainer';
@@ -10,11 +11,15 @@ import { CompositeDrawable } from '@fw/graphics/containers/CompositeDrawable';
 import { Video } from '@fw/graphics/video/Video';
 import { Anchor, Axes } from '@fw/layout/Enums';
 import type { Vector2 } from '@fw/layout/Vector2';
+import { Logger } from '@fw/logging/Logger';
 import { Easing } from '@fw/transforms/Easing';
 import { parseIntInvariant } from '@fw/utils/DotNet';
 import type { WorkingBeatmap } from '../../beatmaps/WorkingBeatmap';
+import { RealmAccess } from '../../database/RealmAccess';
+import type { RealmFileStore } from '../../database/RealmFileStore';
 import { SupportedExtensions } from '../../utils/SupportedExtensions';
 import { type RemuxedVideo } from './AviRemuxer';
+import { isNativelyPlayableMp4, transcodeToMp4 } from './VideoTranscoder';
 
 /** A storyboard video event: the file and the time (in ms) the video starts at. (StoryboardVideo) */
 export interface BeatmapVideoInfo {
@@ -67,6 +72,9 @@ function getExtension(path: string): string {
   return path.slice(dot);
 }
 
+/** Containers browsers play (when their codec is one browsers decode). */
+const native_extensions = ['.mp4', '.m4v', '.mov'];
+
 /** A video ready for a <video> element. */
 interface PreparedVideo {
   readonly blob: Blob;
@@ -76,28 +84,63 @@ interface PreparedVideo {
 
 /**
  * Recently prepared videos by file hash, most recent last. Re-selecting a set (or starting it) reuses the prepared video instead of reading
- * and remuxing it again; preparations still in progress are shared too.
+ * and converting it again; preparations still in progress are shared too.
  */
 const prepared_videos = new Map<string, Promise<PreparedVideo | null>>();
 const max_prepared_videos = 3;
 
-function prepareVideo(beatmap: WorkingBeatmap, info: BeatmapVideoInfo, storagePath: string): Promise<PreparedVideo | null> {
+function prepareVideo(beatmap: WorkingBeatmap, info: BeatmapVideoInfo, storagePath: string, files: RealmFileStore): Promise<PreparedVideo | null> {
   let preparation = prepared_videos.get(storagePath);
 
   if (preparation !== undefined) {
     prepared_videos.delete(storagePath);
   } else {
+    let cancelled = false;
+
     preparation = (async () => {
       const data = await beatmap.getStream(storagePath);
       if (data === null)
         return null;
 
-      if (getExtension(info.path).toLowerCase() !== '.avi')
+      const extension = getExtension(info.path).toLowerCase();
+
+      if (native_extensions.includes(extension) && isNativelyPlayableMp4(data))
         return { blob: new Blob([data as Uint8Array<ArrayBuffer>]), startOffset: 0 };
 
-      const remuxed = await remuxInWorker(data);
-      return remuxed === null ? null : { blob: new Blob([remuxed.data], { type: 'video/mp4' }), startOffset: remuxed.startOffset };
+      const stored = await files.getConvertedVideo(storagePath);
+      if (stored !== null)
+        return { blob: new Blob([stored as Uint8Array<ArrayBuffer>], { type: 'video/mp4' }), startOffset: 0 };
+
+      let source: Uint8Array | null = data;
+
+      if (extension === '.avi') {
+        const remuxed = await remuxInWorker(data);
+        if (remuxed !== null)
+          return { blob: new Blob([remuxed.data], { type: 'video/mp4' }), startOffset: remuxed.startOffset };
+
+        // (the remux worker took the bytes)
+        source = await beatmap.getStream(storagePath);
+        if (source === null)
+          return null;
+      }
+
+      const converted = await transcodeToMp4(source, extension);
+
+      if (typeof converted === 'string') {
+        cancelled = converted === 'cancelled';
+        return null;
+      }
+
+      // (playing it doesn't depend on keeping it, e.g. when storage is full)
+      await files.addConvertedVideo(storagePath, converted).catch(e => Logger.error(e, 'Could not store a converted video'));
+      return { blob: new Blob([converted as Uint8Array<ArrayBuffer>], { type: 'video/mp4' }), startOffset: 0 };
     })().catch(() => null);
+
+    // (a conversion replaced by a newer one is started again when its beatmap is selected again; a failed one isn't retried)
+    void preparation.then(() => {
+      if (cancelled && prepared_videos.get(storagePath) === preparation)
+        prepared_videos.delete(storagePath);
+    });
   }
 
   prepared_videos.set(storagePath, preparation);
@@ -165,7 +208,7 @@ export class BeatmapBackgroundVideo extends CompositeDrawable {
       return;
 
     const storagePath = this.beatmap.beatmapSetInfo.getPathForFile(info.path);
-    const video = storagePath === null ? null : await prepareVideo(this.beatmap, info, storagePath);
+    const video = storagePath === null ? null : await prepareVideo(this.beatmap, info, storagePath, dependencies.get(RealmAccess)!.files);
     if (video === null || this.isDisposed)
       return;
 
@@ -186,6 +229,11 @@ export class BeatmapBackgroundVideo extends CompositeDrawable {
     const data = storagePath === null ? null : await this.beatmap.getStream(storagePath);
 
     return data === null ? null : findVideo(new TextDecoder().decode(data));
+  }
+
+  /** Whether a video was found and prepared (known once loaded). */
+  get hasVideo(): boolean {
+    return this.video !== null;
   }
 
   /** Smoothly adjusts the blur of the video over time (as Background.blurTo). */

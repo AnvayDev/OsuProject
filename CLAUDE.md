@@ -42,7 +42,8 @@ only mixer effects remain, to port when first needed. Game layer: .osu decoder, 
 tested: OsuGameBase/OsuGame (index.html + src/main.ts), OsuConfigManager, OsuScreen/OsuScreenStack, background screens (default rotation,
 beatmap), Parallax/Scaling/UserDim containers, MusicController, OsuColour/OsuFont/OsuSpriteText. Dev states via window.__osu (src/dev/).
 Main menu done and tested (docs/spec/main-menu.md): MainMenu, ButtonSystem/MainMenuButton, OsuLogo + TrianglesV2 + LogoVisualisation,
-side flashes, song ticker, tips, supporter display, idle return; framework TextFlowContainer. Not yet: kiai fountains, hold-to-exit.
+side flashes, kiai fountains (KiaiMenuFountains/StarFountain/ParticleSpewer on a canvas, StarFountainSounds), song ticker, tips, supporter display,
+idle return; framework TextFlowContainer. Not yet: hold-to-exit.
 Toolbar done (osu.Game/Overlays/Toolbar): all buttons, ruleset selector, clock, guest user button; buttons of unported overlays show
 their names/icons but do nothing. Now playing done: NowPlayingOverlay + PlaylistOverlay (framework VirtualisedListContainer), VolumeOverlay
 (VolumeMeter/MasterVolumeMeter/MuteButton; framework GlowEffect via BufferedContainer.drawOriginal) and OsuGame's volume key actions. Intro done (docs/spec/intro.md): Loader + LoadingSpinner, IntroScreen (theme import, watchdog, "see ya" exit), IntroTriangles;
@@ -54,9 +55,11 @@ Carousel context menus done (framework ContextMenuContainer, OsuContextMenu/OsuM
 mark played, copy link, delete via DialogOverlay + PopupDialog/DangerousActionDialog hold-to-confirm). Not yet: tooltips, popovers, mod select,
 collections (menu entry only), editor/scores (menu entries do nothing). Song select video background (web addition, user request):
 the selected set's .osu Video event plays muted, synced to the track (BeatmapBackgroundVideo, framework web Video); H.264 AVIs are
-remuxed to MP4 in the browser (AviRemuxer + mp4-muxer); starting a beatmap (Enter/logo) pushes VideoPlayer (Player stand-in:
+remuxed to MP4 in the browser (AviRemuxer + mp4-muxer); every other format (FLV, WMV, MPEG-1/2, Xvid AVI, MPEG-4 Part 2 MP4) is converted by
+ffmpeg.wasm (VideoTranscoder: core loaded on first use, H.264 copied, else x264 superfast CRF 16 at source resolution; conversions stored in
+IndexedDB 'convertedVideos' by source hash, deleted with the file by RealmFileStore.cleanup); starting a beatmap (Enter/logo) pushes VideoPlayer (Player stand-in:
 no UI, song from 0, undimmed background/video; back or song end exits). Mirror metadata lookup done (status, dates, star ratings at import). Downloads done (BeatmapModelDownloader +
-BeatmapDownloadTracker, shared mirror rate limiter). Beatmap listing overlay done (main menu "browse"; mirror search, Normal/Extra cards,
+BeatmapDownloadTracker, shared mirror rate limiter). Beatmap listing overlay done (main menu "browse"; mirror search (keyword results fetched once and sorted client-side), Normal/Extra cards,
 previews, downloads, PresentBeatmap): overlay base classes (WaveOverlayContainer/FullscreenOverlay/OnlineOverlay, OverlayHeader,
 OverlayScrollContainer), IOverlayManager dim, framework CircularProgress/DelayedLoadWrapper/ModelBackedDrawable. No beatmap set overlay.
 No gameplay is ported (user decision).

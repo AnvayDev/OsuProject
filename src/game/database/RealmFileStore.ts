@@ -1,6 +1,8 @@
 // Ported from osu.Game/Database/RealmFileStore.cs. Files live in the IndexedDB 'files' store keyed by their SHA-256 hash (C#'s storage path
 // "a/ab/abcd…" becomes the bare hash), as ArrayBuffers. The existing-file re-hash check (corruption repair) is not reproduced: a present key
 // is trusted, a missing one is written again.
+// Web addition: playable conversions of stored videos (VideoTranscoder) are kept in 'convertedVideos' under their source file's hash, and
+// are deleted along with it.
 
 import { computeSHA2Hash } from '@fw/extensions/ExtensionMethods';
 import type { IResourceStore } from '@fw/io/ResourceStore';
@@ -43,6 +45,22 @@ export class RealmFileStore {
     return data === undefined ? null : new Uint8Array(data);
   }
 
+  /** Web addition: the stored playable conversion of a video file, or null if it hasn't been converted. */
+  async getConvertedVideo(hash: string): Promise<Uint8Array | null> {
+    const data = await this.realm.db.get('convertedVideos', hash);
+    return data === undefined ? null : new Uint8Array(data);
+  }
+
+  /** Web addition: stores a video file's playable conversion, unless the file itself is no longer stored. */
+  async addConvertedVideo(hash: string, data: Uint8Array): Promise<void> {
+    const tx = this.realm.db.transaction(['files', 'convertedVideos'], 'readwrite');
+
+    if (await tx.objectStore('files').getKey(hash) !== undefined)
+      await tx.objectStore('convertedVideos').put(data.slice().buffer, hash);
+
+    await tx.done;
+  }
+
   async exists(hash: string): Promise<boolean> {
     return await this.realm.db.getKey('files', hash) !== undefined;
   }
@@ -56,9 +74,10 @@ export class RealmFileStore {
     let totalFiles = 0;
     let removedFiles = 0;
 
-    const tx = this.realm.db.transaction('files', 'readwrite');
+    const tx = this.realm.db.transaction(['files', 'convertedVideos'], 'readwrite');
+    const files = tx.objectStore('files');
 
-    for (const hash of await tx.store.getAllKeys()) {
+    for (const hash of await files.getAllKeys()) {
       if (used.has(hash))
         continue;
 
@@ -66,10 +85,18 @@ export class RealmFileStore {
 
       try {
         removedFiles++;
-        await tx.store.delete(hash);
+        await files.delete(hash);
       } catch (e) {
         Logger.error(e, `Could not delete databased file ${hash}`, LoggingTarget.Database);
       }
+    }
+
+    // (conversions of videos that are no longer stored)
+    const convertedVideos = tx.objectStore('convertedVideos');
+
+    for (const hash of await convertedVideos.getAllKeys()) {
+      if (!used.has(hash))
+        await convertedVideos.delete(hash);
     }
 
     await tx.done;

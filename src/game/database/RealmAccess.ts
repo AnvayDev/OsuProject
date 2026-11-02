@@ -1,6 +1,7 @@
 // Ported subset of osu.Game/Database/RealmAccess.cs (opening the database, startup cleanup, writes and change notifications) for the models
 // this port stores. IndexedDB replaces realm:
-// - database 'osu': 'beatmapSets' (key = set ID; each record embeds its beatmaps and file usages) and 'files' (see RealmFileStore);
+// - database 'osu': 'beatmapSets' (key = set ID; each record embeds its beatmaps and file usages) and 'files' (see RealmFileStore), plus
+//   'convertedVideos' (web addition: playable copies of stored videos, keyed by the source file's hash; see RealmFileStore);
 // - osu! queries realm synchronously (Find, All, QueryBeatmapSet), so every set is mirrored in memory, in insertion order (realm's unsorted
 //   order, which MusicController and the intro rely on; IndexedDB itself returns records by key);
 // - a write works on copies of the sets it touches and swaps them in once IndexedDB has committed, so a failed write changes nothing (realm's
@@ -16,7 +17,7 @@ import { RealmFile, RealmNamedFileUsage } from '../models/RealmFile';
 import { RulesetInfo, RulesetStore } from '../rulesets/RulesetInfo';
 import { RealmFileStore } from './RealmFileStore';
 
-const schema_version = 1;
+const schema_version = 2;
 
 interface BeatmapRecord {
   id: string;
@@ -62,6 +63,7 @@ interface BeatmapSetRecord {
 interface OsuDatabase extends DBSchema {
   files: { key: string; value: ArrayBuffer };
   beatmapSets: { key: string; value: BeatmapSetRecord };
+  convertedVideos: { key: string; value: ArrayBuffer };
 }
 
 /** Realm's ChangeSet: deleted indices refer to the previous results, inserted and modified ones to the new results. */
@@ -146,9 +148,14 @@ export class RealmAccess {
   /** Opens (creating if needed) the database, purges pending deletions and loads every set into memory. */
   static async open(databaseName = 'osu'): Promise<RealmAccess> {
     const db = await openDB<OsuDatabase>(databaseName, schema_version, {
-      upgrade(database) {
-        database.createObjectStore('files');
-        database.createObjectStore('beatmapSets', { keyPath: 'id' });
+      upgrade(database, oldVersion) {
+        if (oldVersion < 1) {
+          database.createObjectStore('files');
+          database.createObjectStore('beatmapSets', { keyPath: 'id' });
+        }
+
+        if (oldVersion < 2)
+          database.createObjectStore('convertedVideos');
       },
     });
 

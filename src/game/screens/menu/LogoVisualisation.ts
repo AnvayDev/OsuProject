@@ -10,6 +10,7 @@ import { CanvasDrawable } from '@fw/graphics/CanvasDrawable';
 import { Colour4 } from '@fw/graphics/Colour4';
 import { ColourInfo } from '@fw/graphics/ColourInfo';
 import { BlendingParameters } from '@fw/graphics/DrawInfo';
+import { MarginPadding } from '@fw/layout/MarginPadding';
 import { BeatSyncProviderExtensions } from '../../beatmaps/BeatSyncProviderExtensions';
 import { IBeatSyncProvider } from '../../beatmaps/IBeatSyncProvider';
 
@@ -18,6 +19,7 @@ const index_change = 5;
 
 /** The maximum length of each bar in the visualiser. Will be reduced when kiai is not activated. */
 const bar_length = 600;
+const bar_overflow = new MarginPadding(bar_length);
 
 /** The number of bars in one rotation of the visualiser. */
 const bars_per_visualiser = 200;
@@ -118,8 +120,8 @@ export class LogoVisualisation extends CanvasDrawable {
   }
 
   // Bars reach bar_length past the logo edge (amplitudes from several sources can add up beyond 1, but the bars are short-lived).
-  protected override get drawOverflow(): number {
-    return bar_length;
+  protected override get drawOverflow(): MarginPadding {
+    return bar_overflow;
   }
 
   protected override draw(ctx: CanvasRenderingContext2D): void {

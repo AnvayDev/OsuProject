@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { zipSync, strToU8 } from 'fflate';
+import { openDB } from 'idb';
 import { AudioManager } from '@fw/audio/AudioManager';
 import { ResourceStore } from '@fw/io/ResourceStore';
 import { AudioThread } from '@fw/platform/AudioThread';
@@ -114,5 +115,52 @@ describe('import robustness (web addition)', () => {
 
     const reopened = await RealmAccess.open(dbName);
     expect(reopened.allBeatmapSets()).toHaveLength(0);
+  });
+});
+
+describe('converted video storage (web addition)', () => {
+  const importSet = async () => {
+    const [set] = await manager.import([new ImportTask(osz({ 'a.osu': osu('Easy', 'audio.mp3'), 'audio.mp3': new Uint8Array([4, 5, 6]), 'video.wmv': new Uint8Array([7, 8, 9]) }), 'video.osz')]);
+    return set;
+  };
+
+  it('stores a conversion of a stored file and returns it', async () => {
+    const hash = (await importSet()).getPathForFile('video.wmv')!;
+
+    expect(await realm.files.getConvertedVideo(hash)).toBeNull();
+
+    await realm.files.addConvertedVideo(hash, new Uint8Array([1, 2]));
+    expect(Array.from((await realm.files.getConvertedVideo(hash))!)).toEqual([1, 2]);
+
+    // (a conversion finishing after its file is gone isn't kept)
+    await realm.files.addConvertedVideo('missing', new Uint8Array([3]));
+    expect(await realm.files.getConvertedVideo('missing')).toBeNull();
+  });
+
+  it('deletes a conversion together with its file', async () => {
+    const set = await importSet();
+    const hash = set.getPathForFile('video.wmv')!;
+    await realm.files.addConvertedVideo(hash, new Uint8Array([1, 2]));
+
+    await manager.delete(set);
+    realm.db.close();
+
+    const reopened = await RealmAccess.open(dbName);
+    expect(await reopened.files.exists(hash)).toBe(false);
+    expect(await reopened.files.getConvertedVideo(hash)).toBeNull();
+  });
+
+  it('upgrades a database from before converted videos were stored', async () => {
+    const name = `${dbName}-v1`;
+    const v1 = await openDB(name, 1, {
+      upgrade(database) {
+        database.createObjectStore('files');
+        database.createObjectStore('beatmapSets', { keyPath: 'id' });
+      },
+    });
+    v1.close();
+
+    const upgraded = await RealmAccess.open(name);
+    expect([...upgraded.db.objectStoreNames].sort()).toEqual(['beatmapSets', 'convertedVideos', 'files']);
   });
 });

@@ -189,6 +189,8 @@ export abstract class ScrollContainer<T extends Drawable = Drawable> extends Con
       this.scrollbar = this.createScrollbar(scrollDirection),
     ]);
 
+    this.scrollContent.layerWhileMoving = true;
+
     this.scrollbar.hide();
     this.scrollbar.dragged = v => this.onScrollbarMovement(v);
     this.scrollbarAnchor = scrollDirection === Direction.Vertical ? Anchor.TopRight : Anchor.BottomLeft;

@@ -749,9 +749,7 @@ export abstract class CompositeDrawable extends Drawable {
           continue;
         }
 
-        const display = drawn ? '' : 'none';
-        if (drawable.element.style.display !== display)
-          drawable.element.style.display = display;
+        drawable.setElementDisplay(drawn ? '' : 'none');
 
         if (drawn)
           this.validateChildElement(drawable);
