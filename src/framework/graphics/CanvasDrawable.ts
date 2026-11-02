@@ -6,6 +6,8 @@
 import { Invalidation } from '../layout/Enums';
 import { Drawable } from './Drawable';
 
+const resolution_headroom = 1.1;
+
 export abstract class CanvasDrawable extends Drawable {
   // (createElement runs inside the Drawable constructor, before this class's fields are defined, so the canvas is read from the element.)
   private get canvas(): HTMLCanvasElement {
@@ -62,11 +64,19 @@ export abstract class CanvasDrawable extends Drawable {
     const totalWidth = size.x + overflow * 2;
     const totalHeight = size.y + overflow * 2;
 
-    const width = Math.max(1, Math.ceil(totalWidth * scale));
-    const height = Math.max(1, Math.ceil(totalHeight * scale));
+    const requiredWidth = Math.max(1, Math.ceil(totalWidth * scale));
+    const requiredHeight = Math.max(1, Math.ceil(totalHeight * scale));
 
-    if (canvas.width !== width) canvas.width = width;
-    if (canvas.height !== height) canvas.height = height;
+    // Resizing a canvas reallocates (and clears) its backing store. Animated scales (e.g. the menu logo's beat pulse) change the required
+    // resolution every frame, so a resolution of up to resolution_headroom² times the required one is kept, and growth allocates headroom.
+    if (canvas.width < requiredWidth || canvas.height < requiredHeight
+        || canvas.width > requiredWidth * resolution_headroom ** 2 || canvas.height > requiredHeight * resolution_headroom ** 2) {
+      canvas.width = Math.ceil(requiredWidth * resolution_headroom);
+      canvas.height = Math.ceil(requiredHeight * resolution_headroom);
+    }
+
+    const width = canvas.width;
+    const height = canvas.height;
 
     const cssOffset = `${-overflow}px`;
     if (canvas.style.left !== cssOffset) {
