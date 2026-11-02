@@ -5,6 +5,7 @@
 
 import type { BeatmapInfo } from '../../beatmaps/BeatmapInfo';
 import { BeatmapOnlineStatus } from '../../beatmaps/BeatmapOnlineStatus';
+import type { BeatmapCollection } from '../../collections/BeatmapCollection';
 import { type CancellationToken, CarouselItem, type ICarouselFilter } from '../../graphics/carousel/CarouselItem';
 import { roundBPM } from '../../utils/FormatUtils';
 import { GroupMode } from './filter/GroupMode';
@@ -15,12 +16,6 @@ import { PanelBeatmap } from './PanelBeatmap';
 import { PanelBeatmapSet } from './PanelBeatmapSet';
 import { PanelBeatmapStandalone } from './PanelBeatmapStandalone';
 import { PanelGroup } from './PanelGroup';
-
-/** The parts of a BeatmapCollection used for grouping. */
-export interface BeatmapCollection {
-  readonly name: string;
-  readonly beatmapMD5Hashes: readonly string[];
-}
 
 interface GroupMapping {
   readonly group: GroupDefinition | null;

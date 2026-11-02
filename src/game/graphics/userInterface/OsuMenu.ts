@@ -1,5 +1,4 @@
 // Ported from osu.Game/Graphics/UserInterface/OsuMenu.cs
-// StatefulMenuItem (checkbox items) isn't ported yet: no menu shows checkboxes.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { Colour4 } from '@fw/graphics/Colour4';
@@ -15,8 +14,10 @@ import { Vector2 } from '@fw/layout/Vector2';
 import { Easing } from '@fw/transforms/Easing';
 import { OsuScrollContainer } from '../containers/OsuScrollContainer';
 import { DrawableOsuMenuItem } from './DrawableOsuMenuItem';
+import { DrawableStatefulMenuItem } from './DrawableStatefulMenuItem';
 import { OsuMenuItemSpacer } from './OsuMenuItemSpacer';
 import { OsuMenuSamples } from './OsuMenuSamples';
+import { StatefulMenuItem } from './StatefulMenuItem';
 
 export class OsuMenu extends Menu {
   protected static readonly DELAY_BEFORE_FADE_OUT = 50;
@@ -45,6 +46,22 @@ export class OsuMenu extends Menu {
     const r = super.load(dependencies);
     this.menuSamples = dependencies.get(OsuMenuSamples);
     return r;
+  }
+
+  protected override update(): void {
+    super.update();
+
+    let showCheckboxes = false;
+
+    for (const drawableItem of this.itemsContainer.children) {
+      if (drawableItem.item instanceof StatefulMenuItem)
+        showCheckboxes = true;
+    }
+
+    for (const drawableItem of this.itemsContainer.children) {
+      if (drawableItem instanceof DrawableOsuMenuItem)
+        drawableItem.showCheckbox.value = showCheckboxes;
+    }
   }
 
   protected override animateOpen(): void {
@@ -85,6 +102,9 @@ export class OsuMenu extends Menu {
   }
 
   protected override createDrawableMenuItem(item: MenuItem): DrawableMenuItem {
+    if (item instanceof StatefulMenuItem)
+      return new DrawableStatefulMenuItem(item);
+
     if (item instanceof OsuMenuItemSpacer)
       return new DrawableSpacer(item);
 

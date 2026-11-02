@@ -24,6 +24,7 @@ import type { IBeatmapSetInfo } from './beatmaps/IBeatmapSetInfo';
 import { OsuSetting } from './configuration/OsuConfigManager';
 import { OsuFocusedOverlayContainer } from './graphics/containers/OsuFocusedOverlayContainer';
 import { OsuColour } from './graphics/OsuColour';
+import { ManageCollectionsDialog } from './collections/ManageCollectionsDialog';
 import { BeatmapListingOverlay } from './overlays/BeatmapListingOverlay';
 import { IOverlayManager } from './overlays/IOverlayManager';
 import { NowPlayingOverlay } from './overlays/NowPlayingOverlay';
@@ -328,6 +329,7 @@ export class OsuGame extends OsuGameBase implements IKeyBindingHandler<GlobalAct
     this.osuDependencies.cacheAs(IDialogOverlay, dialogOverlay);
     this.loadComponentSingleFile(dialogOverlay, d => this.topMostOverlayContent.add(d));
 
+    this.loadComponentSingleFile(new ManageCollectionsDialog(), d => this.gameOverlayContent.add(d), true);
     this.loadComponentSingleFile(this.beatmapListing = new BeatmapListingOverlay(), d => this.gameOverlayContent.add(d), true);
 
     this.loadComponentSingleFile(this.nowPlayingOverlay = new NowPlayingOverlay().with({

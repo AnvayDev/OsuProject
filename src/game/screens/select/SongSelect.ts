@@ -43,6 +43,10 @@ import { OsuMenuItem } from '../../graphics/userInterface/OsuMenuItem';
 import { OsuMenuItemSpacer } from '../../graphics/userInterface/OsuMenuItemSpacer';
 import { IDialogOverlay } from '../../overlays/IDialogOverlay';
 import { BeatmapDeleteDialog } from './BeatmapDeleteDialog';
+import { compareCollectionNames } from '../../collections/BeatmapCollection';
+import { CollectionToggleMenuItem } from '../../collections/CollectionToggleMenuItem';
+import { ManageCollectionsDialog } from '../../collections/ManageCollectionsDialog';
+import { RealmAccess } from '../../database/RealmAccess';
 import { GlobalAction } from '../../input/bindings/GlobalAction';
 import { OsuGame } from '../../OsuGame';
 import { GetBeatmapSetRequest } from '../../online/api/requests/GetBeatmapSetRequest';
@@ -151,6 +155,10 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
 
   private dialogOverlay: IDialogOverlay | null = null;
 
+  private manageCollectionsDialog: ManageCollectionsDialog | null = null;
+
+  private realm!: RealmAccess;
+
   private inputManager!: InputManager;
 
   private configBackgroundBlur!: Bindable<boolean>;
@@ -173,6 +181,8 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
     this.beatmaps = dependencies.resolve(BeatmapManager);
     this.music = dependencies.resolve(MusicController);
     this.dialogOverlay = dependencies.get(IDialogOverlay);
+    this.manageCollectionsDialog = dependencies.get(ManageCollectionsDialog);
+    this.realm = dependencies.resolve(RealmAccess);
 
     const audio = dependencies.resolve(AudioManager);
     const config = dependencies.resolve(OsuConfigManager);
@@ -1005,9 +1015,12 @@ export abstract class SongSelect extends ScreenWithBeatmapBackground implements 
     return items;
   }
 
-  /** (Collections aren't ported: there are no collections to toggle and no manage collections dialog to show.) */
-  protected createCollectionMenuActions(_beatmap: BeatmapInfo): OsuMenuItem[] {
-    const collectionItems = [new OsuMenuItem('Manage...', MenuItemType.Standard, () => {})];
+  protected createCollectionMenuActions(beatmap: BeatmapInfo): OsuMenuItem[] {
+    const collectionItems: OsuMenuItem[] = [...this.realm.allCollections()]
+      .sort((a, b) => compareCollectionNames(a.name, b.name))
+      .map(c => new CollectionToggleMenuItem(this.realm.toLive(c), beatmap));
+
+    collectionItems.push(new OsuMenuItem('Manage...', MenuItemType.Standard, () => this.manageCollectionsDialog?.show()));
 
     return [Object.assign(new OsuMenuItem('Collections'), { items: collectionItems })];
   }

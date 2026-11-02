@@ -1,7 +1,8 @@
 // Ported subset of osu.Game/Database/RealmAccess.cs (opening the database, startup cleanup, writes and change notifications) for the models
 // this port stores. IndexedDB replaces realm:
 // - database 'osu': 'beatmapSets' (key = set ID; each record embeds its beatmaps and file usages) and 'files' (see RealmFileStore), plus
-//   'convertedVideos' (web addition: playable copies of stored videos, keyed by the source file's hash; see RealmFileStore);
+//   'convertedVideos' (web addition: playable copies of stored videos, keyed by the source file's hash; see RealmFileStore), and
+//   'collections' (BeatmapCollection, key = ID; its own write and notification API below, as realm treats it like any other object);
 // - osu! queries realm synchronously (Find, All, QueryBeatmapSet), so every set is mirrored in memory, in insertion order (realm's unsorted
 //   order, which MusicController and the intro rely on; IndexedDB itself returns records by key);
 // - a write works on copies of the sets it touches and swaps them in once IndexedDB has committed, so a failed write changes nothing (realm's
@@ -16,8 +17,10 @@ import { BeatmapSetInfo } from '../beatmaps/BeatmapSetInfo';
 import { RealmFile, RealmNamedFileUsage } from '../models/RealmFile';
 import { RulesetInfo, RulesetStore } from '../rulesets/RulesetInfo';
 import { RealmFileStore } from './RealmFileStore';
+import { BeatmapCollection } from '../collections/BeatmapCollection';
+import { Live } from './Live';
 
-const schema_version = 2;
+const schema_version = 3;
 
 interface BeatmapRecord {
   id: string;
@@ -64,6 +67,69 @@ interface OsuDatabase extends DBSchema {
   files: { key: string; value: ArrayBuffer };
   beatmapSets: { key: string; value: BeatmapSetRecord };
   convertedVideos: { key: string; value: ArrayBuffer };
+  collections: { key: string; value: BeatmapCollectionRecord };
+}
+
+interface BeatmapCollectionRecord {
+  id: string;
+  name: string;
+  beatmapMD5Hashes: string[];
+  lastModified: string;
+}
+
+type CollectionQuery = (all: readonly BeatmapCollection[]) => BeatmapCollection[];
+type CollectionNotificationCallback = (sender: readonly BeatmapCollection[], changes: ChangeSet | null) => void;
+
+/** A write to the stored collections (the collection part of RealmWrite): edit() returns the copy to mutate. */
+export class CollectionWrite {
+  /** @internal */
+  readonly edited = new Map<string, BeatmapCollection>();
+  /** @internal */
+  readonly added: BeatmapCollection[] = [];
+  /** @internal */
+  readonly removed = new Set<string>();
+
+  /** @internal */
+  constructor(private readonly committed: readonly BeatmapCollection[]) {}
+
+  /** realm.All<BeatmapCollection>(), in insertion order. */
+  all(): BeatmapCollection[] {
+    return [...this.committed, ...this.added]
+      .filter(c => !this.removed.has(c.id))
+      .map(c => this.edited.get(c.id) ?? c);
+  }
+
+  find(id: string): BeatmapCollection | null {
+    return this.all().find(c => c.id === id) ?? null;
+  }
+
+  /** The writable copy of a stored collection (the latest stored version, looked up by ID). */
+  edit(collection: BeatmapCollection): BeatmapCollection {
+    const added = this.added.find(c => c.id === collection.id);
+    if (added !== undefined)
+      return added;
+
+    let copy = this.edited.get(collection.id);
+
+    if (copy === undefined) {
+      const latest = this.committed.find(c => c.id === collection.id);
+
+      if (latest === undefined)
+        throw new Error(`Collection ${collection.id} is not stored.`);
+
+      this.edited.set(collection.id, copy = latest.clone());
+    }
+
+    return copy;
+  }
+
+  add(collection: BeatmapCollection): void {
+    this.added.push(collection);
+  }
+
+  remove(collection: BeatmapCollection): void {
+    this.removed.add(collection.id);
+  }
 }
 
 /** Realm's ChangeSet: deleted indices refer to the previous results, inserted and modified ones to the new results. */
@@ -135,6 +201,8 @@ export class RealmAccess {
   readonly files: RealmFileStore;
 
   private beatmapSets: BeatmapSetInfo[] = [];
+  private collections: BeatmapCollection[] = [];
+  private readonly collectionSubscriptions = new Set<{ query: CollectionQuery; callback: CollectionNotificationCallback; results: BeatmapCollection[] }>();
   private readonly sequence = new Map<string, number>();
   private nextSequence = 0;
 
@@ -156,11 +224,15 @@ export class RealmAccess {
 
         if (oldVersion < 2)
           database.createObjectStore('convertedVideos');
+
+        if (oldVersion < 3)
+          database.createObjectStore('collections', { keyPath: 'id' });
       },
     });
 
     const realm = new RealmAccess(db);
     await realm.cleanupPendingDeletions();
+    realm.collections = (await db.getAll('collections')).map(deserializeCollection);
     return realm;
   }
 
@@ -306,6 +378,75 @@ export class RealmAccess {
     return { dispose: () => this.subscriptions.delete(subscription) };
   }
 
+  // #region BeatmapCollection
+
+  /** realm.All<BeatmapCollection>(), in insertion order. */
+  allCollections(): readonly BeatmapCollection[] {
+    return this.collections;
+  }
+
+  /** realm.Find<BeatmapCollection>(id). */
+  findCollection(id: string): BeatmapCollection | null {
+    return this.collections.find(c => c.id === id) ?? null;
+  }
+
+  /** collection.ToLive(realm) */
+  toLive(collection: BeatmapCollection): Live<BeatmapCollection> {
+    return Live.managed(collection.id, () => this.findCollection(collection.id), action => this.writeCollections(w => {
+      const c = w.find(collection.id);
+      if (c !== null)
+        action(w.edit(c));
+    }));
+  }
+
+  /** realm.Write for collections: as write(), on the stored collections. */
+  writeCollections<T>(action: (realm: CollectionWrite) => T): Promise<T> {
+    const result = this.writeQueue.then(() => this.performCollectionWrite(action));
+    this.writeQueue = result.catch(() => {});
+    return result;
+  }
+
+  private async performCollectionWrite<T>(action: (realm: CollectionWrite) => T): Promise<T> {
+    const w = new CollectionWrite(this.collections);
+    const result = action(w);
+
+    if (w.edited.size === 0 && w.added.length === 0 && w.removed.size === 0)
+      return result;
+
+    const tx = this.db.transaction('collections', 'readwrite');
+
+    await Promise.all([
+      ...[...w.edited.values(), ...w.added].filter(c => !w.removed.has(c.id)).map(c => tx.store.put(serializeCollection(c))),
+      ...[...w.removed].map(id => tx.store.delete(id)),
+      tx.done,
+    ]);
+
+    this.collections = w.all();
+
+    for (const subscription of this.collectionSubscriptions) {
+      const previous = subscription.results;
+      const results = subscription.results = subscription.query(this.collections);
+      const changes = changeSetOf(previous, results);
+
+      if (changes !== null)
+        subscription.callback(results, changes);
+    }
+
+    return result;
+  }
+
+  /** realm.RegisterForNotifications on a BeatmapCollection query. */
+  registerForCollectionNotifications(query: CollectionQuery, callback: CollectionNotificationCallback): { dispose(): void } {
+    const subscription = { query, callback, results: query(this.collections) };
+    this.collectionSubscriptions.add(subscription);
+
+    callback(subscription.results, null);
+
+    return { dispose: () => this.collectionSubscriptions.delete(subscription) };
+  }
+
+  // #endregion
+
   private notify(): void {
     for (const subscription of this.subscriptions) {
       const previous = subscription.results;
@@ -442,4 +583,79 @@ function deserialize(record: BeatmapSetRecord): BeatmapSetInfo {
   }
 
   return set;
+}
+
+/**
+ * The ChangeSet between two query results, by ID, or null if nothing changed. As realm reports them: an object replaced by a write counts as
+ * modified, and an object whose position changed relative to the others (e.g. renamed in a sorted query) as deleted and re-inserted, the
+ * fewest such moves being taken (the longest run of objects that kept their relative order stays in place).
+ */
+function changeSetOf<T extends { readonly id: string }>(previous: readonly T[], results: readonly T[]): ChangeSet | null {
+  const previousIndex = new Map(previous.map((t, i) => [t.id, i]));
+  const newIds = new Set(results.map(t => t.id));
+
+  const deletedIndices = previous.flatMap((t, i) => newIds.has(t.id) ? [] : [i]);
+  const insertedIndices: number[] = [];
+  const newModifiedIndices: number[] = [];
+
+  // the surviving objects, in new order, with their previous indices
+  const survivors = results.flatMap((t, i) => previousIndex.has(t.id) ? [{ newIndex: i, oldIndex: previousIndex.get(t.id)! }] : []);
+  const unmoved = longestIncreasingRun(survivors.map(s => s.oldIndex));
+
+  survivors.forEach((s, k) => {
+    if (!unmoved.has(k)) {
+      deletedIndices.push(s.oldIndex);
+      insertedIndices.push(s.newIndex);
+    } else if (previous[s.oldIndex] !== results[s.newIndex])
+      newModifiedIndices.push(s.newIndex);
+  });
+
+  results.forEach((t, i) => {
+    if (!previousIndex.has(t.id))
+      insertedIndices.push(i);
+  });
+
+  deletedIndices.sort((a, b) => a - b);
+  insertedIndices.sort((a, b) => a - b);
+
+  return deletedIndices.length > 0 || insertedIndices.length > 0 || newModifiedIndices.length > 0
+    ? { deletedIndices, insertedIndices, newModifiedIndices }
+    : null;
+}
+
+/** The positions in `values` of one longest strictly increasing subsequence. */
+function longestIncreasingRun(values: readonly number[]): Set<number> {
+  const tails: number[] = []; // tails[l]: position of the smallest tail of an increasing run of length l + 1
+  const previousOf = new Array<number>(values.length).fill(-1);
+
+  values.forEach((v, i) => {
+    let lo = 0;
+    let hi = tails.length;
+
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (values[tails[mid]] < v) lo = mid + 1;
+      else hi = mid;
+    }
+
+    previousOf[i] = lo > 0 ? tails[lo - 1] : -1;
+    tails[lo] = i;
+  });
+
+  const run = new Set<number>();
+  for (let i = tails.length > 0 ? tails[tails.length - 1] : -1; i >= 0; i = previousOf[i])
+    run.add(i);
+
+  return run;
+}
+
+function serializeCollection(c: BeatmapCollection): BeatmapCollectionRecord {
+  return { id: c.id, name: c.name, beatmapMD5Hashes: [...c.beatmapMD5Hashes], lastModified: c.lastModified.toISOString() };
+}
+
+function deserializeCollection(r: BeatmapCollectionRecord): BeatmapCollection {
+  const c = new BeatmapCollection(r.name, [...r.beatmapMD5Hashes]);
+  c.id = r.id;
+  c.lastModified = new Date(r.lastModified);
+  return c;
 }

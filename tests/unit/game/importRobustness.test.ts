@@ -161,6 +161,6 @@ describe('converted video storage (web addition)', () => {
     v1.close();
 
     const upgraded = await RealmAccess.open(name);
-    expect([...upgraded.db.objectStoreNames].sort()).toEqual(['beatmapSets', 'convertedVideos', 'files']);
+    expect([...upgraded.db.objectStoreNames].sort()).toEqual(['beatmapSets', 'collections', 'convertedVideos', 'files']);
   });
 });

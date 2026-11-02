@@ -1,5 +1,5 @@
 // Ported from osu.Game/Screens/Select/PanelBeatmapSet.cs
-// Collections aren't ported, so the collections submenu is empty. PanelUpdateBeatmapButton is left out: it only shows when a set doesn't
+// PanelUpdateBeatmapButton is left out: it only shows when a set doesn't
 // match its online version, which needs the online metadata lookup (until then every set reads as up to date, so the button is never present
 // in the flow).
 
@@ -22,9 +22,14 @@ import type { MenuItem } from '@fw/graphics/userInterface/MenuItem';
 import { BeatmapManager } from '../../beatmaps/BeatmapManager';
 import { getOnlineURL } from '../../beatmaps/BeatmapSetInfoExtensions';
 import type { WorkingBeatmap } from '../../beatmaps/WorkingBeatmap';
+import { type BeatmapCollection, compareCollectionNames, removeFrom } from '../../collections/BeatmapCollection';
+import { ManageCollectionsDialog } from '../../collections/ManageCollectionsDialog';
+import { RealmAccess } from '../../database/RealmAccess';
 import { MenuItemType } from '../../graphics/userInterface/MenuItemType';
 import { OsuMenuItem } from '../../graphics/userInterface/OsuMenuItem';
 import { OsuMenuItemSpacer } from '../../graphics/userInterface/OsuMenuItemSpacer';
+import { TernaryState } from '../../graphics/userInterface/TernaryState';
+import { TernaryStateToggleMenuItem } from '../../graphics/userInterface/TernaryStateToggleMenuItem';
 import { OsuGame } from '../../OsuGame';
 import type { RulesetInfo } from '../../rulesets/RulesetInfo';
 import { ISongSelect } from './ISongSelect';
@@ -67,6 +72,10 @@ export class PanelBeatmapSet extends Panel {
 
   private game: OsuGame | null = null;
 
+  private manageCollectionsDialog: ManageCollectionsDialog | null = null;
+
+  private realm!: RealmAccess;
+
   private get groupedBeatmapSet(): GroupedBeatmapSet {
     return this.item!.model as GroupedBeatmapSet;
   }
@@ -86,6 +95,8 @@ export class PanelBeatmapSet extends Panel {
     this.ruleset = dependencies.resolve(Bindable<RulesetInfo>, 'RulesetInfo').getBoundCopy();
     this.globalBeatmap = dependencies.resolve(Bindable<WorkingBeatmap>, 'WorkingBeatmap').getBoundCopy();
     this.game = dependencies.get(OsuGame);
+    this.manageCollectionsDialog = dependencies.get(ManageCollectionsDialog);
+    this.realm = dependencies.resolve(RealmAccess);
 
     this.height = PanelBeatmapSet.HEIGHT;
 
@@ -229,12 +240,61 @@ export class PanelBeatmapSet extends Panel {
       items.push(new OsuMenuItemSpacer());
     }
 
-    items.push(new OsuMenuItem('Collections'));
+    const collectionItems: MenuItem[] = [...this.realm.allCollections()]
+      .sort((a, b) => compareCollectionNames(a.name, b.name))
+      .map(c => this.createCollectionMenuItem(c));
+
+    if (this.manageCollectionsDialog !== null) {
+      const dialog = this.manageCollectionsDialog;
+      collectionItems.push(new OsuMenuItem('Manage...', MenuItemType.Standard, () => dialog.show()));
+    }
+
+    items.push(Object.assign(new OsuMenuItem('Collections'), { items: collectionItems }));
 
     if (beatmapSet.beatmaps.some(b => b.hidden))
       items.push(new OsuMenuItem('Restore all hidden', MenuItemType.Standard, () => this.songSelect?.restoreAllHidden(beatmapSet)));
 
     items.push(new OsuMenuItem('Delete...', MenuItemType.Destructive, () => this.songSelect?.delete(beatmapSet)));
     return items;
+  }
+
+  private createCollectionMenuItem(collection: BeatmapCollection): MenuItem {
+    const beatmapSet = this.groupedBeatmapSet.beatmapSet;
+
+    let state: TernaryState;
+
+    const countExisting = beatmapSet.beatmaps.filter(b => collection.beatmapMD5Hashes.includes(b.md5Hash)).length;
+
+    if (countExisting === beatmapSet.beatmaps.length)
+      state = TernaryState.True;
+    else if (countExisting > 0)
+      state = TernaryState.Indeterminate;
+    else
+      state = TernaryState.False;
+
+    const liveCollection = this.realm.toLive(collection);
+
+    const item = new TernaryStateToggleMenuItem(collection.name, MenuItemType.Standard, s => {
+      void liveCollection.performWrite(c => {
+        for (const b of beatmapSet.beatmaps) {
+          switch (s) {
+            case TernaryState.True:
+              if (c.beatmapMD5Hashes.includes(b.md5Hash))
+                continue;
+
+              c.beatmapMD5Hashes.push(b.md5Hash);
+              break;
+
+            case TernaryState.False:
+              removeFrom(c.beatmapMD5Hashes, b.md5Hash);
+              break;
+          }
+        }
+      });
+    });
+
+    item.state.value = state;
+
+    return item;
   }
 }
