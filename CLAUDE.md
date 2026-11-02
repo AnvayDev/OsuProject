@@ -42,7 +42,8 @@ only mixer effects remain, to port when first needed. Game layer: .osu decoder, 
 tested: OsuGameBase/OsuGame (index.html + src/main.ts), OsuConfigManager, OsuScreen/OsuScreenStack, background screens (default rotation,
 beatmap), Parallax/Scaling/UserDim containers, MusicController, OsuColour/OsuFont/OsuSpriteText. Dev states via window.__osu (src/dev/).
 Main menu done and tested (docs/spec/main-menu.md): MainMenu, ButtonSystem/MainMenuButton, OsuLogo + TrianglesV2 + LogoVisualisation,
-side flashes, song ticker, tips, supporter display, idle return; framework TextFlowContainer. Not yet: kiai fountains, hold-to-exit.
+side flashes, kiai fountains (KiaiMenuFountains/StarFountain/ParticleSpewer on a canvas, StarFountainSounds), song ticker, tips, supporter display,
+idle return; framework TextFlowContainer. Not yet: hold-to-exit.
 Toolbar done (osu.Game/Overlays/Toolbar): all buttons, ruleset selector, clock, guest user button; buttons of unported overlays show
 their names/icons but do nothing. Now playing done: NowPlayingOverlay + PlaylistOverlay (framework VirtualisedListContainer), VolumeOverlay
 (VolumeMeter/MasterVolumeMeter/MuteButton; framework GlowEffect via BufferedContainer.drawOriginal) and OsuGame's volume key actions. Intro done (docs/spec/intro.md): Loader + LoadingSpinner, IntroScreen (theme import, watchdog, "see ya" exit), IntroTriangles;
