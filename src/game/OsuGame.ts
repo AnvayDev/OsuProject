@@ -47,6 +47,8 @@ import { GameIdleTracker } from './input/GameIdleTracker';
 import { IdleTracker } from './input/IdleTracker';
 import { BeatmapStore } from './database/BeatmapStore';
 import { RealmDetachedBeatmapStore } from './database/RealmDetachedBeatmapStore';
+import type { Mod } from './rulesets/mods/Mod';
+import { ModUtils } from './utils/ModUtils';
 
 // C# float.MinValue
 const float_min_value = -3.4028234663852886e38;
@@ -251,6 +253,7 @@ export class OsuGame extends OsuGameBase implements IKeyBindingHandler<GlobalAct
   protected override loadComplete(): void {
     super.loadComplete();
 
+    this.selectedMods.bindValueChanged(m => this.modsChanged(m));
     this.beatmap.bindValueChanged(b => this.beatmapChanged(b), true);
 
     // loadComponentSingleFile<BeatmapStore>(detachedBeatmapStore = new RealmDetachedBeatmapStore(), Add, true)
@@ -422,6 +425,19 @@ export class OsuGame extends OsuGameBase implements IKeyBindingHandler<GlobalAct
   }
 
   // #region Beatmap progression
+
+  private modsChanged(mods: ValueChangedEvent<readonly Mod[]>): void {
+    // a lease may be taken on the mods bindable, at which point we can't really ensure valid mods.
+    if (this.selectedMods.disabled)
+      return;
+
+    const invalid = ModUtils.checkValidForGameplay(mods.newValue);
+
+    if (invalid !== null) {
+      // ensure we always have a valid set of mods.
+      this.selectedMods.value = mods.newValue.filter(m => !invalid.includes(m));
+    }
+  }
 
   private beatmapChanged(beatmap: ValueChangedEvent<WorkingBeatmap>): void {
     beatmap.oldValue?.cancelAsyncLoad();

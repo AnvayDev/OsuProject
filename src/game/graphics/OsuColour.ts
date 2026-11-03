@@ -1,9 +1,10 @@
 // Ported from osu.Game/Graphics/OsuColour.cs
-// ForRank, ForHitResult, ForModType, ForRoomCategory, ForRoomStatus and ForRankingTier are not ported: they colour gameplay, multiplayer and
+// ForRank, ForHitResult, ForRoomCategory, ForRoomStatus and ForRankingTier are not ported: they colour gameplay, multiplayer and
 // ranking types this port doesn't have.
 
 import { Colour4 } from '@fw/graphics/Colour4';
 import { BeatmapOnlineStatus } from '../beatmaps/BeatmapOnlineStatus';
+import { ModType } from '../rulesets/mods/ModType';
 import { ColourUtils } from '../utils/ColourUtils';
 
 /** Math.Round(value, 2, MidpointRounding.AwayFromZero), then the (float) cast. */
@@ -97,6 +98,29 @@ export class OsuColour {
         return null;
     }
   }
+  /** Retrieves the main accent colour for a ModType. */
+  forModType(modType: ModType): Colour4 {
+    switch (modType) {
+      case ModType.Automation:
+        return this.blue1;
+
+      case ModType.DifficultyIncrease:
+        return this.red1;
+
+      case ModType.DifficultyReduction:
+        return this.lime1;
+
+      case ModType.Conversion:
+        return this.purple1;
+
+      case ModType.Fun:
+        return this.pink1;
+
+      case ModType.System:
+        return this.yellow;
+    }
+  }
+
 
   /** Returns a foreground text colour that is supposed to contrast well with the supplied backgroundColour. */
   static foregroundTextColourFor(backgroundColour: Colour4): Colour4 {

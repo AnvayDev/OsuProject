@@ -40,6 +40,7 @@ import { BackgroundScreenStack } from '@game/screens/BackgroundScreenStack';
 import { OsuScreen } from '@game/screens/OsuScreen';
 import { OsuScreenStack } from '@game/screens/OsuScreenStack';
 import { TestClock } from '../framework/testHost';
+import type { Mod } from '@game/rulesets/mods/Mod';
 
 class MemoryStorage implements Storage {
   private readonly items = new Map<string, string>();
@@ -84,6 +85,7 @@ async function setup() {
   deps.cache(config);
   deps.cacheAs(Bindable<WorkingBeatmap>, beatmap, 'WorkingBeatmap');
   deps.cacheAs(Bindable<RulesetInfo>, ruleset, 'RulesetInfo');
+  deps.cacheAs(Bindable<readonly Mod[]>, new Bindable<readonly Mod[]>([]), 'SelectedMods');
   deps.cache(music);
 
   const clock = new TestClock();

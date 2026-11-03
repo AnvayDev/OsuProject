@@ -39,7 +39,10 @@ import { OsuColour } from './graphics/OsuColour';
 import { OsuIconStore } from './graphics/OsuIcon';
 import { MusicController } from './overlays/MusicController';
 import { PreviewTrackManager } from './audio/PreviewTrackManager';
+import type { Mod } from './rulesets/mods/Mod';
+import { ModType } from './rulesets/mods/ModType';
 import { type RulesetInfo, RulesetStore } from './rulesets/RulesetInfo';
+import { ModUtils } from './utils/ModUtils';
 
 /** The most basic Game that can be used to host osu! components and systems. Unlike OsuGame, this class will not load any kind of UI. */
 export class OsuGameBase extends Game {
@@ -76,6 +79,12 @@ export class OsuGameBase extends Game {
 
   /** The current ruleset selection for the local user. Cached as Bindable 'RulesetInfo'. */
   readonly ruleset = new Bindable<RulesetInfo>();
+
+  /** The current mod selection for the local user. Cached as Bindable 'SelectedMods' (C#: [Cached] and [Cached(typeof(IBindable<…>))]). */
+  readonly selectedMods = new Bindable<readonly Mod[]>([]);
+
+  /** Mods available for the current ruleset. */
+  readonly availableMods = new Bindable<ReadonlyMap<ModType, readonly Mod[]>>(new Map());
 
   private osuContent: Container | null = null;
 
@@ -148,6 +157,7 @@ export class OsuGameBase extends Game {
 
     this.osuDependencies.cacheAs(Bindable<WorkingBeatmap>, this.beatmap, 'WorkingBeatmap');
     this.osuDependencies.cacheAs(Bindable<RulesetInfo>, this.ruleset, 'RulesetInfo');
+    this.osuDependencies.cacheAs(Bindable<readonly Mod[]>, this.selectedMods, 'SelectedMods');
 
     let previewTrackManager: PreviewTrackManager;
     this.osuDependencies.cache(previewTrackManager = new PreviewTrackManager(this.beatmapManager.beatmapTrackStore));
@@ -232,11 +242,37 @@ export class OsuGameBase extends Game {
     Logger.log(`Game-wide working beatmap updated to ${beatmap.newValue}`);
   }
 
-  /** Rejects a change to an unavailable ruleset (the available mods, which C# rebuilds here, are not ported). */
+  /**
+   * Rejects a change to an unavailable ruleset, and rebuilds the available mods. Only the osu! ruleset has an instance in this port: the
+   * others (C# would reject a ruleset without one) stay selectable, with no mods.
+   */
   private onRulesetChanged(r: ValueChangedEvent<RulesetInfo>): void {
     if (r.newValue?.available !== true) {
       // reject the change if the ruleset is not available.
       this.ruleset.value = r.oldValue?.available === true ? r.oldValue : RulesetStore.availableRulesets[0];
+      return;
     }
+
+    const instance = r.newValue.createInstance();
+
+    const dict = new Map<ModType, readonly Mod[]>();
+
+    for (const type of Object.values(ModType).filter(v => typeof v === 'number') as ModType[])
+      dict.set(type, instance?.getModsFor(type) ?? []);
+
+    this.availableMods.value = dict;
+
+    if (this.selectedMods.disabled)
+      return;
+
+    const convertedMods = this.selectedMods.value.flatMap(mod => {
+      const newMod = instance?.createModFromAcronym(mod.acronym) ?? null;
+      newMod?.copyCommonSettingsFrom(mod);
+      return newMod === null ? [] : [newMod];
+    });
+
+    const invalid = ModUtils.checkValidForGameplay(convertedMods);
+
+    this.selectedMods.value = invalid === null ? convertedMods : convertedMods.filter(m => !invalid.includes(m));
   }
 }
