@@ -123,8 +123,6 @@ export class WaveContainer extends VisibilityContainer {
       relativePositionAxes: Axes.Both,
       anchor: Anchor.BottomCentre,
       origin: Anchor.BottomCentre,
-      // (DOM: the content and the waves slide in and out as a whole)
-      layerWhileMoving: true,
     }));
   }
 
@@ -171,7 +169,6 @@ class Wave extends VisibilityContainer {
     this.relativeSizeAxes = Axes.X;
     this.width = 1.5;
     this.masking = true;
-    this.layerWhileMoving = true;
     this.edgeEffect = new EdgeEffectParameters({
       type: EdgeEffectType.Shadow,
       colour: Colour4.Black.opacity(50 / 255),

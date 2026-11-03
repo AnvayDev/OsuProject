@@ -20,6 +20,9 @@ export abstract class CanvasDrawable extends Drawable {
   }
 
   private contextBacking: CanvasRenderingContext2D | null | undefined;
+
+  /** Whether the canvas has been sized by a draw (since it was created or released). */
+  private allocated = false;
   private appliedOverflow: MarginPadding = no_overflow;
 
   protected override createElement(): HTMLElement {
@@ -47,6 +50,7 @@ export abstract class CanvasDrawable extends Drawable {
   /** Frees the canvas's backing store (e.g. while there is nothing to draw); the next draw allocates it again. */
   protected releaseCanvas(): void {
     this.canvas.width = this.canvas.height = 0;
+    this.allocated = false;
   }
 
   /** Requests a redraw on the next element validation (DrawNode invalidation). */
@@ -85,12 +89,17 @@ export abstract class CanvasDrawable extends Drawable {
     const requiredWidth = Math.max(1, Math.ceil(totalWidth * scale));
     const requiredHeight = Math.max(1, Math.ceil(totalHeight * scale));
 
-    // Resizing a canvas reallocates (and clears) its backing store. Animated scales (e.g. the menu logo's beat pulse) change the required
-    // resolution every frame, so a resolution of up to resolution_headroom² times the required one is kept, and growth allocates headroom.
-    if (canvas.width < requiredWidth || canvas.height < requiredHeight
-        || canvas.width > requiredWidth * resolution_headroom ** 2 || canvas.height > requiredHeight * resolution_headroom ** 2) {
-      canvas.width = Math.ceil(requiredWidth * resolution_headroom);
-      canvas.height = Math.ceil(requiredHeight * resolution_headroom);
+    // Resizing a canvas reallocates (and clears) its backing store. The first allocation is exact, as most canvases keep their scale. Animated
+    // scales (e.g. the menu logo's beat pulse) change the required resolution every frame, so once allocated, a resolution of up to
+    // resolution_headroom² times the required one is kept, and a canvas that has to be resized gets headroom.
+    const fits = canvas.width >= requiredWidth && canvas.height >= requiredHeight
+      && canvas.width <= requiredWidth * resolution_headroom ** 2 && canvas.height <= requiredHeight * resolution_headroom ** 2;
+
+    if (!this.allocated || !fits) {
+      const headroom = this.allocated ? resolution_headroom : 1;
+      canvas.width = Math.ceil(requiredWidth * headroom);
+      canvas.height = Math.ceil(requiredHeight * headroom);
+      this.allocated = true;
     }
 
     const width = canvas.width;

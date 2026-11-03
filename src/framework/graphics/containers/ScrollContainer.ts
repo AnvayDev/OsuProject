@@ -189,7 +189,9 @@ export abstract class ScrollContainer<T extends Drawable = Drawable> extends Con
       this.scrollbar = this.createScrollbar(scrollDirection),
     ]);
 
-    this.scrollContent.layerWhileMoving = true;
+    // DOM: scrolling only moves this element, so give it its own compositor layer; the browser then moves the cached raster instead of
+    // repainting (and re-decoding the images of) everything visible every frame.
+    this.scrollContent.element.style.willChange = 'transform';
 
     this.scrollbar.hide();
     this.scrollbar.dragged = v => this.onScrollbarMovement(v);
