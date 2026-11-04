@@ -49,6 +49,9 @@ const isFinite2 = (v: Vector2) => Number.isFinite(v.x) && Number.isFinite(v.y);
 
 const visibility_cutoff = 0.0001;
 
+/** How many frames an element made a layer for moving stays one after it stopped (see Drawable.layerWhileMoving): about half a second. */
+const layer_settle_frames = 30;
+
 const MIN_VALUE = -Number.MAX_VALUE;
 const MAX_VALUE = Number.MAX_VALUE;
 
@@ -1212,21 +1215,21 @@ export abstract class Drawable extends Transformable {
   private localDrawInfo = new DrawInfo();
 
   private computeDrawInfo(): DrawInfo {
+    const di = this._parent?.drawInfo.clone() ?? new DrawInfo();
+
     let pos = this.drawPosition.add(this.anchorPosition);
+    const drawScale = this.drawScale;
 
     if (this._parent !== null)
       pos = pos.add(this._parent.childOffset);
 
+    di.applyTransform(pos, drawScale, this.rotation, this.shear, this.originPosition);
+
     const local = new DrawInfo();
-    local.applyTransform(pos, this.drawScale, this.rotation, this.shear, this.originPosition);
+    local.applyTransform(pos, drawScale, this.rotation, this.shear, this.originPosition);
     this.localDrawInfo = local;
 
-    if (this._parent === null)
-      return local.clone();
-
-    // Applying the transform to the parent's DrawInfo (as C# does) equals composing the local transform with it.
-    const parent = this._parent.drawInfo;
-    return new DrawInfo(local.matrix.multiply(parent.matrix), parent.matrixInverse.multiply(local.matrixInverse));
+    return di;
   }
 
   /** Contains the linear transformation of this Drawable that is used during draw. */
@@ -1449,7 +1452,22 @@ export abstract class Drawable extends Transformable {
       this.appliedInvalidationID = this.invalidationID;
       this.applyElementState();
     }
+
+    if (this.layered && Drawable.elementFrame - this.movedFrame > layer_settle_frames) {
+      this.layered = false;
+      this.element.style.willChange = '';
+    }
   }
+
+  /**
+   * @internal DOM only: while this element's position changes (and for layer_settle_frames after), it is made a compositor layer (CSS
+   * will-change), so the browser moves its cached raster instead of repainting the whole subtree every frame (scrolled content, sliding
+   * overlays). At rest the hint is removed and the element is drawn exactly as without it.
+   */
+  layerWhileMoving = false;
+
+  private layered = false;
+  private movedFrame = 0;
 
   private lastTransformCss = '';
   private lastLeft = NaN;
@@ -1487,10 +1505,25 @@ export abstract class Drawable extends Transformable {
   }
 
   private writeElementPosition(left: number, top: number, transformCss: string): void {
+    if (left === this.lastLeft && top === this.lastTop && transformCss === this.lastTransformCss)
+      return;
+
+    // (the first write places the element; only later ones move it)
+    const moved = !Number.isNaN(this.lastLeft);
+
     const style = this.element.style;
     if (left !== this.lastLeft) style.left = `${this.lastLeft = left}px`;
     if (top !== this.lastTop) style.top = `${this.lastTop = top}px`;
     if (transformCss !== this.lastTransformCss) style.transform = this.lastTransformCss = transformCss;
+
+    if (moved && this.layerWhileMoving) {
+      this.movedFrame = Drawable.elementFrame;
+
+      if (!this.layered) {
+        this.layered = true;
+        style.willChange = 'transform';
+      }
+    }
   }
 
   /** @internal Positions this (proxied) drawable's element inside its proxy's element: our DrawInfo in the proxy's space. */
