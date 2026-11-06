@@ -58,6 +58,11 @@ export abstract class CanvasDrawable extends Drawable {
     this.invalidate(Invalidation.DrawNode);
   }
 
+  // (the canvas resolution / blur scale follows the on-screen scale)
+  protected override get elementStateUsesScreenSpace(): boolean {
+    return true;
+  }
+
   protected override applyElementState(): void {
     super.applyElementState();
 

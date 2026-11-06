@@ -685,6 +685,11 @@ export abstract class CompositeDrawable extends Drawable {
       if (c.relativeSizeAxes === Axes.None)
         childInvalidation &= ~Invalidation.DrawSize;
 
+      // DOM: a child's position in our element depends on our size (anchors) and geometry; a DrawInfo change that only moves us doesn't
+      // need its element re-applied, but these do (see Drawable.invalidateInternal).
+      if ((invalidation & Invalidation.RequiredParentSizeToFit) > 0)
+        c.invalidateElementState();
+
       anyInvalidated = c.invalidate(childInvalidation, InvalidationSource.Parent) || anyInvalidated;
     }
 
