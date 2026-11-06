@@ -58,6 +58,11 @@ class FeaturedArtistsTabItem extends MultipleSelectionFilterTabItem<SearchGenera
     super(SearchGeneral.FeaturedArtists, describe);
   }
 
+  /** (IHasTooltip: BeatmapOverlayStrings.FeaturedArtistsTooltip) */
+  get tooltipText(): string {
+    return 'Featured Artists are music artists who have collaborated with osu! to make a selection of their tracks available for use in beatmaps. For some osu! releases, we showcase only featured artist beatmaps to better support the surrounding ecosystem.';
+  }
+
   protected override async load(dependencies: IReadOnlyDependencyContainer): Promise<void> {
     this.colours = dependencies.resolve(OsuColour);
     this.config = dependencies.resolve(OsuConfigManager);

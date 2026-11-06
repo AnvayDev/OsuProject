@@ -34,6 +34,48 @@ enum ChildLifeStateChange {
 
 const amount_children_required_for_masking_check = 2;
 
+// DOM: osu! runs LoadComponent(s)Async on a background thread, so loading never stalls frames. Here, an async load runs on the main thread in
+// slices of at most this many milliseconds; a child whose load would start after the slice's deadline is loaded in a later task, between frames.
+const load_slice_budget = 5;
+
+/** The deadline of the running async load slice, or null outside one (synchronous loads are never split). */
+let loadSliceDeadline: number | null = null;
+
+function runLoadSlice<T>(load: () => T): T {
+  const previous = loadSliceDeadline;
+  loadSliceDeadline = performance.now() + load_slice_budget;
+
+  try {
+    return load();
+  } finally {
+    loadSliceDeadline = previous;
+  }
+}
+
+const pendingLoadSlices: (() => void)[] = [];
+let loadSliceChannel: MessageChannel | null = null;
+
+/** Resolves in a new task (a MessageChannel message: not throttled like nested timeouts), letting frames run in between. */
+function nextLoadSlice(): Promise<void> {
+  if (loadSliceChannel === null) {
+    loadSliceChannel = new MessageChannel();
+    loadSliceChannel.port1.onmessage = () => pendingLoadSlices.shift()?.();
+  }
+
+  return new Promise(resolve => {
+    pendingLoadSlices.push(resolve);
+    loadSliceChannel!.port2.postMessage(null);
+  });
+}
+
+/** Loads a drawable now, or, past the running async load slice's deadline, in a later slice (unless cancelled by then). */
+function loadWithinSlice(drawable: Drawable, load: () => Promise<void> | void, cancelled: () => boolean): Promise<void> | void {
+  if (loadSliceDeadline === null || performance.now() < loadSliceDeadline)
+    return load();
+
+  return nextLoadSlice().then(() => cancelled() || drawable.isDisposed ? undefined : runLoadSlice(load));
+}
+
 /** A drawable consisting of a composite of child drawables which are manipulated by the composite's derived class. */
 export abstract class CompositeDrawable extends Drawable {
   // #region Construction and disposal
@@ -93,11 +135,11 @@ export abstract class CompositeDrawable extends Drawable {
 
     return new Promise<T[]>((resolve, reject) => {
       // Emulates the background load thread: never run inline with the caller.
-      queueMicrotask(() => {
+      queueMicrotask(() => runLoadSlice(() => {
         const loads: Promise<void>[] = [];
         const loadables = components.filter(c => {
           if (c.isDisposed || this.isDisposed) return false;
-          const r = c.loadDrawable(this.clock, deps);
+          const r = loadWithinSlice(c, () => c.loadDrawable(this.clock, deps), () => this.isDisposed);
           if (r instanceof Promise) loads.push(r);
           return true;
         });
@@ -111,7 +153,7 @@ export abstract class CompositeDrawable extends Drawable {
             resolve(loadables);
           });
         }, reject);
-      });
+      }));
     });
   }
 
@@ -155,7 +197,9 @@ export abstract class CompositeDrawable extends Drawable {
     if (this.isDisposed)
       return;
 
-    const r = child.loadDrawable(this.clock, this.dependencies!);
+    const load = () => child.loadDrawable(this.clock, this.dependencies!);
+    // (only while we are loading: our load then waits for the child's)
+    const r = this.loadState === LoadState.Loading ? loadWithinSlice(child, load, () => this.isDisposed) : load();
 
     if (r instanceof Promise) {
       this.trackChildLoad(r);
@@ -684,6 +728,11 @@ export abstract class CompositeDrawable extends Drawable {
       // No draw size changes if relative size axes does not propagate it downward.
       if (c.relativeSizeAxes === Axes.None)
         childInvalidation &= ~Invalidation.DrawSize;
+
+      // DOM: a child's position in our element depends on our size (anchors) and geometry; a DrawInfo change that only moves us doesn't
+      // need its element re-applied, but these do (see Drawable.invalidateInternal).
+      if ((invalidation & Invalidation.RequiredParentSizeToFit) > 0)
+        c.invalidateElementState();
 
       anyInvalidated = c.invalidate(childInvalidation, InvalidationSource.Parent) || anyInvalidated;
     }

@@ -1,6 +1,6 @@
 // Ported from osu.Game/Screens/Select/BeatmapTitleWedge.FavouriteButton.cs
-// The online API isn't ported, so there is never an online beatmap set: the button shows the "-" count, is disabled, and the favourite
-// request (with HeartIcon's favourite animation, which only plays on its success) never happens.
+// The beatmap set comes from SongSelect's mirror lookup. There is no osu! login, so the button shows the favourite count but stays disabled:
+// the favourite request (PostBeatmapFavouriteRequest, with HeartIcon's favourite animation on its success) can't be made.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { Colour4 } from '@fw/graphics/Colour4';
@@ -26,6 +26,7 @@ import { OsuSpriteText } from '../../graphics/sprites/OsuSpriteText';
 import { LoadingSpinner } from '../../graphics/userInterface/LoadingSpinner';
 import { OsuGame } from '../../OsuGame';
 import { OverlayColourProvider } from '../../overlays/OverlayColourProvider';
+import type { APIBeatmapSet } from '../../online/api/requests/responses/APIBeatmapSet';
 
 const pop_out_duration = 100;
 const pop_in_duration = 500;
@@ -192,25 +193,38 @@ export class FavouriteButton extends OsuClickableContainer {
     this.loadingSpinner.state.value = Visibility.Visible;
     this.valueText.fadeOut(120, Easing.OutQuint);
 
+    this.onlineBeatmapSet = null;
     this.updateFavouriteState();
   }
 
-  /** SetBeatmapSet(null): the lookup completed without an online beatmap set. */
-  setBeatmapSet(): void {
+  setBeatmapSet(beatmapSet: APIBeatmapSet | null): void {
     this.loadingSpinner.state.value = Visibility.Hidden;
     this.valueText.fadeIn(120, Easing.OutQuint);
 
+    this.onlineBeatmapSet = beatmapSet;
     this.updateFavouriteState();
   }
 
+  private onlineBeatmapSet: APIBeatmapSet | null = null;
+
+  override get tooltipText(): string {
+    return this.isFavourite ? 'Unfavourite this beatmap' : 'Favourite this beatmap';
+  }
+
+  override set tooltipText(value: string) {
+    super.tooltipText = value;
+  }
+
   private updateFavouriteState(): void {
+    // (Enabled = onlineBeatmapSet != null: toggling needs a login, see the header)
     this.enabled.value = false;
 
     if (this.loadingSpinner.state.value === Visibility.Hidden)
-      this.valueText.text = '-';
+      this.valueText.text = this.onlineBeatmapSet?.favouriteCount.toLocaleString('en-US') ?? '-';
 
-    this.isFavourite = false;
+    this.isFavourite = this.onlineBeatmapSet?.hasFavourited === true;
 
+    // (the favourited colours (Pink4 / Pink1) never apply: HasFavourited is always false without a login)
     this.background.fadeColour(Colour4.Black.opacity(0.2), 500, Easing.OutQuint);
     this.valueText.fadeColour(this.colourProvider.content2, 500, Easing.OutQuint);
     this.icon.setActive(this.isFavourite);

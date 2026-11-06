@@ -1,5 +1,4 @@
 // Ported from osu.Game/Graphics/Containers/OsuClickableContainer.cs
-// Tooltips (IHasTooltip) are not ported yet: tooltipText is stored only.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { ClickableContainer } from '@fw/graphics/containers/ClickableContainer';
@@ -49,7 +48,16 @@ export class OsuClickableContainer extends ClickableContainer {
       this.samples.playClickSample();
   }
 
-  tooltipText = '';
+  private _tooltipText = '';
+
+  /** (IHasTooltip: virtual TooltipText { get; set; }) */
+  get tooltipText(): string {
+    return this._tooltipText;
+  }
+
+  set tooltipText(value: string) {
+    this._tooltipText = value;
+  }
 
   protected override load(dependencies: IReadOnlyDependencyContainer): Promise<void> | void {
     const r = super.load(dependencies);

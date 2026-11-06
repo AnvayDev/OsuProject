@@ -48,12 +48,15 @@ Toolbar done (osu.Game/Overlays/Toolbar): all buttons, ruleset selector, clock, 
 their names/icons but do nothing. Now playing done: NowPlayingOverlay + PlaylistOverlay (framework VirtualisedListContainer), VolumeOverlay
 (VolumeMeter/MasterVolumeMeter/MuteButton; framework GlowEffect via BufferedContainer.drawOriginal) and OsuGame's volume key actions. Intro done (docs/spec/intro.md): Loader + LoadingSpinner, IntroScreen (theme import, watchdog, "see ya" exit), IntroTriangles;
 boot = AudioUnlockScreen (web autoplay gate, src/) → Loader. Not yet: IntroCircles, IntroWelcome. Song select in progress (no spec md): carousel +
-filter pipeline + panels, SongSelect/SoloSongSelect, footer, title wedge, details area (Details/Ranking tabs, metadata wedge, offline leaderboard
-placeholder), framework TabControl, framework TextBox (web text input via hidden textarea) + search box + FilterQueryParser.
+filter pipeline + panels, SongSelect/SoloSongSelect, footer, title wedge, details area (Details/Ranking tabs, metadata wedge with the online
+stats (success rate, user rating, rating spread, points of failure; lookup via catboy.best GetBeatmapSetRequest), offline leaderboard placeholder), framework TabControl, framework TextBox (web text input via hidden textarea) + search box + FilterQueryParser.
 framework Menu/Dropdown/SearchContainer + OsuDropdown/ShearedDropdown (sort/group/collection/scope), framework SliderBar + star rating DifficultyRangeSlider.
 Carousel context menus done (framework ContextMenuContainer, OsuContextMenu/OsuMenu items + samples; hide/restore,
-mark played, copy link, delete via DialogOverlay + PopupDialog/DangerousActionDialog hold-to-confirm). Not yet: tooltips, popovers, mod select,
-collections (menu entry only), editor/scores (menu entries do nothing). Song select video background (web addition, user request):
+mark played, copy link, delete via DialogOverlay + PopupDialog/DangerousActionDialog hold-to-confirm). Tooltips done (framework TooltipContainer +
+OsuTooltipContainer in OsuGameBase; IHasTooltip/IHasCustomTooltip duck-typed; DateTooltip). Collections done (BeatmapCollection in IndexedDB
+'collections' via RealmAccess + Live; CollectionDropdown filter with +/- button, group by collection, panel context menu toggles
+(Stateful/Toggle/TernaryState menu items), ManageCollectionsDialog with framework RearrangeableListContainer; realm's name sort approximated
+with an English collator). Not yet: popovers, mod select, editor/scores (menu entries do nothing). Song select video background (web addition, user request):
 the selected set's .osu Video event plays muted, synced to the track (BeatmapBackgroundVideo, framework web Video); H.264 AVIs are
 remuxed to MP4 in the browser (AviRemuxer + mp4-muxer); every other format (FLV, WMV, MPEG-1/2, Xvid AVI, MPEG-4 Part 2 MP4) is converted by
 ffmpeg.wasm (VideoTranscoder: core loaded on first use, H.264 copied, else x264 superfast CRF 16 at source resolution; conversions stored in

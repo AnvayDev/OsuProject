@@ -977,11 +977,21 @@ export abstract class Drawable extends Transformable {
 
     this._alpha = value;
 
+    // (with groupOpacity, the alpha is our element's opacity: no descendant's colour depends on it)
+    const colourInvalidation = this.groupOpacity ? Invalidation.DrawNode : Invalidation.Colour;
+
     if (this.isPresent !== wasPresent)
-      this.invalidate(Invalidation.Colour | Invalidation.Presence);
+      this.invalidate(colourInvalidation | Invalidation.Presence);
     else
-      this.invalidate(Invalidation.Colour);
+      this.invalidate(colourInvalidation);
   }
+
+  /**
+   * @internal DOM only: this drawable's alpha is applied as CSS opacity on its element instead of being multiplied into its own and its
+   * descendants' draw colours. Fading it then changes one element (a compositor layer while it changes, with layerWhileMoving) instead of
+   * re-colouring and repainting every descendant each frame. Translucent overlapping children fade as one image rather than one by one.
+   */
+  groupOpacity = false;
 
   /** Determines whether this Drawable is present based on its Alpha value. Can be forced always on with AlwaysPresent. */
   get isPresent(): boolean {
@@ -1263,7 +1273,7 @@ export abstract class Drawable extends Transformable {
     if (localBlending === BlendingParameters.Inherit)
       localBlending = BlendingParameters.Mixture;
 
-    const ourColour = this._alpha !== 1 ? this._colour.multiplyAlpha(this._alpha) : this._colour;
+    const ourColour = this._alpha !== 1 && !this.groupOpacity ? this._colour.multiplyAlpha(this._alpha) : this._colour;
 
     let colour: ColourInfo;
 
@@ -1383,12 +1393,20 @@ export abstract class Drawable extends Transformable {
     if (propagateToParent && source === InvalidationSource.Self)
       this._parent?.invalidate(invalidation, InvalidationSource.Child);
 
+    // DOM: our own change always reaches our element, even when the layout state below was already invalid (the element isn't re-applied
+    // for ancestors merely moving, so it can't rely on one of those to catch up).
+    if (source === InvalidationSource.Self)
+      this.invalidationID++;
+
     // Perform the invalidation.
     if (!this.invalidationList.invalidate(source, invalidation))
       return false;
 
     // A DrawNode invalidation always invalidates.
     let anyInvalidated = (invalidation & Invalidation.DrawNode) > 0;
+
+    // (a non-uniform colour is interpolated across the parent, so geometry can change it: see the element-state check below)
+    const colourWasValid = this.drawColourInfoBacking.isValid;
 
     // Invalidate all layout members
     let nextLayout = this.layoutList;
@@ -1409,7 +1427,10 @@ export abstract class Drawable extends Transformable {
     // Allow any custom invalidation to take place.
     anyInvalidated = this.onInvalidate(invalidation, source) || anyInvalidated;
 
-    if (anyInvalidated)
+    // DOM: an element is positioned relative to its parent's element, so a parent's DrawInfo change alone (it or an ancestor moved, scaled
+    // or rotated) leaves this element's state as it is, unless the state depends on screen space (see elementStateUsesScreenSpace).
+    if (anyInvalidated && !(source === InvalidationSource.Parent && invalidation === Invalidation.DrawInfo && !this.elementStateUsesScreenSpace
+      && (!colourWasValid || this.drawColourInfoBacking.isValid)))
       this.invalidationID++;
 
     this.invalidated.emit([this, invalidation]);
@@ -1446,6 +1467,19 @@ export abstract class Drawable extends Transformable {
 
   private appliedInvalidationID = 0;
 
+  /**
+   * DOM: whether applyElementState reads screen-space state (this drawable's on-screen scale or position, e.g. a canvas's pixel resolution),
+   * so that it must also be re-applied when only an ancestor's DrawInfo changed.
+   */
+  protected get elementStateUsesScreenSpace(): boolean {
+    return false;
+  }
+
+  /** @internal DOM: makes the next element validation re-apply this drawable's element state. */
+  invalidateElementState(): void {
+    this.invalidationID++;
+  }
+
   /** @internal Equivalent of GenerateDrawNodeSubtree for one drawable: re-applies element state if this drawable was invalidated. */
   validateElement(): void {
     if (this.invalidationID !== this.appliedInvalidationID) {
@@ -1460,9 +1494,9 @@ export abstract class Drawable extends Transformable {
   }
 
   /**
-   * @internal DOM only: while this element's position changes (and for layer_settle_frames after), it is made a compositor layer (CSS
-   * will-change), so the browser moves its cached raster instead of repainting the whole subtree every frame (scrolled content, sliding
-   * overlays). At rest the hint is removed and the element is drawn exactly as without it.
+   * @internal DOM only: while this element's position (or, with groupOpacity, opacity) changes, and for layer_settle_frames after, it is made a
+   * compositor layer (CSS will-change), so the browser moves or fades its cached raster instead of repainting the whole subtree every frame
+   * (scrolled content, sliding and fading overlays). At rest the hint is removed and the element is drawn exactly as without it.
    */
   layerWhileMoving = false;
 
@@ -1502,6 +1536,33 @@ export abstract class Drawable extends Transformable {
 
     const blendMode = this.blending === BlendingParameters.Additive ? 'plus-lighter' : this.blending === BlendingParameters.Inherit ? '' : 'normal';
     if (blendMode !== this.lastBlendMode) style.mixBlendMode = this.lastBlendMode = blendMode;
+
+    if (this.groupOpacity) {
+      const opacity = this._alpha >= 1 ? '' : `${Math.max(0, this._alpha)}`;
+
+      if (opacity !== this.lastOpacity) {
+        const changed = this.lastOpacity !== null;
+        style.opacity = this.lastOpacity = opacity;
+
+        if (changed)
+          this.markElementAnimating();
+      }
+    }
+  }
+
+  private lastOpacity: string | null = null;
+
+  /** With layerWhileMoving, makes the element a compositor layer while its position or opacity keeps changing. */
+  private markElementAnimating(): void {
+    if (!this.layerWhileMoving)
+      return;
+
+    this.movedFrame = Drawable.elementFrame;
+
+    if (!this.layered) {
+      this.layered = true;
+      this.element.style.willChange = 'transform';
+    }
   }
 
   private writeElementPosition(left: number, top: number, transformCss: string): void {
@@ -1516,14 +1577,8 @@ export abstract class Drawable extends Transformable {
     if (top !== this.lastTop) style.top = `${this.lastTop = top}px`;
     if (transformCss !== this.lastTransformCss) style.transform = this.lastTransformCss = transformCss;
 
-    if (moved && this.layerWhileMoving) {
-      this.movedFrame = Drawable.elementFrame;
-
-      if (!this.layered) {
-        this.layered = true;
-        style.willChange = 'transform';
-      }
-    }
+    if (moved)
+      this.markElementAnimating();
   }
 
   /** @internal Positions this (proxied) drawable's element inside its proxy's element: our DrawInfo in the proxy's space. */

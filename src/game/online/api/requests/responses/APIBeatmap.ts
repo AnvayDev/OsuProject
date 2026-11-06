@@ -19,6 +19,12 @@ export const parseBeatmapOnlineStatus = (status: unknown): BeatmapOnlineStatus =
 
 export const parseDateTimeOffset = (date: unknown): Date | null => typeof date === 'string' ? new Date(date) : null;
 
+/** (APIFailTimes: [JsonProperty("fail")] Fails, [JsonProperty("exit")] Retries) */
+export interface APIFailTimes {
+  readonly fails: number[] | null;
+  readonly retries: number[] | null;
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export class APIBeatmap {
   onlineID = 0;
@@ -36,6 +42,7 @@ export class APIBeatmap {
   playCount = 0;
 
   passCount = 0;
+  failTimes: APIFailTimes | null = null;
 
   rulesetID = 0;
 
@@ -83,6 +90,7 @@ export class APIBeatmap {
     b.authorID = json.user_id ?? 0;
     b.playCount = json.playcount ?? 0;
     b.passCount = json.passcount ?? 0;
+    b.failTimes = json.failtimes ? { fails: json.failtimes.fail ?? null, retries: json.failtimes.exit ?? null } : null;
     b.rulesetID = json.mode_int ?? 0;
     b.starRating = json.difficulty_rating ?? 0;
     b.drainRate = json.drain ?? 0;

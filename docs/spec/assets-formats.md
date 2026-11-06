@@ -179,7 +179,9 @@ check is a strong end-to-end test of the importer's set-hash computation (§1, s
   in the browser (search, filters, paging, card size, hover expansion). No login: supporter-only filters (rank achieved, played) give the
   supporter-required result, favouriting fails as for a logged out user, and the recommended difficulty shows no star rating.
 - Fallback mirror: nerinyan (`api.nerinyan.moe/d/{id}` → `dl.nerinyan.moe`, `Access-Control-Allow-Origin: *`). Search returned 530 at the time.
-- catboy.best answered 403 from the build environment; not used.
+- catboy.best rejects requests without a user agent (curl's 403); browsers always send one. Its `/api/v2/s/{id}` returns osu-web's full
+  beatmapset JSON (ratings, genre, language, beatmaps' `failtimes`, pass/play counts), with `Access-Control-Allow-Origin: *` and a 1200
+  request limit: song select's online beatmap set lookup (`GetBeatmapSetRequest`) uses it, as osu.direct's beatmapset JSON lacks those fields.
 - Downloaded archives go through the normal import (§1–4). Online status/dates populate `BeatmapSetInfo.Status`, `DateRanked` and
   `DateSubmitted`, as the metadata lookup does.
 - Limits (response headers, 2026-10-26): `ratelimit-limit: 120` per minute and `ratelimit-burst-limit: 25` per 5 s, shared by every

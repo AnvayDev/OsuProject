@@ -126,6 +126,8 @@ Limitation: CSS stacking contexts isolate blending. To keep that rare, drawables
 - `load(dependencies)` replaces `[BackgroundDependencyLoader]`. Overrides call `super.load()` first, which keeps osu!'s base-to-derived loader order. A composite's own loader loads existing children before derived loaders add more.
   `load` may return a Promise (textures etc.): the drawable becomes `Ready` when it resolves, and its parent's load waits for children loaded during its own load.
 - `LoadComponentAsync` never runs inline. `onLoaded` runs on the scheduler, so at the earliest in the next update, as in osu!.
+  Web: osu!'s background load thread becomes 5 ms slices on the main thread. Inside an async load, a component or child whose load would
+  start past the slice deadline is loaded in a later task (MessageChannel), so frames keep running. Synchronous loads are never split.
 - `Schedule` inside a delayed sequence becomes `AddDelayed(TransformDelay)`. `Scheduler.Update` runs the tasks queued at the start of the update. Tasks with equal execution times keep FIFO order (`ScheduledDelegate.CompareTo` returns −1 when equal).
 - `AddOnce` dedupes by function identity, so pass a stable (bound) function.
 - Children: `LifetimeStart/End` decide `ShouldBeAlive`. Dead children are removed when `RemoveWhenNotAlive` (default: `Time > LifetimeStart`) and disposed when `RemoveCompletedTransforms`. `Expire()` sets `LifetimeEnd = LatestTransformEndTime` (last end + 1 ms).

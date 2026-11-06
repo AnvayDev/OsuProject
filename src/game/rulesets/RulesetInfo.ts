@@ -1,6 +1,9 @@
 // Ported from osu.Game/Rulesets/RulesetInfo.cs, plus the built-in RulesetStore lookup (osu.Game/Rulesets/RulesetStore.cs) for the four official
 // rulesets. Rulesets other than osu! are metadata-only in this port.
 
+import { OsuRuleset } from './osu/OsuRuleset';
+import type { Ruleset } from './Ruleset';
+
 export class RulesetInfo {
   shortName = '';
 
@@ -45,6 +48,11 @@ export class RulesetInfo {
 
   toString(): string {
     return this.name;
+  }
+
+  /** (CreateInstance: only the osu! ruleset is ported; the others have no instance, so no mods.) */
+  createInstance(): Ruleset | null {
+    return this.shortName === OsuRuleset.SHORT_NAME ? new OsuRuleset() : null;
   }
 
   clone(): RulesetInfo {

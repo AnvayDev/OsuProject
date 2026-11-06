@@ -183,6 +183,18 @@ export class BoundSliderBar extends ShearedSliderBar {
 
   nubWidth = ShearedNub.HEIGHT;
 
+  // (an accessor pair: overriding only the getter would drop OsuSliderBar's setter)
+  override get tooltipText(): string {
+    if (this.current.isDefault)
+      return '';
+
+    return this.current.value.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  }
+
+  protected override set tooltipText(value: string) {
+    super.tooltipText = value;
+  }
+
   protected nubText!: OsuSpriteText;
 
   override get acceptsFocus(): boolean {

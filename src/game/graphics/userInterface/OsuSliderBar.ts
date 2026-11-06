@@ -1,11 +1,11 @@
 // Ported from osu.Game/Graphics/UserInterface/OsuSliderBar.cs
-// Tooltips (IHasTooltip / TooltipText) aren't ported yet.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { AudioManager } from '@fw/audio/AudioManager';
 import type { Sample } from '@fw/audio/sample/Sample';
 import { SliderBar } from '@fw/graphics/userInterface/SliderBar';
 import { RNG } from '@fw/utils/RNG';
+import { toStandardFormattedString } from '../../extensions/NumberFormattingExtensions';
 
 export abstract class OsuSliderBar extends SliderBar {
   override get acceptsFocus(): boolean {
@@ -18,6 +18,17 @@ export abstract class OsuSliderBar extends SliderBar {
 
   static readonly MAX_DECIMAL_DIGITS = 5;
 
+  private _tooltipText = '';
+
+  /** (IHasTooltip: { get; protected set; }) */
+  get tooltipText(): string {
+    return this._tooltipText;
+  }
+
+  protected set tooltipText(value: string) {
+    this._tooltipText = value;
+  }
+
   private sample: Sample | null = null;
 
   private lastSampleTime = 0;
@@ -29,10 +40,17 @@ export abstract class OsuSliderBar extends SliderBar {
     return r;
   }
 
+  protected override loadComplete(): void {
+    super.loadComplete();
+    this.currentNumber.bindValueChanged(current => this.tooltipText = this.getTooltipText(current.newValue), true);
+  }
+
   protected override onUserChange(value: number): void {
     super.onUserChange(value);
 
     this.playSample(value);
+
+    this.tooltipText = this.getTooltipText(value);
   }
 
   private playSample(value: number): void {
@@ -59,5 +77,9 @@ export abstract class OsuSliderBar extends SliderBar {
       channel.frequency.value -= 0.5;
 
     channel.play();
+  }
+
+  protected getTooltipText(value: number): string {
+    return toStandardFormattedString(value, OsuSliderBar.MAX_DECIMAL_DIGITS, this.displayAsPercentage);
   }
 }

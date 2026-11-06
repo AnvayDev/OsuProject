@@ -333,6 +333,11 @@ export class BufferedContainer<T extends Drawable = Drawable> extends Container<
   private filterSvg: SVGSVGElement | null = null;
   private filterMatrix: SVGFEColorMatrixElement | null = null;
 
+  // (the canvas resolution / blur scale follows the on-screen scale)
+  protected override get elementStateUsesScreenSpace(): boolean {
+    return true;
+  }
+
   protected override applyElementState(): void {
     super.applyElementState();
 

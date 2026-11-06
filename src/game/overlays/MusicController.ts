@@ -1,5 +1,4 @@
 // Ported from osu.Game/Overlays/MusicController.cs
-// Not ported: mod track adjustments (there are no mods, so ResetTrackAdjustments binds an empty AudioAdjustments when applyModTrackAdjustments is set).
 // Live<BeatmapSetInfo> is the BeatmapSetInfo itself (RealmAccess keeps the sets in memory); its equality is BeatmapSetInfo.equals (by ID).
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
@@ -21,6 +20,8 @@ import type { WorkingBeatmap } from '../beatmaps/WorkingBeatmap';
 import { OsuConfigManager, OsuSetting } from '../configuration/OsuConfigManager';
 import { RandomSelectAlgorithm } from '../configuration/RandomSelectAlgorithm';
 import { RealmAccess } from '../database/RealmAccess';
+import type { Mod } from '../rulesets/mods/Mod';
+import { IApplicableToTrack } from '../rulesets/mods/IApplicableToTrack';
 
 /** SeasonalUIConfig.ENABLED */
 const seasonal_ui_enabled = false;
@@ -51,6 +52,8 @@ export class MusicController extends CompositeDrawable {
 
   private beatmap!: Bindable<WorkingBeatmap>;
 
+  private mods!: Bindable<readonly Mod[]>;
+
   /** The current audio track. */
   currentTrack: DrawableTrack = new DrawableTrack(new TrackVirtual(1000));
 
@@ -74,6 +77,7 @@ export class MusicController extends CompositeDrawable {
     this.beatmaps = dependencies.resolve(BeatmapManager);
     // [Resolved] bindables are bound copies (SourceGeneratorUtils.GetDependency, rebindBindables).
     this.beatmap = dependencies.resolve(Bindable<WorkingBeatmap>, 'WorkingBeatmap').getBoundCopy();
+    this.mods = dependencies.resolve(Bindable<readonly Mod[]>, 'SelectedMods').getBoundCopy();
     this.realm = dependencies.resolve(RealmAccess);
 
     const audio = dependencies.resolve(AudioManager);
@@ -94,7 +98,7 @@ export class MusicController extends CompositeDrawable {
         this.changeBeatmap(b.newValue);
     }, true);
 
-    this.resetTrackAdjustments();
+    this.mods.bindValueChanged(() => this.resetTrackAdjustments(), true);
   }
 
   /** Forcefully reload the current WorkingBeatmap's track from disk. */
@@ -500,8 +504,14 @@ export class MusicController extends CompositeDrawable {
     this.currentTrack.removeAllAdjustments(AdjustableProperty.Tempo);
     this.currentTrack.removeAllAdjustments(AdjustableProperty.Volume);
 
-    if (this._applyModTrackAdjustments)
+    if (this._applyModTrackAdjustments) {
       this.currentTrack.bindAdjustments(this.modTrackAdjustments = new AudioAdjustments());
+
+      for (const mod of this.mods.value) {
+        if (mod instanceof IApplicableToTrack)
+          mod.applyToTrack(this.modTrackAdjustments);
+      }
+    }
   }
 }
 

@@ -38,6 +38,11 @@ export abstract class WaveOverlayContainer extends OsuFocusedOverlayContainer {
   protected constructor() {
     super();
 
+    // DOM: the overlay fades out over its whole pop-out; as an opacity group, that fades one composited element instead of re-colouring and
+    // repainting everything inside it every frame.
+    this.groupOpacity = true;
+    this.layerWhileMoving = true;
+
     this.addInternal(this.waves = new WaveContainer().with({
       relativeSizeAxes: Axes.Both,
     }));

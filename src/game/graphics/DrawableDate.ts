@@ -1,14 +1,24 @@
 // Ported from osu.Game/Graphics/DrawableDate.cs
-// Tooltips aren't ported yet (the DateTooltip).
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { LoadState } from '@fw/layout/Enums';
 import { humanize } from '../utils/HumanizerUtils';
 import { FontWeight, OsuFont } from './OsuFont';
 import { OsuSpriteText } from './sprites/OsuSpriteText';
+import type { ITooltip } from '@fw/graphics/cursor/ITooltip';
+import { DateTooltip } from './DateTooltip';
 
 export class DrawableDate extends OsuSpriteText {
   private _date = new Date(0);
+
+  /** (IHasCustomTooltip<DateTimeOffset>) */
+  getCustomTooltip(): ITooltip {
+    return new DateTooltip();
+  }
+
+  get tooltipContent(): Date {
+    return this.date;
+  }
 
   get date(): Date {
     return this._date;

@@ -19,6 +19,8 @@ import type { BeatmapSetInfo } from '../../beatmaps/BeatmapSetInfo';
 import { OsuConfigManager, OsuSetting } from '../../configuration/OsuConfigManager';
 import { RandomSelectAlgorithm } from '../../configuration/RandomSelectAlgorithm';
 import { BeatmapStore } from '../../database/BeatmapStore';
+import { RealmAccess } from '../../database/RealmAccess';
+import { type BeatmapCollection, compareCollectionNames } from '../../collections/BeatmapCollection';
 import { Carousel, type Selection } from '../../graphics/carousel/Carousel';
 import type { CarouselItem, ICarouselPanel } from '../../graphics/carousel/CarouselItem';
 import { OsuColour } from '../../graphics/OsuColour';
@@ -48,6 +50,8 @@ export class BeatmapCarousel extends Carousel<BeatmapInfo> {
   static readonly SPACING = 3;
 
   private detachedBeatmaps!: BindableList<BeatmapSetInfo>;
+
+  private realm!: RealmAccess;
 
   private readonly loading: LoadingLayer;
 
@@ -117,6 +121,7 @@ export class BeatmapCarousel extends Carousel<BeatmapInfo> {
 
     this.setupPools();
     this.detachedBeatmaps = dependencies.resolve(BeatmapStore).getBeatmapSets();
+    this.realm = dependencies.resolve(RealmAccess);
     this.loadBeatmapSamples(dependencies.resolve(AudioManager));
 
     dependencies.resolve(OsuConfigManager).bindWith(OsuSetting.RandomSelectAlgorithm, this.randomAlgorithm);
@@ -761,9 +766,8 @@ export class BeatmapCarousel extends Carousel<BeatmapInfo> {
 
   // #region Fetches for grouping support
 
-  /** Collections aren't ported. */
-  protected getAllCollections(): { name: string; beatmapMD5Hashes: string[] }[] {
-    return [];
+  protected getAllCollections(): BeatmapCollection[] {
+    return [...this.realm.allCollections()].sort((a, b) => compareCollectionNames(a.name, b.name));
   }
 
   /** The online API isn't ported, so there is no local user with favourites. */

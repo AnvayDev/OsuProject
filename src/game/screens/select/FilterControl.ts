@@ -1,5 +1,5 @@
 // Ported from osu.Game/Screens/Select/FilterControl.cs
-// Collections, the online user and ruleset filter criteria aren't ported (offline, and no ruleset instances): GroupModeDropdown offers the
+// The online user and ruleset filter criteria aren't ported (offline, and no ruleset instances): GroupModeDropdown offers the
 // osu! ruleset's modes (one gameplay variant: no Variant mode).
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
@@ -27,6 +27,7 @@ import type { InnerSearchTextBox } from '../../graphics/userInterface/ShearedSea
 import { GlobalAction } from '../../input/bindings/GlobalAction';
 import { ShearedDropdown } from '../../graphics/userInterfaceV2/ShearedDropdown';
 import { CollectionDropdown } from './CollectionDropdown';
+import { RealmAccess } from '../../database/RealmAccess';
 import { DifficultyRangeSlider } from './FilterControl.DifficultyRangeSlider';
 import { GroupMode, getGroupModeDescription } from './filter/GroupMode';
 import { SortMode, getSortModeDescription } from './filter/SortMode';
@@ -62,6 +63,10 @@ export class FilterControl extends OverlayContainer {
 
   private config!: OsuConfigManager;
 
+  private realm!: RealmAccess;
+
+  private collectionsSubscription: { dispose(): void } | null = null;
+
   get statusText(): string {
     return this.searchTextBox.statusText;
   }
@@ -81,6 +86,7 @@ export class FilterControl extends OverlayContainer {
     this.songSelect = dependencies.get(ISongSelect);
     this.ruleset = dependencies.resolve(Bindable<RulesetInfo>, 'RulesetInfo').getBoundCopy();
     this.config = dependencies.resolve(OsuConfigManager);
+    this.realm = dependencies.resolve(RealmAccess);
 
     this.relativeSizeAxes = Axes.X;
     this.autoSizeAxes = Axes.Y;
@@ -220,15 +226,32 @@ export class FilterControl extends OverlayContainer {
     this.sortDropdown.current.bindValueChanged(() => this.updateCriteria());
     this.groupDropdown.current.bindValueChanged(() => this.updateCriteria());
     this.configCollectionFilter.bindValueChanged(() => this.updateCriteria());
+    this.collectionsSubscription = this.realm.registerForCollectionNotifications(all => [...all], (_, changeSet) => {
+      if (changeSet !== null && this.groupDropdown.current.value.value === GroupMode.Collections)
+        this.updateCriteria();
+    });
 
     this.scopedBeatmapSet.bindValueChanged(() => this.updateCriteria(false));
 
     this.updateCriteria();
   }
 
+  protected override disposeInternal(isDisposing: boolean): void {
+    super.disposeInternal(isDisposing);
+    this.collectionsSubscription?.dispose();
+  }
+
   /** Creates a FilterCriteria based on the current state of the controls. */
   createCriteria(): FilterCriteria {
     const query = this.searchTextBox.current.value;
+
+    let collectionBeatmapMD5Hashes: ReadonlySet<string> | null = null;
+
+    // (Guid.TryParse: the setting holds a collection ID, or an empty string for all beatmaps.)
+    if (this.configCollectionFilter.value !== '') {
+      const collection = this.realm.findCollection(this.configCollectionFilter.value);
+      collectionBeatmapMD5Hashes = collection === null ? null : new Set(collection.beatmapMD5Hashes);
+    }
 
     const criteria = Object.assign(new FilterCriteria(), {
       selectedBeatmapSet: this.scopedBeatmapSet.value,
@@ -236,6 +259,7 @@ export class FilterControl extends OverlayContainer {
       group: this.groupDropdown.current.value?.value ?? GroupMode.None,
       allowConvertedBeatmaps: this.showConvertedBeatmapsButton.active.value,
       ruleset: this.ruleset.value,
+      collectionBeatmapMD5Hashes,
     });
 
     if (!this.difficultyRangeSlider.lowerBound.isDefault)

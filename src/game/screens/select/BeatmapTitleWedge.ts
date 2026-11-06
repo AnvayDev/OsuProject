@@ -1,6 +1,6 @@
 // Ported from osu.Game/Screens/Select/BeatmapTitleWedge.cs
-// Mods aren't ported (rate 1) and neither is the online lookup: offline, C#'s lookup completes without a result, which is the state shown
-// (play count "-", favourite button empty).
+// Mods aren't ported (rate 1). The online lookup comes from a mirror (SongSelect's GetBeatmapSetRequest); there is no osu! login, so the
+// user's own play count is unknown and the status refetch after a lookup (realm) is not needed.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { Bindable } from '@fw/bindables/Bindable';
@@ -30,7 +30,7 @@ import { DifficultyDisplay } from './BeatmapTitleWedge.DifficultyDisplay';
 import { FavouriteButton } from './BeatmapTitleWedge.FavouriteButton';
 import { Statistic, StatisticPlayCount } from './BeatmapTitleWedge.Statistic';
 import { ISongSelect } from './ISongSelect';
-import { SongSelect } from './SongSelect';
+import { BeatmapSetLookupStatus, type BeatmapSetLookupResult, SongSelect } from './SongSelect';
 import { WedgeBackground } from './WedgeBackground';
 
 const corner_radius = 10;
@@ -64,6 +64,8 @@ export class BeatmapTitleWedge extends VisibilityContainer {
 
   private songSelect: ISongSelect | null = null;
 
+  private onlineLookupResult!: Bindable<BeatmapSetLookupResult | null>;
+
   private statisticsFlow!: FillFlowContainer;
 
   constructor() {
@@ -79,6 +81,7 @@ export class BeatmapTitleWedge extends VisibilityContainer {
     this.working = dependencies.resolve(Bindable<WorkingBeatmap>, 'WorkingBeatmap').getBoundCopy();
     this.ruleset = dependencies.resolve(Bindable<RulesetInfo>, 'RulesetInfo').getBoundCopy();
     this.songSelect = dependencies.get(ISongSelect);
+    this.onlineLookupResult = dependencies.resolve(Bindable<BeatmapSetLookupResult | null>, 'BeatmapSetLookupResult').getBoundCopy();
 
     this.masking = true;
     this.cornerRadius = corner_radius;
@@ -165,6 +168,7 @@ export class BeatmapTitleWedge extends VisibilityContainer {
 
     this.working.bindValueChanged(() => this.updateDisplay());
     this.ruleset.bindValueChanged(() => this.updateDisplay());
+    this.onlineLookupResult.bindValueChanged(() => this.updateDisplay());
 
     this.updateDisplay();
 
@@ -249,8 +253,14 @@ export class BeatmapTitleWedge extends VisibilityContainer {
   }
 
   private updateOnlineDisplay(): void {
-    // (the lookup always completes without an online beatmap set)
-    this.playCount.value = { total: -1, user: -1 };
-    this.favouriteButton.setBeatmapSet();
+    if (this.onlineLookupResult.value?.status !== BeatmapSetLookupStatus.Completed) {
+      this.playCount.value = null;
+      this.favouriteButton.setLoading();
+    } else {
+      const onlineBeatmap = this.onlineLookupResult.value.result?.beatmaps.find(b => b.onlineID === this.working.value.beatmapInfo.onlineID) ?? null;
+      // (UserPlayCount needs a login: -1)
+      this.playCount.value = { total: onlineBeatmap?.playCount ?? -1, user: -1 };
+      this.favouriteButton.setBeatmapSet(this.onlineLookupResult.value.result);
+    }
   }
 }

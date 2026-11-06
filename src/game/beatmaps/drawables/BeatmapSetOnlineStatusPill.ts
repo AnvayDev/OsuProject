@@ -23,6 +23,16 @@ export class BeatmapSetOnlineStatusPill extends CircularContainer {
   /** Whether changing status performs transition transforms. */
   animated = true;
 
+  /** (IHasTooltip) */
+  get tooltipText(): string {
+    switch (this.status) {
+      case BeatmapOnlineStatus.LocallyModified:
+        return 'Has been locally modified';
+    }
+
+    return '';
+  }
+
   get status(): BeatmapOnlineStatus {
     return this._status;
   }
