@@ -10,6 +10,13 @@ import { Ruleset } from '../Ruleset';
 import { registerRuleset } from '../RulesetInfo';
 import { OsuBeatmapConverter } from './beatmaps/OsuBeatmapConverter';
 import { OsuBeatmapProcessor } from './beatmaps/OsuBeatmapProcessor';
+import type { HealthProcessor } from '../scoring/HealthProcessor';
+import type { ScoreMultiplierCalculator, ScoreMultiplierContext } from '../scoring/ScoreMultiplierCalculator';
+import type { ScoreProcessor } from '../scoring/ScoreProcessor';
+import { OsuHealthProcessor } from './scoring/OsuHealthProcessor';
+import { OsuScoreMultiplierCalculatorV1 } from './scoring/OsuScoreMultiplierCalculatorV1';
+import { OsuScoreMultiplierCalculatorV2 } from './scoring/OsuScoreMultiplierCalculatorV2';
+import { OsuScoreProcessor } from './scoring/OsuScoreProcessor';
 import {
   OsuModAccuracyChallenge, OsuModAlternate, OsuModApproachDifferent, OsuModAutopilot, OsuModAutoplay, OsuModBarrelRoll, OsuModBlinds,
   OsuModBloom, OsuModBubbles, OsuModCinema, OsuModClassic, OsuModDaycore, OsuModDeflate, OsuModDepth, OsuModDifficultyAdjust,
@@ -32,6 +39,21 @@ export class OsuRuleset extends Ruleset {
 
   override createBeatmapProcessor(beatmap: IBeatmap): IBeatmapProcessor {
     return new OsuBeatmapProcessor(beatmap);
+  }
+
+  override createScoreProcessor(): ScoreProcessor {
+    return new OsuScoreProcessor();
+  }
+
+  override createHealthProcessor(drainStartTime: number): HealthProcessor {
+    return new OsuHealthProcessor(drainStartTime);
+  }
+
+  override createScoreMultiplierCalculator(context: ScoreMultiplierContext): ScoreMultiplierCalculator {
+    if (context.score !== null && context.score.totalScoreVersion < 30000017)
+      return new OsuScoreMultiplierCalculatorV1(context);
+
+    return new OsuScoreMultiplierCalculatorV2(context);
   }
 
   override getModsFor(type: ModType): Mod[] {

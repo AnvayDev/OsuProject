@@ -11,6 +11,7 @@ import { AdjustableProperty, type IAdjustableAudioComponent } from '@fw/audio/Au
 import { Bindable, BindableBool } from '@fw/bindables/Bindable';
 import { BindableDouble, BindableFloat, BindableInt, type BindableNumber } from '@fw/bindables/BindableNumber';
 import type { IconUsage } from '@fw/graphics/sprites/IconUsage';
+import { ScoreRank } from '../../scoring/ScoreRank';
 import type { BeatmapDifficulty } from '../../beatmaps/BeatmapDifficulty';
 import { toStandardFormattedString } from '../../extensions/NumberFormattingExtensions';
 import { OsuIcon } from '../../graphics/OsuIcon';
@@ -443,6 +444,25 @@ export abstract class ModHidden extends ModWithVisibilityAdjustment {
   override get ranked(): boolean {
     return this.usesDefaultConfiguration;
   }
+
+  /** (IApplicableToScoreProcessor) */
+  adjustRank(rank: ScoreRank, _accuracy: number): ScoreRank {
+    return silverRank(rank);
+  }
+}
+
+/** The silver version of a rank, for the mods that award one (ModHidden.AdjustRank, ModFlashlight.AdjustRank). */
+function silverRank(rank: ScoreRank): ScoreRank {
+  switch (rank) {
+    case ScoreRank.X:
+      return ScoreRank.XH;
+
+    case ScoreRank.S:
+      return ScoreRank.SH;
+
+    default:
+      return rank;
+  }
 }
 
 export abstract class ModTraceable extends ModWithVisibilityAdjustment {}
@@ -456,6 +476,11 @@ export abstract class ModFlashlight extends Mod {
 
   override get ranked(): boolean {
     return this.usesDefaultConfiguration;
+  }
+
+  /** (IApplicableToScoreProcessor) */
+  adjustRank(rank: ScoreRank, _accuracy: number): ScoreRank {
+    return silverRank(rank);
   }
 
   /** [SettingSource("Flashlight size", "Multiplier applied to the default flashlight size.")] */

@@ -72,5 +72,12 @@ from the real client: `docs/reference/CAPTURE-REQUESTS.md`. Decisions so far: ju
 `event.timeStamp` (never quantised to a frame); the engine stays TypeScript (no WASM engine); the playfield gets a GPU draw path that ports
 osu!framework's renderer while menus stay on the DOM renderer (to be confirmed by `bench.html` numbers from the user's M1); reference beatmap
 for comparisons is Soleily - Renatus [Insane] (set 241526). User setup: M1 Air, Chrome, built-in 60 Hz display, mouse + keyboard keys,
-Bluetooth headphones. Nothing of gameplay is ported yet.
+Bluetooth headphones.
+Gameplay status (2026-11-12): M0 done (plan, research, `bench.html`, `scripts/pixeldiff.mjs`, `scripts/stalecheck.mjs`); the user's M1 bench
+run is still owed (GAMEPLAY-PLAN §7.2). Renderer core done (`src/framework/graphics/rendering/`, `GLContainer`, `Drawable.draw`; spec
+framework.md §14): boxes, sprites, masking, borders, edge effects, blending, proxies; not yet text, Path, frame buffers. DOM elements are now
+created by the element walk, never under a `GLContainer`. osu! ruleset model done and tested against the client's own test data
+(`docs/spec/osu-ruleset.md`): hit objects, beatmap conversion and stacking, judgements, score/health processors, score multipliers.
+Rulesets register themselves (`registerRuleset`); tests calling `RulesetInfo.createInstance()` import `@game/rulesets/osu/OsuRuleset`.
+Not yet: drawable hit objects, playfield, input, gameplay clock, Player, HUD, results, settings overlay, mod select wiring, calculators.
 Cloud screenshots: `PW_CHROMIUM=/opt/pw-browsers/chromium node scripts/shot.mjs ...` (dev server running). Recordings: docs/reference/recordings/web/*.mp4 (ffmpeg available).

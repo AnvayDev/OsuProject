@@ -119,7 +119,7 @@ to be measured, not guessed.
 |---|---|---|
 | M0 | Research, plan, questions, capture requests, measurement harness, rendering/audio spikes | done except the user's M1 bench run |
 | M1 | GPU draw path in the framework, timestamped input, gameplay audio clock | renderer core done; text, paths, frame buffers, input and clock not started |
-| M2 | osu! ruleset model: hit objects, beatmap conversion and processing, judgements, scoring, health (unit tests with exact values) | not started |
+| M2 | osu! ruleset model: hit objects, beatmap conversion and processing, judgements, scoring, health (unit tests with exact values) | done except spinner spin history and legacy health (status and facts: `docs/spec/osu-ruleset.md`) |
 | M3 | Drawable hit objects, playfield, Argon skin, cursor and trail, hit sounds | not started |
 | M4 | Player, PlayerLoader, HUD, pause/fail, break and skip overlays, results, local scores, replays; connect song select | not started |
 | M5 | Settings overlay: framework first, then Input, Audio, Gameplay, Skin, User Interface, Graphics, then the rest | not started |
