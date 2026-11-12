@@ -14,14 +14,20 @@
 
 import { Invalidation } from '../../layout/Enums';
 import { InvalidationSource, LayoutValue } from '../../layout/Layout';
-import { Precision, RectangleF } from '../../layout/Primitives';
+import { Matrix3 } from '../../layout/Matrix3';
+import { Precision, Quad, RectangleF } from '../../layout/Primitives';
 import { Vector2 } from '../../layout/Vector2';
 import { effectiveKernelSigma, kernelSize } from '../../utils/Blur';
 import { Colour4 } from '../Colour4';
 import { ColourInfo } from '../ColourInfo';
 import { BlendingParameters, DrawColourInfo } from '../DrawInfo';
 import type { Drawable } from '../Drawable';
+import { NO_EDGE_OFFSET } from '../rendering/MaskingInfo';
+import { FrameBuffer, type Renderer } from '../rendering/Renderer';
+import { BLUR_FS } from '../rendering/shaders';
 import { Container } from './Container';
+
+const white = ColourInfo.singleColour(Colour4.White);
 
 export enum EffectPlacement {
   Behind,
@@ -316,6 +322,188 @@ export class BufferedContainer<T extends Drawable = Drawable> extends Container<
     return new DrawColourInfo(ColourInfo.singleColour(Colour4.White), blending);
   }
 
+  // #region DrawNode (Renderer): BufferedDrawNode.cs, BufferedContainer.DrawNode.cs, BufferedDrawNodeSharedData.cs
+
+  /** BufferedContainerDrawNodeSharedData: the main buffer and two effect buffers, of the renderer that last drew this container. */
+  private sharedData: { renderer: Renderer; mainBuffer: FrameBuffer; effectBuffers: (FrameBuffer | null)[]; currentEffectBuffer: number; drawVersion: number } | null = null;
+
+  /** RequiresRedraw: GetDrawVersion() > SharedData.DrawVersion */
+  private get requiresRedraw(): boolean {
+    return this.sharedData === null || this.updateVersion > this.sharedData.drawVersion;
+  }
+
+  /** ICompositeDrawNode.AddChildDrawNodes */
+  protected override get addChildDrawNodes(): boolean {
+    return this.requiresRedraw;
+  }
+
+  private rootNodeCached: Drawable | null = null;
+
+  /** BufferedDrawNode.Draw */
+  override draw(renderer: Renderer): void {
+    if (this.sharedData !== null && this.sharedData.renderer !== renderer)
+      this.disposeSharedData();
+
+    const sharedData = this.sharedData ??= { renderer, mainBuffer: new FrameBuffer(renderer), effectBuffers: [null, null], currentEffectBuffer: -1, drawVersion: -1 };
+
+    // ApplyState
+    let screenSpaceDrawRectangle = this.screenSpaceDrawQuad.aabbFloat;
+    const drawColourInfo = this.frameBufferDrawColour;
+
+    // clipDrawRectangle (SharedData.ClipToRootNode is !usingCachedFrameBuffer)
+    if (!this.usingCachedFrameBuffer) {
+      if (this.rootNodeCached === null) {
+        let rootNode: Drawable = this;
+        while (rootNode.parent !== null) rootNode = rootNode.parent;
+        this.rootNodeCached = rootNode;
+      }
+
+      const rootQuad = this.rootNodeCached.screenSpaceDrawQuad;
+      screenSpaceDrawRectangle = RectangleF.intersect(screenSpaceDrawRectangle, new RectangleF(rootQuad.topLeft.x, rootQuad.topLeft.y, rootQuad.width, rootQuad.height));
+    }
+
+    // (the client's screen space is device pixels; a frame buffer has pixelRatio texels per screen-space unit at FrameBufferScale 1)
+    const frameBufferWidth = Math.ceil(screenSpaceDrawRectangle.width * this._frameBufferScale.x * renderer.pixelRatio);
+    const frameBufferHeight = Math.ceil(screenSpaceDrawRectangle.height * this._frameBufferScale.y * renderer.pixelRatio);
+
+    if (frameBufferWidth <= 0 || frameBufferHeight <= 0)
+      return;
+
+    if (this.updateVersion > sharedData.drawVersion) {
+      sharedData.currentEffectBuffer = -1;
+
+      // establishFrameBufferViewport
+      renderer.pushMaskingInfo({
+        screenSpaceAABB: screenSpaceDrawRectangle,
+        maskingRect: screenSpaceDrawRectangle,
+        toMaskingSpace: Matrix3.identity(),
+        cornerRadius: 0,
+        cornerExponent: 2.5,
+        borderThickness: 0,
+        borderColour: null,
+        blendRange: 1,
+        alphaExponent: 1,
+        edgeOffset: NO_EDGE_OFFSET,
+        hollow: false,
+        hollowCornerRadius: 0,
+      }, true);
+
+      renderer.pushViewport(new RectangleF(0, 0, frameBufferWidth, frameBufferHeight), frameBufferWidth, frameBufferHeight);
+      renderer.pushScissor(new RectangleF(0, 0, frameBufferWidth, frameBufferHeight));
+
+      sharedData.mainBuffer.setSize(frameBufferWidth, frameBufferHeight);
+      sharedData.mainBuffer.bind();
+
+      renderer.pushOrtho(screenSpaceDrawRectangle);
+
+      const background = this._backgroundColour;
+      renderer.clear(background.r, background.g, background.b, background.a);
+
+      // DrawOther(Child): the CompositeDrawableDrawNode of this container.
+      super.draw(renderer);
+
+      renderer.popProjectionMatrix();
+
+      sharedData.mainBuffer.unbind();
+
+      this.populateContents(renderer, frameBufferWidth, frameBufferHeight);
+
+      // returnViewport
+      renderer.popViewport();
+      renderer.popScissor();
+      renderer.popMaskingInfo();
+
+      sharedData.drawVersion = this.updateVersion;
+    }
+
+    renderer.bindShader(renderer.textureShader);
+
+    // base.Draw
+    renderer.setBlend(drawColourInfo.blending);
+
+    // DrawContents
+    const quad = Quad.fromRectangle(screenSpaceDrawRectangle);
+
+    if (this._drawOriginal && this._effectPlacement === EffectPlacement.InFront)
+      renderer.drawFrameBuffer(sharedData.mainBuffer, quad, drawColourInfo.colour);
+
+    renderer.setBlend(this.drawEffectBlending);
+
+    const currentEffectBuffer = sharedData.currentEffectBuffer === -1 ? sharedData.mainBuffer : sharedData.effectBuffers[sharedData.currentEffectBuffer]!;
+    renderer.drawFrameBuffer(currentEffectBuffer, quad, drawColourInfo.colour.applyChild(this._effectColour));
+
+    if (this._drawOriginal && this._effectPlacement === EffectPlacement.Behind) {
+      // (base.DrawContents draws with the blending of base.Draw)
+      renderer.setBlend(drawColourInfo.blending);
+      renderer.drawFrameBuffer(sharedData.mainBuffer, quad, drawColourInfo.colour);
+    }
+  }
+
+  /** PopulateContents */
+  private populateContents(renderer: Renderer, frameBufferWidth: number, frameBufferHeight: number): void {
+    const radiusX = kernelSize(this._blurSigma.x);
+    const radiusY = kernelSize(this._blurSigma.y);
+
+    if (this._grayscaleStrength > 0)
+      throw new Error('GrayscaleStrength is not ported.');
+
+    if (radiusX > 0 || radiusY > 0) {
+      renderer.pushScissorState(false);
+
+      if (radiusX > 0) this.drawBlurredFrameBuffer(renderer, radiusX, this._blurSigma.x, this._blurRotation, frameBufferWidth, frameBufferHeight);
+      if (radiusY > 0) this.drawBlurredFrameBuffer(renderer, radiusY, this._blurSigma.y, this._blurRotation + 90, frameBufferWidth, frameBufferHeight);
+
+      renderer.popScissorState();
+    }
+  }
+
+  private drawBlurredFrameBuffer(renderer: Renderer, kernelRadius: number, sigma: number, blurRotation: number, frameBufferWidth: number, frameBufferHeight: number): void {
+    const sharedData = this.sharedData!;
+
+    const current = sharedData.currentEffectBuffer === -1 ? sharedData.mainBuffer : sharedData.effectBuffers[sharedData.currentEffectBuffer]!;
+
+    // GetNextEffectBuffer
+    if (++sharedData.currentEffectBuffer >= sharedData.effectBuffers.length)
+      sharedData.currentEffectBuffer = 0;
+
+    const target = sharedData.effectBuffers[sharedData.currentEffectBuffer] ??= new FrameBuffer(renderer);
+
+    renderer.setBlend(BlendingParameters.None);
+
+    target.setSize(frameBufferWidth, frameBufferHeight);
+    target.bind();
+
+    const radians = blurRotation * Math.PI / 180;
+    const shader = renderer.loadShader('Blur', BLUR_FS);
+    const gl = renderer.gl;
+
+    renderer.bindShader(shader);
+    gl.uniform2f(shader.getUniformLocation('g_TexSize'), current.width, current.height);
+    gl.uniform1i(shader.getUniformLocation('g_Radius'), kernelRadius);
+    gl.uniform1f(shader.getUniformLocation('g_Sigma'), sigma);
+    gl.uniform2f(shader.getUniformLocation('g_BlurDirection'), Math.cos(radians), Math.sin(radians));
+
+    renderer.drawFrameBuffer(current, Quad.fromRectangle(new RectangleF(0, 0, current.width, current.height)), white);
+
+    // (the uniforms belong to this draw)
+    renderer.flushCurrentBatch();
+    renderer.bindShader(renderer.textureShader);
+
+    target.unbind();
+  }
+
+  private disposeSharedData(): void {
+    const sharedData = this.sharedData;
+    if (sharedData === null) return;
+
+    sharedData.mainBuffer.dispose();
+    for (const buffer of sharedData.effectBuffers) buffer?.dispose();
+
+    this.sharedData = null;
+  }
+
+  // #endregion
+
   // #region DOM (BufferedDrawNode)
 
   /** SharedData.DrawVersion: the version the element subtree was last rendered at. */
@@ -506,6 +694,7 @@ export class BufferedContainer<T extends Drawable = Drawable> extends Container<
   }
 
   override dispose(): void {
+    this.disposeSharedData();
     this.filterSvg?.remove();
     this.filterSvg = null;
     this.effectSvg?.remove();

@@ -7,6 +7,8 @@ import type { IReadOnlyDependencyContainer } from '../../allocation/DependencyCo
 import { Invalidation } from '../../layout/Enums';
 import type { TransformSequence } from '../../transforms/TransformSequence';
 import { Easing, type IEasingFunction } from '../../transforms/Easing';
+import type { Renderer } from '../rendering/Renderer';
+import { CIRCULAR_PROGRESS_FS } from '../rendering/shaders';
 import { Sprite } from '../sprites/Sprite';
 import { Texture } from '../textures/Texture';
 
@@ -53,6 +55,37 @@ export class CircularProgress extends Sprite {
     this._innerRadius = Math.min(Math.max(value, 0), 1);
     this.invalidate(Invalidation.DrawNode);
   }
+
+  // #region DrawNode (Renderer): CircularProgressDrawNode
+  // (the client triangulates the ring to save fill rate when InnerRadius <= 0.95; the pixels are the shader's either way, so the quad is drawn)
+
+  protected override bindTextureShader(renderer: Renderer): void {
+    const shader = renderer.loadShader('CircularProgress', CIRCULAR_PROGRESS_FS);
+    const gl = renderer.gl;
+
+    renderer.bindShader(shader);
+    // (the uniforms belong to this sprite's quad)
+    renderer.flushCurrentBatch();
+
+    gl.uniform1f(shader.getUniformLocation('innerRadius'), this._innerRadius);
+    gl.uniform1f(shader.getUniformLocation('progress'), Math.abs(this._progress));
+    // smoothstep looks too sharp with 1px, let's give it a bit more
+    gl.uniform1f(shader.getUniformLocation('texelSize'), 1.5 / (this.screenSpaceDrawQuad.width * renderer.pixelRatio));
+    gl.uniform1i(shader.getUniformLocation('roundedCaps'), 0);
+  }
+
+  override draw(renderer: Renderer): void {
+    // Blit
+    if (this._innerRadius === 0 || this._progress === 0)
+      return;
+
+    super.draw(renderer);
+
+    renderer.flushCurrentBatch();
+    renderer.bindShader(renderer.textureShader);
+  }
+
+  // #endregion
 
   protected override applyElementState(): void {
     super.applyElementState();

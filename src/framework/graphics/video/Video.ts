@@ -2,6 +2,7 @@
 // select background video needs: a muted video from a URL, filling its box like a FillMode.Fill sprite, played at a position set by its owner.
 
 import { Drawable } from '../Drawable';
+import type { Renderer } from '../rendering/Renderer';
 
 /**
  * Drift (in ms) between the requested position and the element's beyond which the element is seeked. Below it, the playback rate is nudged
@@ -64,6 +65,58 @@ export class Video extends Drawable {
     return el;
   }
 
+  // #region DrawNode (Renderer)
+
+  private static nextTextureID = 0;
+  private readonly textureKey = `video:${Video.nextTextureID++}`;
+
+  private uploadedTime = NaN;
+  private uploadedBy: Renderer | null = null;
+
+  /** The current frame as a texture, cropped to fill the draw rectangle (the element's object-fit: cover). */
+  override draw(renderer: Renderer): void {
+    super.draw(renderer);
+
+    const el = this.videoElement;
+
+    if (!this._loaded || el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || el.videoWidth === 0 || el.videoHeight === 0)
+      return;
+
+    if (this.uploadedBy !== renderer || this.uploadedTime !== el.currentTime) {
+      renderer.updateImage(this.textureKey, el);
+      this.uploadedBy = renderer;
+      this.uploadedTime = el.currentTime;
+    }
+
+    if (!renderer.bindImage(this.textureKey, null))
+      return;
+
+    const size = this.drawSize;
+
+    if (size.x <= 0 || size.y <= 0)
+      return;
+
+    const videoAspect = el.videoWidth / el.videoHeight;
+    const drawAspect = size.x / size.y;
+
+    let left = 0, top = 0, right = 1, bottom = 1;
+
+    if (videoAspect > drawAspect) {
+      const width = drawAspect / videoAspect;
+      left = (1 - width) / 2;
+      right = left + width;
+    } else {
+      const height = videoAspect / drawAspect;
+      top = (1 - height) / 2;
+      bottom = top + height;
+    }
+
+    renderer.bindShader(renderer.textureShader);
+    renderer.drawQuadUV(this.screenSpaceDrawQuad, this.drawColourInfo.colour, 0, 0, 1, 1, left, top, right, bottom, 0, 0);
+  }
+
+  // #endregion
+
   private lastSeek = -Infinity;
 
   protected override update(): void {
@@ -118,6 +171,9 @@ export class Video extends Drawable {
     el.pause();
     el.removeAttribute('src');
     el.load();
+
+    this.uploadedBy?.deleteImage(this.textureKey);
+    this.uploadedBy = null;
 
     super.disposeInternal(isDisposing);
   }

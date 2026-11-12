@@ -9,12 +9,14 @@ import { Axes, Invalidation, LoadState } from '../../layout/Enums';
 import { InvalidationSource, LayoutValue, LayoutValueOf } from '../../layout/Layout';
 import { MarginPadding } from '../../layout/MarginPadding';
 import { Vector2 } from '../../layout/Vector2';
-import { FontStore, glyphImageUrl, loadPage } from '../../text/FontStore';
+import { decodedPage, FontStore, glyphImageUrl, loadPage } from '../../text/FontStore';
 import { FontUsage } from '../../text/FontUsage';
 import { MultilineTextBuilder, TextBuilder, TruncatingTextBuilder, type TextBuilderGlyph } from '../../text/TextBuilder';
 import { Colour4 } from '../Colour4';
 import { ColourInfo } from '../ColourInfo';
 import { Drawable } from '../Drawable';
+import type { DrawInfo } from '../DrawInfo';
+import type { AtlasRegion, Renderer } from '../rendering/Renderer';
 import { colourInfoToCss } from './Sprite';
 
 const default_never_fixed_width_characters = ['.', ',', ':', ' ', ' ', ' '];
@@ -427,6 +429,137 @@ export class SpriteText extends Drawable {
       this.invalidateTextBuilder();
 
     this.invalidate(Invalidation.RequiredParentSizeToFit);
+  }
+
+  // #endregion
+
+  // #region DrawNode (DOM)
+
+  // #region DrawNode (Renderer): SpriteText.DrawNode.cs
+
+  /** parts: per character, its screen-space quad (top-left, top-right, bottom-left, bottom-right), inflation percentage and texture. */
+  private partQuads = new Float32Array(0);
+  private partInflation = new Float32Array(0);
+  private partRegions: (AtlasRegion | null)[] = [];
+
+  private partsCharactersVersion = -1;
+  private partsRenderer: Renderer | null = null;
+  private partsDrawInfo: DrawInfo | null = null;
+  private partsPixelRatio = 0;
+
+  /** SpriteTextDrawNode.Draw */
+  override draw(renderer: Renderer): void {
+    super.draw(renderer);
+
+    const characters = this.characters;
+    const count = characters.length;
+
+    if (count === 0)
+      return;
+
+    const drawInfo = this.drawInfo;
+    const textChanged = this.partsCharactersVersion !== this.charactersVersion || this.partsRenderer !== renderer;
+
+    if (textChanged) {
+      let complete = true;
+
+      this.partRegions.length = count;
+
+      for (let i = 0; i < count; i++) {
+        const texture = characters[i].glyph.texture;
+        const page = decodedPage(texture.pageUrl);
+
+        if (page === null) {
+          this.partRegions[i] = null;
+          complete = false;
+        } else
+          this.partRegions[i] = renderer.atlasRegion(texture.pageUrl, page, texture.x, texture.y, texture.width, texture.height);
+      }
+
+      // (a page that isn't decoded yet is looked up again on the next draw)
+      this.partsCharactersVersion = complete ? this.charactersVersion : -1;
+      this.partsRenderer = renderer;
+    }
+
+    if (textChanged || this.partsDrawInfo !== drawInfo || this.partsPixelRatio !== renderer.pixelRatio) {
+      this.updateScreenSpaceCharacters(characters, drawInfo, renderer.pixelRatio);
+      this.partsDrawInfo = drawInfo;
+      this.partsPixelRatio = renderer.pixelRatio;
+    }
+
+    renderer.bindShader(renderer.textureShader);
+
+    const colour = this.drawColourInfo.colour;
+    const quads = this.partQuads;
+    const inflation = this.partInflation;
+    const regions = this.partRegions;
+
+    if (this._shadow) {
+      const avgColour = colour.averageColour;
+      const shadowAlpha = Math.pow(Math.max(avgColour.r, avgColour.g, avgColour.b), 2);
+      const finalShadowColour = colour.applyChild(ColourInfo.singleColour(this._shadowColour.multiplyAlpha(shadowAlpha)));
+
+      // premultipliedShadowOffset: ToScreenSpace(ShadowOffset * Font.Size) - ToScreenSpace(Vector2.Zero)
+      const m = drawInfo.matrix;
+      const x = this._shadowOffset.x * this._font.size;
+      const y = this._shadowOffset.y * this._font.size;
+      const shadowX = x * m.m11 + y * m.m21;
+      const shadowY = x * m.m12 + y * m.m22;
+
+      for (let i = 0; i < count; i++) {
+        const region = regions[i];
+        if (region === null) continue;
+
+        renderer.drawRegionAt(region, quads, i * 8, shadowX, shadowY, finalShadowColour, inflation[i * 2], inflation[i * 2 + 1]);
+        renderer.drawRegionAt(region, quads, i * 8, 0, 0, colour, inflation[i * 2], inflation[i * 2 + 1]);
+      }
+    } else {
+      for (let i = 0; i < count; i++) {
+        const region = regions[i];
+        if (region !== null)
+          renderer.drawRegionAt(region, quads, i * 8, 0, 0, colour, inflation[i * 2], inflation[i * 2 + 1]);
+      }
+    }
+  }
+
+  private updateScreenSpaceCharacters(characters: TextBuilderGlyph[], drawInfo: DrawInfo, pixelRatio: number): void {
+    const count = characters.length;
+
+    if (this.partQuads.length < count * 8) {
+      this.partQuads = new Float32Array(count * 8);
+      this.partInflation = new Float32Array(count * 2);
+    }
+
+    const quads = this.partQuads;
+    const inflation = this.partInflation;
+
+    // (one screen pixel is 1 / pixelRatio screen-space units)
+    const inverse = drawInfo.matrixInverse;
+    const inflationX = Math.hypot(inverse.m11, inverse.m12, inverse.m13) / pixelRatio;
+    const inflationY = Math.hypot(inverse.m21, inverse.m22, inverse.m23) / pixelRatio;
+
+    const m = drawInfo.matrix;
+    const m11 = m.m11, m12 = m.m12, m21 = m.m21, m22 = m.m22, m31 = m.m31, m32 = m.m32;
+
+    for (let i = 0; i < count; i++) {
+      const r = characters[i].drawRectangle;
+
+      // Source.ToScreenSpace(character.DrawRectangle.Inflate(inflationAmount))
+      const left = r.x - inflationX, top = r.y - inflationY, right = r.x + r.width + inflationX, bottom = r.y + r.height + inflationY;
+      const o = i * 8;
+
+      quads[o] = left * m11 + top * m21 + m31;
+      quads[o + 1] = left * m12 + top * m22 + m32;
+      quads[o + 2] = right * m11 + top * m21 + m31;
+      quads[o + 3] = right * m12 + top * m22 + m32;
+      quads[o + 4] = left * m11 + bottom * m21 + m31;
+      quads[o + 5] = left * m12 + bottom * m22 + m32;
+      quads[o + 6] = right * m11 + bottom * m21 + m31;
+      quads[o + 7] = right * m12 + bottom * m22 + m32;
+
+      inflation[i * 2] = r.width === 0 ? 0 : inflationX / r.width;
+      inflation[i * 2 + 1] = r.height === 0 ? 0 : inflationY / r.height;
+    }
   }
 
   // #endregion

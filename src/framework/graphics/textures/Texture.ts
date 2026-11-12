@@ -3,6 +3,8 @@
 
 import { Vector2 } from '../../layout/Vector2';
 
+const originsWithoutCors = new Set<string>();
+
 export class Texture {
   /** The url of the image (object URL or asset path). Null for the white pixel. */
   readonly url: string | null;
@@ -55,13 +57,38 @@ export class Texture {
 
   /** Loads an image into a Texture (decode included, so it is ready to display). */
   static async fromUrl(url: string, scaleAdjust = 1, assetName = url): Promise<Texture> {
-    const img = new Image();
+    let img = new Image();
     img.decoding = 'async';
+
+    // A renderer can only upload another origin's image if that origin allows it (CORS). Hosts that don't (assets.ppy.sh and a.ppy.sh, as
+    // of 2026-11) are loaded without CORS, and the texture is then one only the page itself can show (see Texture.image).
+    const origin = /^https?:/.test(url) ? new URL(url, location.href).origin : location.origin;
+    const crossOrigin = origin !== location.origin;
+    let uploadable = !originsWithoutCors.has(origin);
+
+    if (crossOrigin && uploadable)
+      img.crossOrigin = 'anonymous';
+
     img.src = url;
-    await img.decode();
+
+    try {
+      await img.decode();
+    } catch (e) {
+      if (!crossOrigin || !uploadable)
+        throw e;
+
+      // (asked once per origin: every refused request is logged by the browser and delays the image)
+      originsWithoutCors.add(origin);
+
+      img = new Image();
+      img.decoding = 'async';
+      img.src = url;
+      await img.decode();
+      uploadable = false;
+    }
 
     const t = new Texture(url, img.naturalWidth, img.naturalHeight);
-    t.image = img;
+    t.image = uploadable ? img : null;
     t.scaleAdjust = scaleAdjust;
     t.assetName = assetName;
     return t;

@@ -7,11 +7,17 @@
 
 import { Invalidation } from '../layout/Enums';
 import { MarginPadding } from '../layout/MarginPadding';
+import { RectangleF } from '../layout/Primitives';
+import { Colour4 } from './Colour4';
+import { ColourInfo } from './ColourInfo';
 import { Drawable } from './Drawable';
+import type { Renderer } from './rendering/Renderer';
 
 const resolution_headroom = 1.1;
 
 const no_overflow = new MarginPadding();
+
+const white = ColourInfo.singleColour(Colour4.White);
 
 export abstract class CanvasDrawable extends Drawable {
   // (createElement runs inside the Drawable constructor, before this class's fields are defined, so the canvas is read from the element.)
@@ -66,10 +72,63 @@ export abstract class CanvasDrawable extends Drawable {
   protected override applyElementState(): void {
     super.applyElementState();
 
+    this.renderCanvas();
+  }
+
+  // #region DrawNode (Renderer)
+
+  private static nextTextureID = 0;
+  private readonly textureKey = `canvas:${CanvasDrawable.nextTextureID++}`;
+
+  private renderedInvalidationID = 0;
+  private renderedBy: Renderer | null = null;
+  private rendered = false;
+
+  /**
+   * The canvas is drawn as a texture: redrawn and uploaded whenever the drawable was invalidated, then shown on the quad of the draw
+   * rectangle with its overflow. The picture already carries the draw colour, so the quad is white.
+   */
+  override draw(renderer: Renderer): void {
+    super.draw(renderer);
+
+    if (this.renderedInvalidationID !== this.invalidationID || this.renderedBy !== renderer) {
+      this.renderedInvalidationID = this.invalidationID;
+      this.renderedBy = renderer;
+
+      this.rendered = this.renderCanvas() && this.allocated;
+
+      if (this.rendered)
+        renderer.updateImage(this.textureKey, this.canvas);
+    }
+
+    // (nothing to show: no size, or the subclass released the canvas)
+    if (!this.rendered || !renderer.bindImage(this.textureKey, null))
+      return;
+
+    const size = this.drawSize;
+    const overflow = this.drawOverflow;
+
+    renderer.bindShader(renderer.textureShader);
+    renderer.drawQuadUV(
+      this.toScreenSpaceRect(new RectangleF(-overflow.left, -overflow.top, size.x + overflow.totalHorizontal, size.y + overflow.totalVertical)),
+      white, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0);
+  }
+
+  protected override disposeInternal(isDisposing: boolean): void {
+    this.renderedBy?.deleteImage(this.textureKey);
+    this.renderedBy = null;
+
+    super.disposeInternal(isDisposing);
+  }
+
+  // #endregion
+
+  /** Sizes the canvas for the current on-screen scale and draws it. Returns false if there is nothing to draw on. */
+  private renderCanvas(): boolean {
     const canvas = this.canvas;
     const ctx = this.contextBacking === undefined ? (this.contextBacking = canvas.getContext('2d')) : this.contextBacking;
     if (ctx === null)
-      return;
+      return false;
 
     const size = this.drawSize;
     const overflow = this.drawOverflow;
@@ -77,7 +136,7 @@ export abstract class CanvasDrawable extends Drawable {
     const totalHeight = size.y + overflow.totalVertical;
 
     if (size.x < 0 || size.y < 0 || totalWidth <= 0 || totalHeight <= 0)
-      return;
+      return false;
 
     // Pixels per draw-space unit on screen (from the DrawInfo matrix when there is no draw rectangle to measure).
     const ratio = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
@@ -123,6 +182,7 @@ export abstract class CanvasDrawable extends Drawable {
     ctx.setTransform(width / totalWidth, 0, 0, height / totalHeight, overflow.left * width / totalWidth, overflow.top * height / totalHeight);
 
     this.drawCanvas(ctx, size.x, size.y);
+    return true;
   }
 
   /** Draws the contents in draw space (0..width, 0..height), using drawColourInfo for colour. */

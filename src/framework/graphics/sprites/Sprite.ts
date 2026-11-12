@@ -165,6 +165,11 @@ export class Sprite extends Drawable {
     return new Vector2(scale.x * this._edgeSmoothness.x / pixelRatio, scale.y * this._edgeSmoothness.y / pixelRatio);
   }
 
+  /** TexturedShaderDrawNode.BindTextureShader: binds the sprite's shader (TextureShader) with its uniforms. */
+  protected bindTextureShader(renderer: Renderer): void {
+    renderer.bindShader(renderer.textureShader);
+  }
+
   /** SpriteDrawNode.Draw + Blit */
   override draw(renderer: Renderer): void {
     super.draw(renderer);
@@ -179,13 +184,16 @@ export class Sprite extends Drawable {
     if (drawSize.x === 0 || drawSize.y === 0)
       return;
 
-    renderer.bindShader(renderer.textureShader);
+    this.bindTextureShader(renderer);
 
     const smooth = this._edgeSmoothness.x !== 0 || this._edgeSmoothness.y !== 0;
     const r = this._textureRectangle;
     const wholeTexture = this._textureRelativeSizeAxes === Axes.Both && r.x === 0 && r.y === 0 && r.width === 1 && r.height === 1;
 
-    if (!smooth && wholeTexture) {
+    // An image the renderer may not upload is shown behind the canvas, through a hole (Renderer, Underlays).
+    const underlay = texture.image === null && !texture.isWhitePixel;
+
+    if (!smooth && wholeTexture && !underlay) {
       // (the common case: TextureCoords is the whole texture and nothing is inflated)
       if (renderer.bindTexture(texture))
         renderer.drawQuadUV(this.screenSpaceDrawQuad, this.drawColourInfo.colour, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0);
@@ -208,6 +216,23 @@ export class Sprite extends Drawable {
     const textureCoords = new RectangleF(
       -t.x / t.width * texture.displayWidth, -t.y / t.height * texture.displayHeight,
       drawSize.x / t.width * texture.displayWidth, drawSize.y / t.height * texture.displayHeight);
+
+    if (underlay) {
+      const colour = this.drawColourInfo.colour;
+      const average = colour.averageColour;
+      const plain = this.screenSpaceDrawQuad;
+      const holeQuad = quad;
+      const holeInflation = inflationPercentage;
+
+      renderer.drawUnderlay(
+        this, texture.url!, texture.width, texture.height, plain.topLeft, plain.topRight, plain.bottomLeft,
+        textureCoords.x / texture.displayWidth, textureCoords.y / texture.displayHeight,
+        textureCoords.right / texture.displayWidth, textureCoords.bottom / texture.displayHeight,
+        colour, (average.r + average.g + average.b) / 3,
+        c => renderer.drawQuad(Texture.WhitePixel, holeQuad, c, null, holeInflation));
+
+      return;
+    }
 
     renderer.drawQuad(texture, quad, this.drawColourInfo.colour, null, inflationPercentage, null, textureCoords);
   }

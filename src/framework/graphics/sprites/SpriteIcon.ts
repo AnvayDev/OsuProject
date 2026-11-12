@@ -4,11 +4,13 @@
 
 import type { IReadOnlyDependencyContainer } from '../../allocation/DependencyContainer';
 import { Invalidation, LoadState } from '../../layout/Enums';
+import { RectangleF } from '../../layout/Primitives';
 import { Vector2 } from '../../layout/Vector2';
-import { FontStore, loadPage, type GlyphTexture } from '../../text/FontStore';
+import { decodedPage, FontStore, loadPage, type GlyphTexture } from '../../text/FontStore';
 import { Colour4 } from '../Colour4';
 import { ColourInfo } from '../ColourInfo';
 import { Drawable } from '../Drawable';
+import type { Renderer } from '../rendering/Renderer';
 import { IconUsage } from './IconUsage';
 import { colourInfoToCss } from './Sprite';
 
@@ -116,6 +118,56 @@ export class SpriteIcon extends Drawable {
     if (this.loadState > LoadState.NotLoaded)
       this.updateTexture();
   }
+
+  // #region DrawNode (Renderer)
+
+  /** The shadow sprite and the icon sprite of SpriteIcon.cs (FillMode.Fit, centred), drawn as SpriteDrawNode does. */
+  override draw(renderer: Renderer): void {
+    super.draw(renderer);
+
+    const texture = this.texture;
+
+    if (texture === null)
+      return;
+
+    const page = decodedPage(texture.pageUrl);
+
+    if (page === null)
+      return;
+
+    const region = renderer.atlasRegion(texture.pageUrl, page, texture.x, texture.y, texture.width, texture.height);
+
+    if (region === null)
+      return;
+
+    const colour = this.drawColourInfo.colour;
+    const drawRect = this.drawRectangle;
+
+    // scale texture to fit into drawable
+    const scale = Math.min(drawRect.width / texture.width, drawRect.height / texture.height);
+    const width = texture.width * scale;
+    const height = texture.height * scale;
+
+    // move draw rectangle to make texture centered
+    const x = drawRect.x + (drawRect.width - width) * 0.5;
+    const y = drawRect.y + (drawRect.height - height) * 0.5;
+
+    renderer.bindShader(renderer.textureShader);
+
+    if (this._shadow) {
+      //adjust shadow alpha based on highest component intensity to avoid muddy display of darker text.
+      //squared result for quadratic fall-off seems to give the best result.
+      const avgColour = colour.averageColour;
+      const alpha = Math.pow(Math.max(Math.max(avgColour.r, avgColour.g), avgColour.b), 2);
+      const shadowColour = colour.applyChild(ColourInfo.singleColour(this._shadowColour).multiplyAlpha(alpha));
+
+      renderer.drawRegion(region, this.toScreenSpaceRect(new RectangleF(x + this._shadowOffset.x, y + this._shadowOffset.y, width, height)), shadowColour, 0, 0);
+    }
+
+    renderer.drawRegion(region, this.toScreenSpaceRect(new RectangleF(x, y, width, height)), colour, 0, 0);
+  }
+
+  // #endregion
 
   // #region DrawNode (DOM)
 

@@ -333,3 +333,183 @@ export function fragmentShader(body: string): string {
 export function vertexShader(body: string): string {
   return `${HEADER}\n${body}\n${vertexOutput('real_main')}`;
 }
+
+/**
+ * Not a port: draws a rectangle of an image into the texture atlas together with its padding, which TextureAtlas.BackingAtlasTexture
+ * composes on the CPU (uploadCornerPadding, uploadHorizontalPadding, uploadVerticalPadding): the padding takes the colour of the nearest
+ * edge pixel and zero alpha. The viewport is the padded destination rectangle.
+ */
+export const ATLAS_BLIT_VS = `#version 300 es
+void main(void)
+{
+    // One triangle covering the viewport.
+    gl_Position = vec4(float(gl_VertexID == 1) * 4.0 - 1.0, float(gl_VertexID == 2) * 4.0 - 1.0, 0.0, 1.0);
+}
+`;
+
+export const ATLAS_BLIT_FS = `#version 300 es
+precision highp float;
+
+uniform sampler2D m_Sampler;
+uniform vec2 u_Destination;
+uniform vec2 u_Source;
+uniform vec2 u_Size;
+
+out vec4 o_Colour;
+
+void main(void)
+{
+    vec2 position = floor(gl_FragCoord.xy - u_Destination);
+    vec2 clamped = clamp(position, vec2(0.0), u_Size - 1.0);
+
+    vec4 colour = texelFetch(m_Sampler, ivec2(u_Source + clamped), 0);
+
+    o_Colour = vec4(colour.rgb, position == clamped ? colour.a : 0.0);
+}
+`;
+
+/** sh_Blur.fs (the uniform block m_BlurParameters as plain uniforms) */
+export const BLUR_FS = `${HEADER}
+${UTILS}
+#undef INV_SQRT_2PI
+#define INV_SQRT_2PI 0.39894
+
+in vec2 v_TexCoord;
+
+uniform vec2 g_TexSize;
+uniform int g_Radius;
+uniform float g_Sigma;
+uniform vec2 g_BlurDirection;
+
+uniform sampler2D m_Sampler;
+
+out vec4 o_Colour;
+
+float computeGauss(in float x, in float sigma)
+{
+    return INV_SQRT_2PI * exp(-0.5*x*x / (sigma*sigma)) / sigma;
+}
+
+vec4 blur(int radius, vec2 direction, vec2 texCoord, vec2 texSize, float sigma)
+{
+    float factor = computeGauss(0.0, sigma);
+    vec4 sum = texture(m_Sampler, texCoord) * factor;
+
+    float totalFactor = factor;
+
+    for (int i = 2; i <= 200; i += 2)
+    {
+        float x = float(i) - 0.5;
+        factor = computeGauss(x, sigma) * 2.0;
+        totalFactor += 2.0 * factor;
+        sum += texture(m_Sampler, texCoord + direction * x / texSize) * factor;
+        sum += texture(m_Sampler, texCoord - direction * x / texSize) * factor;
+        if (i >= radius)
+            break;
+    }
+
+    float one = g_BackbufferDraw ? 0.0 : 1.0;
+
+    return sum / totalFactor * one;
+}
+
+void main(void)
+{
+    o_Colour = blur(g_Radius, g_BlurDirection, v_TexCoord, g_TexSize, g_Sigma);
+}
+`;
+
+/** sh_CircularProgress.fs + sh_CircularProgressUtils.h (the uniform block m_CircularProgressParameters as plain uniforms) */
+export const CIRCULAR_PROGRESS_FS = `${HEADER}
+${UTILS}
+${MASKING}
+${TEXTURE_WRAPPING}
+#undef PI
+#define PI 3.1415926536
+
+#undef HALF_PI
+#define HALF_PI 1.57079632679
+
+#undef TWO_PI
+#define TWO_PI 6.28318530718
+
+in vec2 v_TexCoord;
+
+uniform float innerRadius;
+uniform float progress;
+uniform float texelSize;
+uniform bool roundedCaps;
+
+uniform sampler2D m_Sampler;
+
+out vec4 o_Colour;
+
+float dstToLine(vec2 start, vec2 end, vec2 pixelPos)
+{
+    vec2 dir = end - start;
+    float lineLengthSquared = dir.x * dir.x + dir.y * dir.y;
+
+    if (lineLengthSquared < 0.000001)
+        return distance(pixelPos, start);
+
+    vec2 dir2 = pixelPos - start;
+    float t = clamp(dot(dir2, dir), 0.0, lineLengthSquared) / lineLengthSquared;
+    return distance(pixelPos, start + dir * t);
+}
+
+// Returns distance to the progress shape (to closest pixel on it's border)
+float distanceToProgress(vec2 pixelPos, float progress, float innerRadius, bool roundedCaps, float texelSize)
+{
+    // Compute angle of the current pixel in the (0, 2*PI) range
+    float pixelAngle = atan(0.5 - pixelPos.y, 0.5 - pixelPos.x) - HALF_PI;
+
+    if (pixelAngle < 0.0)
+        pixelAngle += TWO_PI;
+
+    float progressAngle = TWO_PI * progress;
+
+    float pathRadius = 0.25 * innerRadius;
+
+    float halfTexel = texelSize * 0.5;
+
+    if (progress >= 1.0 || pixelAngle < progressAngle) // Pixel inside the sector
+        return abs(distance(pixelPos, vec2(0.5)) - (0.5 - pathRadius - halfTexel)) - pathRadius + halfTexel;
+
+    vec2 cs = vec2(cos(progressAngle - HALF_PI), sin(progressAngle - HALF_PI));
+
+    if (roundedCaps) // Pixel outside the sector with rounded caps enabled
+    {
+        vec2 arcStart = vec2(0.5, pathRadius + halfTexel);
+        vec2 arcEnd = vec2(0.5) + cs * vec2(0.5 - pathRadius - halfTexel);
+
+        return min(distance(pixelPos, arcStart), distance(pixelPos, arcEnd)) + halfTexel - pathRadius;
+    }
+
+    float dstToIdleEdge = dstToLine(vec2(0.5, texelSize), vec2(0.5, 2.0 * pathRadius), pixelPos);
+
+    vec2 rotatingEdgeTop = vec2(0.5) + cs * vec2(0.5 - texelSize);
+    vec2 rotatingEdgeBottom = vec2(0.5) + cs * vec2(0.5 - 2.0 * pathRadius);
+    float dstToRotatingEdge = dstToLine(rotatingEdgeTop, rotatingEdgeBottom, pixelPos);
+    return min(dstToIdleEdge, dstToRotatingEdge);
+}
+
+float progressAlphaAt(vec2 pixelPos, float progress, float innerRadius, bool roundedCaps, float texelSize)
+{
+    // This is a bit of a hack to make progress appear smooth if it's radius < texelSize by making it more transparent while leaving thickness the same
+    float subAAMultiplier = 1.0;
+    subAAMultiplier = clamp(innerRadius / (texelSize * 2.0), 0.1, 1.0);
+    innerRadius = max(innerRadius, texelSize * 2.0);
+
+    return smoothstep(texelSize, 0.0, distanceToProgress(pixelPos, progress, innerRadius, roundedCaps, texelSize)) * subAAMultiplier;
+}
+
+void main(void)
+{
+    vec2 resolution = v_TexRect.zw - v_TexRect.xy;
+    vec2 pixelPos = (v_TexCoord - v_TexRect.xy) / resolution;
+
+    vec2 wrappedCoord = wrap(v_TexCoord, v_TexRect);
+    vec4 textureColour = getRoundedColor(wrappedSampler(wrappedCoord, v_TexRect, m_Sampler, -0.9), wrappedCoord);
+    o_Colour = vec4(textureColour.rgb, textureColour.a * progressAlphaAt(pixelPos, progress, innerRadius, roundedCaps, texelSize));
+}
+`;

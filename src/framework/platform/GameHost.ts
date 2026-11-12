@@ -4,6 +4,7 @@
 import { DependencyContainer } from '../allocation/DependencyContainer';
 import { FrameworkConfigManager } from '../configuration/FrameworkConfigManager';
 import { BindableBool } from '../bindables/Bindable';
+import { GLContainer } from '../graphics/containers/GLContainer';
 import { Container } from '../graphics/containers/Container';
 import type { Drawable } from '../graphics/Drawable';
 import { InputKey, KeyBinding } from '../input/bindings/KeyBindings';
@@ -51,6 +52,12 @@ export class GameHost {
   /** The DOM element the scene graph is mounted into (defaults to document.body). */
   constructor(private readonly mount: HTMLElement = document.body) {}
 
+  /**
+   * Whether the scene graph is drawn by the framework's renderer (one WebGL canvas, as the client draws) instead of DOM elements.
+   * Set before run().
+   */
+  drawWithRenderer = false;
+
   /** Whether the game window is active (focused): the browser window has focus and the page is visible. */
   readonly isActive = new BindableBool(true);
 
@@ -85,7 +92,7 @@ export class GameHost {
     const root = this.createRoot(game);
     root.child = new PlatformActionContainer().with({
       // (FrameworkActionContainer, which only drives debug overlays, is not ported.) The plain container stands in for SafeAreaDefiningContainer.
-      child: new Container().with({ relativeSizeAxes: Axes.Both, child: game }),
+      child: (this.drawWithRenderer ? new GLContainer().with({ opaque: true }) : new Container()).with({ relativeSizeAxes: Axes.Both, child: game }),
     });
 
     this.dependencies.cache(root);

@@ -19,6 +19,9 @@ export class GLContainer extends Container {
 
   private canvas: HTMLCanvasElement | null = null;
 
+  /** Whether the canvas is the whole picture, cleared to opaque black as the client's backbuffer (set before the first draw). */
+  opaque = false;
+
   /** Time spent in the last draw (generating the draw list and submitting it), in milliseconds. */
   lastDrawDuration = 0;
 
@@ -41,11 +44,18 @@ export class GLContainer extends Container {
       return;
 
     if (this.canvas === null) {
+      // (behind the canvas: see Renderer, Underlays)
+      const underlays = document.createElement('div');
+      underlays.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;pointer-events:none';
+      this.element.appendChild(underlays);
+
       const canvas = this.canvas = document.createElement('canvas');
       canvas.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none';
       this.element.appendChild(canvas);
 
       this.rendererBacking = new Renderer(canvas);
+      this.rendererBacking.underlayHost = underlays;
+      this.rendererBacking.opaque = this.opaque;
     }
 
     const canvas = this.canvas;

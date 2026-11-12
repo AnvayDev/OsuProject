@@ -4,6 +4,8 @@
 // only matters with mipmaps, which aren't used here.)
 
 import { Drawable } from '@fw/graphics/Drawable';
+import type { Renderer } from '@fw/graphics/rendering/Renderer';
+import { fragmentShader } from '@fw/graphics/rendering/shaders';
 import type { Texture } from '@fw/graphics/textures/Texture';
 import { Invalidation } from '@fw/layout/Enums';
 
@@ -32,6 +34,32 @@ void main() {
   vec4 colour = current < progress ? vec4(v_Colour.rgb, v_Colour.a * alpha) : vec4(0.0);
   gl_FragColor = vec4(colour.rgb * colour.a, colour.a);
 }`;
+
+/** osu-resources Shaders/sh_LogoAnimation.fs (with the framework's Texture2D vertex shader) */
+const logo_animation_fs = fragmentShader(/* glsl */ `
+in vec4 v_Colour;
+in vec2 v_TexCoord;
+
+uniform sampler2D m_Sampler;
+uniform float progress;
+
+out vec4 o_Colour;
+
+void main(void)
+{
+    // todo: workaround for a SPIR-V bug (https://github.com/ppy/osu-framework/issues/5719)
+    float one = g_BackbufferDraw ? 1.0 : 0.0;
+
+    vec4 texel = texture(m_Sampler, v_TexCoord, -0.9) * one;
+
+    // progress information is stored in the red channel,
+    // and alpha information is stored in the green channel.
+    float current = texel.r;
+    float alpha = texel.g;
+
+    o_Colour = current < progress ? vec4(v_Colour.rgb, v_Colour.a * alpha) : vec4(0);
+}
+`);
 
 interface GlState {
   gl: WebGLRenderingContext;
@@ -74,6 +102,32 @@ export class LogoAnimation extends Drawable {
   }
 
   private glState: GlState | null = null;
+
+  // #region DrawNode (Renderer): LogoAnimationDrawNode
+
+  override draw(renderer: Renderer): void {
+    super.draw(renderer);
+
+    const texture = this._texture;
+
+    if (texture === null)
+      return;
+
+    const shader = renderer.loadShader('LogoAnimation', logo_animation_fs);
+
+    renderer.bindShader(shader);
+    // (the uniform belongs to this quad)
+    renderer.flushCurrentBatch();
+    renderer.gl.uniform1f(shader.getUniformLocation('progress'), this._animationProgress);
+
+    if (renderer.bindTexture(texture))
+      renderer.drawQuadUV(this.screenSpaceDrawQuad, this.drawColourInfo.colour, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0);
+
+    renderer.flushCurrentBatch();
+    renderer.bindShader(renderer.textureShader);
+  }
+
+  // #endregion
 
   // (createElement runs inside the Drawable constructor, before this class's fields are defined, so the canvas is read from the element.)
   private get canvas(): HTMLCanvasElement {

@@ -196,6 +196,11 @@ export function glyphImageUrl(tex: GlyphTexture): string | null {
   return url;
 }
 
+/** The decoded image of an atlas page (null until loadPage has completed, or if it failed). */
+export function decodedPage(url: string): HTMLImageElement | null {
+  return decodedPages.get(url) ?? null;
+}
+
 /**
  * Ensures an atlas page image is decoded (so glyphs appear on the first frame they are shown).
  * Returns nothing once the page is decoded, so loads of drawables using it stay synchronous, as osu! gets cached glyph textures.

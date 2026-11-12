@@ -19,7 +19,7 @@ import type { ColourInfo } from '../ColourInfo';
 import { BlendingParameters } from '../DrawInfo';
 import { Texture } from '../textures/Texture';
 import { type MaskingInfo, maskingInfoEquals, NO_EDGE_OFFSET } from './MaskingInfo';
-import { GLOBAL_UNIFORMS_SIZE, TEXTURE_2D_VS, TEXTURE_FS, TEXTURED_VERTEX_2D_ATTRIBUTES } from './shaders';
+import { ATLAS_BLIT_FS, ATLAS_BLIT_VS, GLOBAL_UNIFORMS_SIZE, TEXTURE_2D_VS, TEXTURE_FS, TEXTURED_VERTEX_2D_ATTRIBUTES } from './shaders';
 
 /** Graphics/Textures/WrapMode.cs */
 export enum WrapMode {
@@ -84,10 +84,126 @@ export class Shader {
   }
 }
 
-interface NativeTexture {
+export interface NativeTexture {
   readonly texture: WebGLTexture;
   wrapS: WrapMode;
   wrapT: WrapMode;
+  width: number;
+  height: number;
+  /** Whether level 0 changed since the mipmaps were generated (they are regenerated when the texture is next bound). */
+  mipmapsDirty: boolean;
+}
+
+/** A rectangle of an atlas texture (TextureRegion). */
+export interface AtlasRegion {
+  readonly native: NativeTexture;
+  /** The texture rectangle, in UV. */
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+}
+
+/** TextureAtlas.PADDING: (1 << MAX_MIPMAP_LEVELS) * Sprite.MAX_EDGE_SMOOTHNESS */
+const ATLAS_PADDING = (1 << 3) * 3;
+const ATLAS_SIZE = 2048;
+
+/**
+ * Graphics/Textures/TextureAtlas.cs + TextureAtlas.BackingAtlasTexture.cs. Sub-textures are placed left to right in rows, PADDING apart,
+ * and half of the padding around each is filled with its edge pixels' colour at zero alpha, so that neither linear filtering nor the
+ * mipmaps blend a sub-texture with black or with its neighbours.
+ * Web: the client composes the padding on the CPU and uploads it; here the source is already a texture (an image the browser decoded),
+ * so the sub-texture and its padding are drawn into the atlas by a shader, and the mipmaps are generated when the atlas is next bound.
+ */
+class TextureAtlas {
+  native: NativeTexture;
+
+  private readonly bounds: { right: number; bottom: number }[] = [];
+  private x = ATLAS_PADDING;
+  private y = ATLAS_PADDING;
+
+  constructor(private readonly renderer: Renderer) {
+    this.native = renderer.createEmptyTexture(ATLAS_SIZE, ATLAS_SIZE, true);
+  }
+
+  static canFit(width: number, height: number): boolean {
+    return width <= ATLAS_SIZE - ATLAS_PADDING * 2 && height <= ATLAS_SIZE - ATLAS_PADDING * 2;
+  }
+
+  /** findPosition. Returns null when the atlas is full (the caller starts a new one, as Reset does). */
+  findPosition(width: number, height: number): { x: number; y: number } | null {
+    if (this.y + height + ATLAS_PADDING > ATLAS_SIZE)
+      return null;
+
+    if (this.x + width + ATLAS_PADDING > ATLAS_SIZE) {
+      let maxY = 0;
+      for (const b of this.bounds) maxY = Math.max(maxY, b.bottom + ATLAS_PADDING);
+
+      this.bounds.length = 0;
+      this.x = ATLAS_PADDING;
+      this.y = maxY;
+
+      return this.findPosition(width, height);
+    }
+
+    const result = { x: this.x, y: this.y };
+    this.bounds.push({ right: result.x + width, bottom: result.y + height });
+    this.x += width + ATLAS_PADDING;
+
+    return result;
+  }
+}
+
+/**
+ * Graphics/OpenGL/Buffers/GLFrameBuffer.cs: a texture that can be drawn to. Its size is in device pixels.
+ * Bound with Renderer.bindFrameBuffer and drawn with Renderer.drawFrameBuffer.
+ */
+export class FrameBuffer {
+  readonly native: NativeTexture;
+  readonly framebuffer: WebGLFramebuffer;
+
+  constructor(private readonly renderer: Renderer, nearest = false) {
+    const gl = renderer.gl;
+
+    this.native = renderer.createEmptyTexture(1, 1, false, nearest);
+    this.framebuffer = gl.createFramebuffer()!;
+
+    renderer.attach(this);
+  }
+
+  get width(): number {
+    return this.native.width;
+  }
+
+  get height(): number {
+    return this.native.height;
+  }
+
+  /** IFrameBuffer.Size: (re)allocates the texture when the size changes (its contents are then undefined). */
+  setSize(width: number, height: number): void {
+    const max = this.renderer.maxTextureSize;
+    width = Math.min(Math.max(Math.ceil(width), 1), max);
+    height = Math.min(Math.max(Math.ceil(height), 1), max);
+
+    if (width === this.native.width && height === this.native.height)
+      return;
+
+    this.renderer.resizeTexture(this.native, width, height);
+  }
+
+  bind(): void {
+    this.renderer.bindFrameBuffer(this);
+  }
+
+  unbind(): void {
+    this.renderer.unbindFrameBuffer(this);
+  }
+
+  dispose(): void {
+    const gl = this.renderer.gl;
+    gl.deleteFramebuffer(this.framebuffer);
+    this.renderer.deleteNativeTexture(this.native);
+  }
 }
 
 /** Statistics of the last completed frame. */
@@ -96,6 +212,8 @@ export interface RendererStatistics {
   quads: number;
   maskingChanges: number;
   textureBinds: number;
+  /** Frame buffers bound (a buffered container's redraw binds its main buffer once, and one more per blur pass). */
+  frameBufferBinds: number;
 }
 
 export class Renderer {
@@ -106,8 +224,8 @@ export class Renderer {
 
   frameIndex = 0;
 
-  readonly statistics: RendererStatistics = { drawCalls: 0, quads: 0, maskingChanges: 0, textureBinds: 0 };
-  private readonly frameStatistics: RendererStatistics = { drawCalls: 0, quads: 0, maskingChanges: 0, textureBinds: 0 };
+  readonly statistics: RendererStatistics = { drawCalls: 0, quads: 0, maskingChanges: 0, textureBinds: 0, frameBufferBinds: 0 };
+  private readonly frameStatistics: RendererStatistics = { drawCalls: 0, quads: 0, maskingChanges: 0, textureBinds: 0, frameBufferBinds: 0 };
 
   /** The shader of sprites, boxes and text (the "Texture2D"/"Texture" pair of the ShaderManager). */
   readonly textureShader: Shader;
@@ -182,6 +300,18 @@ export class Renderer {
     return new Shader(this.gl, name, vertexSource, fragmentSource, attributes);
   }
 
+  private readonly shaders = new Map<string, Shader>();
+
+  /** ShaderManager.Load(VertexShaderDescriptor.TEXTURE_2, name): a fragment shader for TexturedVertex2D, compiled on first use. */
+  loadShader(name: string, fragmentSource: string): Shader {
+    let shader = this.shaders.get(name);
+
+    if (shader === undefined)
+      this.shaders.set(name, shader = this.createShader(name, TEXTURE_2D_VS, fragmentSource, TEXTURED_VERTEX_2D_ATTRIBUTES));
+
+    return shader;
+  }
+
   // #region Frame
 
   /**
@@ -196,7 +326,7 @@ export class Renderer {
     this.frameIndex++;
 
     const fs = this.frameStatistics;
-    fs.drawCalls = fs.quads = fs.maskingChanges = fs.textureBinds = 0;
+    fs.drawCalls = fs.quads = fs.maskingChanges = fs.textureBinds = fs.frameBufferBinds = 0;
 
     this.globalUniformsChanged = true;
     this.currentBlending = null;
@@ -243,12 +373,21 @@ export class Renderer {
       hollowCornerRadius: 0,
     }, true);
 
-    // (the client clears to opaque black; this backbuffer is a layer over the DOM.)
-    this.clear(0, 0, 0, 0);
+    // The client clears to opaque black. A backbuffer that is a layer over other DOM content starts transparent instead.
+    this.clear(0, 0, 0, this.opaque ? 1 : 0);
+
+    this.window = window;
+    this.underlayIndex = 0;
   }
+
+  /** Whether the backbuffer is the whole picture (cleared to opaque black, as the client's) or a transparent layer over the page. */
+  opaque = false;
+
+  private window: RectangleF = RectangleF.Empty;
 
   finishFrame(): void {
     this.flushCurrentBatch();
+    this.finishUnderlays();
 
     const fs = this.frameStatistics;
     const s = this.statistics;
@@ -256,6 +395,7 @@ export class Renderer {
     s.quads = fs.quads;
     s.maskingChanges = fs.maskingChanges;
     s.textureBinds = fs.textureBinds;
+    s.frameBufferBinds = fs.frameBufferBinds;
   }
 
   clear(r: number, g: number, b: number, a: number): void {
@@ -525,7 +665,94 @@ export class Renderer {
 
     this.boundTexture = null;
 
-    return { texture, wrapS: WrapMode.ClampToEdge, wrapT: WrapMode.ClampToEdge };
+    const size = sourceSize(source);
+    return { texture, wrapS: WrapMode.ClampToEdge, wrapT: WrapMode.ClampToEdge, width: size.width, height: size.height, mipmapsDirty: false };
+  }
+
+  /** @internal Creates a texture of the given size with undefined contents (a frame buffer's) or transparent black (an atlas's, with mipmaps). */
+  createEmptyTexture(width: number, height: number, mipmaps: boolean, nearest = false): NativeTexture {
+    const gl = this.gl;
+    const texture = gl.createTexture()!;
+
+    this.flushCurrentBatch();
+
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, mipmaps ? new Uint8Array(width * height * 4) : null);
+
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, nearest ? gl.NEAREST : gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    if (mipmaps) {
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_BASE_LEVEL, 0);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, MAX_MIPMAP_LEVELS);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.generateMipmap(gl.TEXTURE_2D);
+    } else
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, nearest ? gl.NEAREST : gl.LINEAR);
+
+    this.boundTexture = null;
+
+    return { texture, wrapS: WrapMode.ClampToEdge, wrapT: WrapMode.ClampToEdge, width, height, mipmapsDirty: false };
+  }
+
+  /** @internal */
+  resizeTexture(native: NativeTexture, width: number, height: number): void {
+    const gl = this.gl;
+
+    this.flushCurrentBatch();
+
+    gl.bindTexture(gl.TEXTURE_2D, native.texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    this.boundTexture = null;
+
+    native.width = width;
+    native.height = height;
+  }
+
+  /** @internal */
+  deleteNativeTexture(native: NativeTexture): void {
+    this.flushCurrentBatch();
+    this.gl.deleteTexture(native.texture);
+
+    if (this.boundTexture === native)
+      this.boundTexture = null;
+  }
+
+  get maxTextureSize(): number {
+    return this.maxTextureSizeBacking ??= this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE) as number;
+  }
+
+  private maxTextureSizeBacking: number | null = null;
+
+  /**
+   * Uploads the current contents of a changing image (a canvas that was redrawn, a video frame) to its texture, creating it on first use.
+   * Such textures have no mipmaps.
+   */
+  updateImage(key: string, source: TexImageSource): void {
+    const gl = this.gl;
+    const native = this.nativeTextures.get(key);
+
+    this.flushCurrentBatch();
+
+    if (native === undefined) {
+      this.nativeTextures.set(key, this.createNativeTexture(source, false));
+      return;
+    }
+
+    const size = sourceSize(source);
+
+    gl.bindTexture(gl.TEXTURE_2D, native.texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    this.boundTexture = null;
+
+    native.width = size.width;
+    native.height = size.height;
+  }
+
+  /** Whether updateImage or bindImage has created a texture for the key. */
+  hasImage(key: string): boolean {
+    return this.nativeTextures.has(key);
   }
 
   /**
@@ -556,8 +783,8 @@ export class Renderer {
     return this.bindImage(texture.url!, texture.image, wrapModeS, wrapModeT);
   }
 
-  private bindNativeTexture(native: NativeTexture, wrapModeS: WrapMode, wrapModeT: WrapMode): void {
-    if (this.boundTexture === native && this.currentWrapModeS === wrapModeS && this.currentWrapModeT === wrapModeT)
+  bindNativeTexture(native: NativeTexture, wrapModeS = WrapMode.None, wrapModeT = WrapMode.None): void {
+    if (this.boundTexture === native && this.currentWrapModeS === wrapModeS && this.currentWrapModeT === wrapModeT && !native.mipmapsDirty)
       return;
 
     this.flushCurrentBatch();
@@ -568,6 +795,11 @@ export class Renderer {
       gl.bindTexture(gl.TEXTURE_2D, native.texture);
       this.boundTexture = native;
       this.frameStatistics.textureBinds++;
+    }
+
+    if (native.mipmapsDirty) {
+      gl.generateMipmap(gl.TEXTURE_2D);
+      native.mipmapsDirty = false;
     }
 
     // (GLTexture.Bind: the wrap mode of the native texture follows the one it is bound with; None is clamped by the shader's texRect.)
@@ -820,11 +1052,354 @@ export class Renderer {
       blendRangeOverride !== null ? blendRangeOverride.x : inflationX, blendRangeOverride !== null ? blendRangeOverride.y : inflationY);
   }
 
+  /** Adds a quad showing an atlas region (a glyph); as drawQuad with the region as the texture rectangle. */
+  drawRegion(region: AtlasRegion, quad: Quad, colour: ColourInfo, inflationPercentageX: number, inflationPercentageY: number): void {
+    this.bindNativeTexture(region.native);
+
+    const inflationX = inflationPercentageX * (region.right - region.left);
+    const inflationY = inflationPercentageY * (region.bottom - region.top);
+
+    this.drawQuadUV(
+      quad, colour, region.left, region.top, region.right, region.bottom,
+      region.left - inflationX, region.top - inflationY, region.right + inflationX, region.bottom + inflationY,
+      inflationX, inflationY);
+  }
+
+  /**
+   * As drawRegion, for a quad given as eight numbers at `offset` of `quads` (top-left, top-right, bottom-left, bottom-right; x then y),
+   * moved by (dx, dy). Text draws thousands of these per frame, so nothing is allocated.
+   */
+  drawRegionAt(
+    region: AtlasRegion, quads: Float32Array, offset: number, dx: number, dy: number, colour: ColourInfo,
+    inflationPercentageX: number, inflationPercentageY: number,
+  ): void {
+    this.bindNativeTexture(region.native);
+
+    if (this.quadCount === MAX_QUADS)
+      this.flushCurrentBatch();
+
+    const left = region.left, top = region.top, right = region.right, bottom = region.bottom;
+    const inflationX = inflationPercentageX * (right - left);
+    const inflationY = inflationPercentageY * (bottom - top);
+    const coordLeft = left - inflationX, coordTop = top - inflationY, coordRight = right + inflationX, coordBottom = bottom + inflationY;
+
+    const v = this.vertices;
+    let o = this.quadCount++ * QUAD_FLOATS;
+
+    // BottomLeft, BottomRight, TopRight, TopLeft
+    o = writeVertexXY(v, o, quads[offset + 4] + dx, quads[offset + 5] + dy, colour.bottomLeft, coordLeft, coordBottom, left, top, right, bottom, inflationX, inflationY);
+    o = writeVertexXY(v, o, quads[offset + 6] + dx, quads[offset + 7] + dy, colour.bottomRight, coordRight, coordBottom, left, top, right, bottom, inflationX, inflationY);
+    o = writeVertexXY(v, o, quads[offset + 2] + dx, quads[offset + 3] + dy, colour.topRight, coordRight, coordTop, left, top, right, bottom, inflationX, inflationY);
+    writeVertexXY(v, o, quads[offset] + dx, quads[offset + 1] + dy, colour.topLeft, coordLeft, coordTop, left, top, right, bottom, inflationX, inflationY);
+  }
+
+  // #endregion
+
+  // #region Underlays
+  // Not in the client. An image from an origin that doesn't allow cross-origin use (no CORS headers) can be shown by the page but never
+  // uploaded to a texture. Such a texture is shown by an <img> element behind the canvas, and the sprite's quad is drawn as a hole: it
+  // multiplies what is already there by (1 - alpha), colour and coverage alike, so the image shows through exactly where and as strongly as
+  // the sprite would have covered. Everything drawn later blends over the hole as usual. Limits: the picture's own transparency is ignored,
+  // a tint is reduced to its brightness, and there is no underlay inside a frame buffer (the sprite is not drawn there).
+
+  /** The element behind the canvas that underlay images are put into (set by the canvas's owner; null: underlays are not drawn). */
+  underlayHost: HTMLElement | null = null;
+
+  private readonly underlays = new Map<object, { wrapper: HTMLElement; image: HTMLImageElement; frame: number; url: string; clip: string; transform: string; index: number }>();
+  private underlayIndex = 0;
+
+  /**
+   * Shows `url` behind the canvas, placed so that its texture coordinates (left, top, right, bottom; 0 to 1) fall on the given screen-space
+   * corners, and draws its hole with `drawHole` (which draws the sprite's quad with a white texture and the given colour).
+   * @param tint The brightness the image is shown at (the average of a grey tint's components).
+   */
+  drawUnderlay(
+    owner: object, url: string, width: number, height: number,
+    topLeft: Vector2, topRight: Vector2, bottomLeft: Vector2, left: number, top: number, right: number, bottom: number,
+    colour: ColourInfo, tint: number, drawHole: (colour: ColourInfo) => void,
+  ): void {
+    const host = this.underlayHost;
+
+    if (host === null || !this.usingBackbuffer || this.scissor === null)
+      return;
+
+    let underlay = this.underlays.get(owner);
+
+    if (underlay === undefined) {
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = 'position:absolute;overflow:hidden;pointer-events:none';
+
+      const image = document.createElement('img');
+      image.style.cssText = 'position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform;max-width:none';
+      wrapper.appendChild(image);
+      host.appendChild(wrapper);
+
+      this.underlays.set(owner, underlay = { wrapper, image, frame: 0, url: '', clip: '', transform: '', index: -1 });
+    }
+
+    if (underlay.url !== url)
+      underlay.image.src = underlay.url = url;
+
+    // The element is clipped to the scissor (the masking parents' bounds), so it can't show through another image's hole outside them.
+    const ratio = this.pixelRatio;
+    const scissor = this.scissor;
+    const clipX = scissor.x / ratio, clipY = scissor.y / ratio;
+    const clip = `left:${clipX}px;top:${clipY}px;width:${scissor.width / ratio}px;height:${scissor.height / ratio}px`;
+
+    if (underlay.clip !== clip) {
+      const style = underlay.wrapper.style;
+      style.left = `${clipX}px`;
+      style.top = `${clipY}px`;
+      style.width = `${scissor.width / ratio}px`;
+      style.height = `${scissor.height / ratio}px`;
+      underlay.clip = clip;
+    }
+
+    // Image pixels to screen space: (x, y) -> topLeft + (x / width - left) / (right - left) * (topRight - topLeft) + ...
+    const a = (topRight.x - topLeft.x) / ((right - left) * width);
+    const b = (topRight.y - topLeft.y) / ((right - left) * width);
+    const c = (bottomLeft.x - topLeft.x) / ((bottom - top) * height);
+    const d = (bottomLeft.y - topLeft.y) / ((bottom - top) * height);
+    const e = topLeft.x - a * left * width - c * top * height - this.window.x - clipX;
+    const f = topLeft.y - b * left * width - d * top * height - this.window.y - clipY;
+    const transform = `matrix(${a},${b},${c},${d},${e},${f})`;
+
+    if (underlay.transform !== transform)
+      underlay.image.style.transform = underlay.transform = transform;
+
+    // Later sprites' images are above earlier ones.
+    if (underlay.index !== this.underlayIndex)
+      underlay.wrapper.style.zIndex = `${underlay.index = this.underlayIndex}`;
+
+    this.underlayIndex++;
+
+    if (underlay.frame !== this.frameIndex - 1)
+      underlay.wrapper.style.display = '';
+
+    underlay.frame = this.frameIndex;
+
+    // The hole.
+    const gl = this.gl;
+
+    this.flushCurrentBatch();
+    gl.blendFunc(gl.ZERO, gl.ONE_MINUS_SRC_ALPHA);
+
+    if (tint >= 1)
+      drawHole(colour);
+    else {
+      // The image shows through by the canvas's alpha, so a darker image is a hole that is less deep than what it removes of the colour.
+      gl.colorMask(true, true, true, false);
+      drawHole(colour);
+      this.flushCurrentBatch();
+
+      gl.colorMask(false, false, false, true);
+      drawHole(colour.multiplyAlpha(Math.max(tint, 0)));
+    }
+
+    this.flushCurrentBatch();
+    gl.colorMask(true, true, true, true);
+
+    if (this.currentBlending !== null)
+      this.setBlendImplementation(this.currentBlending);
+  }
+
+  private finishUnderlays(): void {
+    for (const [owner, underlay] of this.underlays) {
+      if (underlay.frame === this.frameIndex)
+        continue;
+
+      // Not drawn this frame: hidden at once, and removed if it stays that way.
+      if (underlay.frame === this.frameIndex - 1)
+        underlay.wrapper.style.display = 'none';
+      else if (this.frameIndex - underlay.frame > 600) {
+        underlay.wrapper.remove();
+        this.underlays.delete(owner);
+      }
+    }
+  }
+
+  // #endregion
+
+  // #region Frame buffers
+
+  private readonly frameBufferStack: FrameBuffer[] = [];
+
+  /** @internal Attaches a new frame buffer's texture. */
+  attach(frameBuffer: FrameBuffer): void {
+    const gl = this.gl;
+
+    this.flushCurrentBatch();
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, frameBuffer.framebuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, frameBuffer.native.texture, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.frameBufferStack.length > 0 ? this.frameBufferStack[this.frameBufferStack.length - 1].framebuffer : null);
+  }
+
+  /** Renderer.BindFrameBuffer */
+  bindFrameBuffer(frameBuffer: FrameBuffer): void {
+    this.frameStatistics.frameBufferBinds++;
+    this.frameBufferStack.push(frameBuffer);
+    this.setFrameBuffer(frameBuffer);
+  }
+
+  /** Renderer.UnbindFrameBuffer */
+  unbindFrameBuffer(frameBuffer: FrameBuffer): void {
+    if (this.frameBufferStack[this.frameBufferStack.length - 1] !== frameBuffer)
+      return;
+
+    this.frameBufferStack.pop();
+    this.setFrameBuffer(this.frameBufferStack.length > 0 ? this.frameBufferStack[this.frameBufferStack.length - 1] : null);
+  }
+
+  private setFrameBuffer(frameBuffer: FrameBuffer | null): void {
+    const gl = this.gl;
+
+    this.flushCurrentBatch();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, frameBuffer?.framebuffer ?? null);
+
+    this.usingBackbuffer = frameBuffer === null;
+    this.globalUniformsChanged = true;
+
+    // (the alpha factors and the scissor box's orientation depend on the target)
+    if (this.currentBlending !== null)
+      this.setBlendImplementation(this.currentBlending);
+
+    if (this.scissorStack.length > 0) {
+      this.scissor = null;
+      this.setScissor(this.scissorStack[this.scissorStack.length - 1]);
+    }
+  }
+
+  /** RendererExtensions.DrawFrameBuffer: draws the whole frame buffer texture to a quad. */
+  drawFrameBuffer(frameBuffer: FrameBuffer, quad: Quad, colour: ColourInfo): void {
+    this.bindNativeTexture(frameBuffer.native);
+    this.drawQuadUV(quad, colour, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0);
+  }
+
+  // #endregion
+
+  // #region Texture atlas
+
+  private atlas: TextureAtlas | null = null;
+  private atlasShader: Shader | null = null;
+  private atlasFramebuffer: WebGLFramebuffer | null = null;
+  private atlasVertexArray: WebGLVertexArrayObject | null = null;
+
+  /**
+   * Adds a rectangle of an image to the texture atlas (TextureAtlas.Add + TextureRegion.SetData). `key` identifies the image.
+   * Returns null if the rectangle is too large for an atlas.
+   */
+  addToAtlas(key: string, source: TexImageSource, x: number, y: number, width: number, height: number): AtlasRegion | null {
+    if (!TextureAtlas.canFit(width, height))
+      return null;
+
+    const gl = this.gl;
+
+    this.flushCurrentBatch();
+
+    let sourceTexture = this.atlasSources.get(key);
+
+    if (sourceTexture === undefined) {
+      sourceTexture = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      this.atlasSources.set(key, sourceTexture);
+    }
+
+    let position = (this.atlas ??= new TextureAtlas(this)).findPosition(width, height);
+
+    // (TextureAtlas size exceeded: generating new texture. Regions of the previous one keep it.)
+    if (position === null)
+      position = (this.atlas = new TextureAtlas(this)).findPosition(width, height)!;
+
+    const atlas = this.atlas.native;
+
+    this.atlasShader ??= this.createShader('AtlasBlit', ATLAS_BLIT_VS, ATLAS_BLIT_FS, []);
+    this.atlasFramebuffer ??= gl.createFramebuffer()!;
+    this.atlasVertexArray ??= gl.createVertexArray()!;
+
+    const shader = this.atlasShader;
+    const padding = ATLAS_PADDING / 2;
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.atlasFramebuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, atlas.texture, 0);
+
+    gl.viewport(position.x - padding, position.y - padding, width + padding * 2, height + padding * 2);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.disable(gl.BLEND);
+
+    gl.useProgram(shader.program);
+    gl.bindVertexArray(this.atlasVertexArray);
+    gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
+    gl.uniform2f(shader.getUniformLocation('u_Destination'), position.x, position.y);
+    gl.uniform2f(shader.getUniformLocation('u_Source'), x, y);
+    gl.uniform2f(shader.getUniformLocation('u_Size'), width, height);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    // Back to the state the batch expects.
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, null, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.frameBufferStack.length > 0 ? this.frameBufferStack[this.frameBufferStack.length - 1].framebuffer : null);
+    gl.enable(gl.BLEND);
+    gl.bindVertexArray(this.vertexArray);
+
+    if (this.shader !== null)
+      gl.useProgram(this.shader.program);
+
+    if (this.viewport !== null)
+      gl.viewport(this.viewport.x, this.viewport.y, this.viewport.width, this.viewport.height);
+
+    if (this.scissorState === true)
+      gl.enable(gl.SCISSOR_TEST);
+
+    this.boundTexture = null;
+    atlas.mipmapsDirty = true;
+
+    return {
+      native: atlas,
+      left: position.x / atlas.width,
+      top: position.y / atlas.height,
+      right: (position.x + width) / atlas.width,
+      bottom: (position.y + height) / atlas.height,
+    };
+  }
+
+  /** The images sub-textures are taken from, as textures (kept: more of an image's rectangles are usually added later). */
+  private readonly atlasSources = new Map<string, WebGLTexture>();
+
+  private readonly atlasRegions = new Map<string, AtlasRegion | null>();
+
+  /** The atlas region of a rectangle of an image, added on first use (the glyph texture of GlyphStore.LoadCharacter). */
+  atlasRegion(key: string, source: TexImageSource, x: number, y: number, width: number, height: number): AtlasRegion | null {
+    const regionKey = `${key}|${x},${y}`;
+    let region = this.atlasRegions.get(regionKey);
+
+    if (region === undefined)
+      this.atlasRegions.set(regionKey, region = this.addToAtlas(key, source, x, y, width, height));
+
+    return region;
+  }
+
   // #endregion
 
   dispose(): void {
     this.gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
+}
+
+function sourceSize(source: TexImageSource): { width: number; height: number } {
+  if (typeof HTMLImageElement !== 'undefined' && source instanceof HTMLImageElement)
+    return { width: source.naturalWidth, height: source.naturalHeight };
+
+  if (typeof HTMLVideoElement !== 'undefined' && source instanceof HTMLVideoElement)
+    return { width: source.videoWidth, height: source.videoHeight };
+
+  if (typeof VideoFrame !== 'undefined' && source instanceof VideoFrame)
+    return { width: source.displayWidth, height: source.displayHeight };
+
+  const sized = source as { width: number; height: number };
+  return { width: sized.width, height: sized.height };
 }
 
 function writeColour(f: Float32Array, o: number, c: Colour4): void {
@@ -840,6 +1415,27 @@ function writeVertex(
 ): number {
   v[o] = position.x;
   v[o + 1] = position.y;
+  v[o + 2] = colour.r;
+  v[o + 3] = colour.g;
+  v[o + 4] = colour.b;
+  v[o + 5] = colour.a;
+  v[o + 6] = texX;
+  v[o + 7] = texY;
+  v[o + 8] = texLeft;
+  v[o + 9] = texTop;
+  v[o + 10] = texRight;
+  v[o + 11] = texBottom;
+  v[o + 12] = blendRangeX;
+  v[o + 13] = blendRangeY;
+  return o + VERTEX_FLOATS;
+}
+
+function writeVertexXY(
+  v: Float32Array, o: number, x: number, y: number, colour: Colour4, texX: number, texY: number,
+  texLeft: number, texTop: number, texRight: number, texBottom: number, blendRangeX: number, blendRangeY: number,
+): number {
+  v[o] = x;
+  v[o + 1] = y;
   v[o + 2] = colour.r;
   v[o + 3] = colour.g;
   v[o + 4] = colour.b;
