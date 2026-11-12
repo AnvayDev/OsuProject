@@ -1,9 +1,11 @@
 // Ported from osu.Game/Configuration/OsuConfigManager.cs
 // Only the defaults read by ported code are set (in the original order); add the others alongside the code that first reads them.
-// IGameplaySettings and the tracked (on-screen display) settings are not ported. OsuSetting is string-valued so stored keys are the names, as in C#;
+// The tracked (on-screen display) settings are not ported. OsuSetting is string-valued so stored keys are the names, as in C#;
 // the obsolete MenuParallax key is left out.
 
+import type { Bindable } from '@fw/bindables/Bindable';
 import { IniConfigManager } from '@fw/configuration/IniConfigManager';
+import type { IGameplaySettings } from './IGameplaySettings';
 import { BackgroundSource } from './BackgroundSource';
 import { IntroSequence } from './IntroSequence';
 import { RandomSelectAlgorithm } from './RandomSelectAlgorithm';
@@ -16,9 +18,19 @@ import { SortMode } from '../screens/select/filter/SortMode';
 import { BeatmapCardSize } from '../beatmaps/drawables/cards/BeatmapCardSize';
 import { ToolbarClockDisplayMode } from './ToolbarClockDisplayMode';
 
-export class OsuConfigManager extends IniConfigManager<OsuSetting> {
+export class OsuConfigManager extends IniConfigManager<OsuSetting> implements IGameplaySettings {
+  readonly isGameplaySettings = true as const;
+
   constructor(storage: Storage) {
     super(storage, OsuSetting);
+  }
+
+  get comboColourNormalisationAmount(): Bindable<number> {
+    return this.getOriginalBindable<number>(OsuSetting.ComboColourNormalisationAmount)!;
+  }
+
+  get positionalHitsoundsLevel(): Bindable<number> {
+    return this.getOriginalBindable<number>(OsuSetting.PositionalHitsoundsLevel)!;
   }
 
   protected override initialiseDefaults(): void {
@@ -68,9 +80,12 @@ export class OsuConfigManager extends IniConfigManager<OsuSetting> {
     this.setDefaultBool(OsuSetting.Prefer24HourTime, hourCycle !== 'h11' && hourCycle !== 'h12');
 
     // Gameplay
+    this.setDefaultFloat(OsuSetting.PositionalHitsoundsLevel, 0.2, 0, 1, 0.01);
     this.setDefaultDouble(OsuSetting.DimLevel, 0.7, 0, 1, 0.01);
     this.setDefaultDouble(OsuSetting.BlurLevel, 0, 0, 1, 0.01);
     this.setDefaultBool(OsuSetting.LightenDuringBreaks, true);
+
+    this.setDefaultFloat(OsuSetting.ComboColourNormalisationAmount, 0.2, 0, 1, 0.01);
 
     this.setDefault(OsuSetting.Scaling, ScalingMode.Off);
     this.setDefaultBool(OsuSetting.SafeAreaConsiderations, true);

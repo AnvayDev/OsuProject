@@ -34,6 +34,7 @@ import { BeatmapModelDownloader } from './beatmaps/BeatmapModelDownloader';
 import { BeatmapUpdater } from './beatmaps/BeatmapUpdater';
 import { DummyWorkingBeatmap } from './beatmaps/DummyWorkingBeatmap';
 import type { WorkingBeatmap } from './beatmaps/WorkingBeatmap';
+import { IGameplaySettings } from './configuration/IGameplaySettings';
 import { OsuConfigManager } from './configuration/OsuConfigManager';
 import { SessionStatics } from './configuration/SessionStatics';
 import { RealmAccess } from './database/RealmAccess';
@@ -136,6 +137,7 @@ export class OsuGameBase extends Game {
     this.osuDependencies.cache(largeStore);
 
     this.osuDependencies.cacheAs(OsuConfigManager, this.localConfig);
+    this.osuDependencies.cacheAs(IGameplaySettings, this.localConfig);
 
     this.audio.samples.playbackConcurrency = OsuGameBase.SAMPLE_CONCURRENCY;
 
