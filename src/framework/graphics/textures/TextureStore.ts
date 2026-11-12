@@ -41,10 +41,37 @@ export class TextureStore {
 
     let texture = this.textureCache.get(name);
 
-    if (texture === undefined)
+    if (texture === undefined) {
       this.textureCache.set(name, texture = this.load(name));
+      void texture.then(t => this.loadedTextures.set(name, t), () => this.loadedTextures.set(name, null));
+    }
 
     return texture;
+  }
+
+  /** The textures that have finished loading (null: the resource doesn't exist), for getSync. */
+  private readonly loadedTextures = new Map<string, Texture | null>();
+
+  /**
+   * C#'s synchronous Get, for callers that must not wait (skin texture lookups): the texture if it has been loaded through get() or
+   * preload(), else null. A texture that exists but has not been loaded yet starts loading and is returned by a later call.
+   */
+  getSync(name: string | null): Texture | null {
+    if (!name) return null;
+
+    const texture = this.loadedTextures.get(name);
+
+    if (texture === undefined) {
+      void this.get(name);
+      return null;
+    }
+
+    return texture;
+  }
+
+  /** Loads textures ahead of use, so that getSync finds them. */
+  async preload(names: Iterable<string>): Promise<void> {
+    await Promise.all([...names].map(name => this.get(name)));
   }
 
   private async load(name: string): Promise<Texture | null> {
