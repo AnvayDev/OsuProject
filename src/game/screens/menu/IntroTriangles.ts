@@ -136,7 +136,7 @@ class OutlineTriangle extends CanvasDrawable {
     this.blending = BlendingParameters.Additive;
   }
 
-  protected override draw(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  protected override drawCanvas(ctx: CanvasRenderingContext2D, width: number, height: number): void {
     const colour = this.drawColourInfo.colour.averageColour;
 
     // Triangle: the vertices are the top centre, bottom left and bottom right of the quad.

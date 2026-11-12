@@ -5,6 +5,7 @@
 // As with ProxyDrawNode, it is only shown on frames where the original was validated (drawn) in its own tree.
 
 import { Drawable } from './Drawable';
+import type { Renderer } from './rendering/Renderer';
 
 class ProxyDrawable extends Drawable {
   /** DrawNodeValidationId: the element frame in which the original was last validated. */
@@ -19,9 +20,10 @@ class ProxyDrawable extends Drawable {
 
     original.lifetimeChanged.add(() => this.lifetimeChanged.emit(this));
 
+    // (flush() moves the original's element into ours; one that already sits in the original's parent must not show there until then.)
     const target = this.ultimateOriginal;
-    target.setElementDisplay('none');
-    this.element.appendChild(target.element);
+    if (target.hasElement)
+      target.setElementDisplay('none');
   }
 
   /** originalDrawNodes: a proxy of a proxy draws the first original. */
@@ -77,6 +79,17 @@ class ProxyDrawable extends Drawable {
 
   override updateSubTreeMasking(): boolean {
     return true;
+  }
+
+  /** ProxyDrawNode.Draw: draws the original here, if it was validated in its own tree this frame. */
+  override draw(renderer: Renderer): void {
+    if (this.hasProxy || this.validatedFrame !== Drawable.elementFrame)
+      return;
+
+    const target = this.ultimateOriginal;
+
+    if (!target.isDisposed)
+      target.draw(renderer);
   }
 
   // ProxyDrawNode: proxies walked (drawn) this frame show their original if it was validated this frame.

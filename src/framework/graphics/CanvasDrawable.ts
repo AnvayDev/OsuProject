@@ -122,9 +122,9 @@ export abstract class CanvasDrawable extends Drawable {
     ctx.clearRect(0, 0, width, height);
     ctx.setTransform(width / totalWidth, 0, 0, height / totalHeight, overflow.left * width / totalWidth, overflow.top * height / totalHeight);
 
-    this.draw(ctx, size.x, size.y);
+    this.drawCanvas(ctx, size.x, size.y);
   }
 
   /** Draws the contents in draw space (0..width, 0..height), using drawColourInfo for colour. */
-  protected abstract draw(ctx: CanvasRenderingContext2D, width: number, height: number): void;
+  protected abstract drawCanvas(ctx: CanvasRenderingContext2D, width: number, height: number): void;
 }

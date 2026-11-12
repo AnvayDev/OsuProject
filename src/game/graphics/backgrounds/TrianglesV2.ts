@@ -182,7 +182,7 @@ export class TrianglesV2 extends CanvasDrawable {
     return Math.fround(this.stableRandom?.nextDouble() ?? RNG.nextSingle());
   }
 
-  protected override draw(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  protected override drawCanvas(ctx: CanvasRenderingContext2D, width: number, height: number): void {
     if (this._aimCount === 0 || this.thickness === 0)
       return;
 

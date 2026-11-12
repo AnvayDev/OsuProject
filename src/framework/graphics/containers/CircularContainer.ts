@@ -14,4 +14,13 @@ export class CircularContainer extends Container {
 
     super.validateElementSubTree();
   }
+
+  /** @internal */
+  override generateDrawNodeSubtree(): boolean {
+    // this shouldn't have to be done here, but it's the only place it works correctly.
+    // see https://github.com/ppy/osu-framework/pull/1666
+    this.cornerRadius = Math.min(this.drawSize.x, this.drawSize.y) / 2;
+
+    return super.generateDrawNodeSubtree();
+  }
 }

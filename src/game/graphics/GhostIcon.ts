@@ -51,7 +51,7 @@ export class GhostIcon extends CanvasDrawable {
     this.invalidateDraw();
   }
 
-  protected override draw(ctx: CanvasRenderingContext2D, _width: number, _height: number): void {
+  protected override drawCanvas(ctx: CanvasRenderingContext2D, _width: number, _height: number): void {
     const w = ctx.canvas.width;
     const h = ctx.canvas.height;
     const time = Math.fround(this.time.current / this.animationDuration) % 1;

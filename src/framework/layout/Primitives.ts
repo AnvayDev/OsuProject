@@ -103,6 +103,16 @@ export class RectangleF {
     return Math.pow(distX, exponent) + Math.pow(distY, exponent);
   }
 
+  /** A rectangle covering the same area with a non-negative size. */
+  normalize(): RectangleF {
+    if (this.width >= 0 && this.height >= 0)
+      return this;
+
+    return new RectangleF(
+      this.width < 0 ? this.x + this.width : this.x, this.height < 0 ? this.y + this.height : this.y,
+      Math.abs(this.width), Math.abs(this.height));
+  }
+
   equals(o: RectangleF): boolean {
     return this.x === o.x && this.y === o.y && this.width === o.width && this.height === o.height;
   }

@@ -106,7 +106,7 @@ class GraphDrawable extends CanvasDrawable {
   }
 
   // (GraphDrawNode.Draw)
-  protected override draw(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  protected override drawCanvas(ctx: CanvasRenderingContext2D, width: number, height: number): void {
     const spacing_constant = 1.5;
 
     let position = 0;

@@ -10,6 +10,7 @@ import { Vector2 } from '../../layout/Vector2';
 import type { Colour4 } from '../Colour4';
 import type { ColourInfo } from '../ColourInfo';
 import { Drawable } from '../Drawable';
+import type { Renderer } from '../rendering/Renderer';
 import { Texture } from '../textures/Texture';
 
 const isWhiteRGB = (c: Colour4) => c.r === 1 && c.g === 1 && c.b === 1;
@@ -156,6 +157,59 @@ export class Sprite extends Drawable {
 
     if (this.size.equals(Vector2.Zero))
       this.size = new Vector2(this._texture?.displayWidth ?? 0, this._texture?.displayHeight ?? 0);
+  }
+
+  /** The amount the draw rectangle is inflated by for edgeSmoothness, in local space (Sprite.InflationAmount; one pixel is 1/pixelRatio). */
+  private inflationAmount(pixelRatio: number): Vector2 {
+    const scale = this.drawInfo.matrixInverse.extractScale();
+    return new Vector2(scale.x * this._edgeSmoothness.x / pixelRatio, scale.y * this._edgeSmoothness.y / pixelRatio);
+  }
+
+  /** SpriteDrawNode.Draw + Blit */
+  override draw(renderer: Renderer): void {
+    super.draw(renderer);
+
+    const texture = this._texture;
+
+    if (texture === null)
+      return;
+
+    const drawSize = this.drawSize;
+
+    if (drawSize.x === 0 || drawSize.y === 0)
+      return;
+
+    renderer.bindShader(renderer.textureShader);
+
+    const smooth = this._edgeSmoothness.x !== 0 || this._edgeSmoothness.y !== 0;
+    const r = this._textureRectangle;
+    const wholeTexture = this._textureRelativeSizeAxes === Axes.Both && r.x === 0 && r.y === 0 && r.width === 1 && r.height === 1;
+
+    if (!smooth && wholeTexture) {
+      // (the common case: TextureCoords is the whole texture and nothing is inflated)
+      if (renderer.bindTexture(texture))
+        renderer.drawQuadUV(this.screenSpaceDrawQuad, this.drawColourInfo.colour, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0);
+
+      return;
+    }
+
+    let quad = this.screenSpaceDrawQuad;
+    let inflationPercentage: Vector2 | null = null;
+
+    if (smooth) {
+      // Sprite.ComputeScreenSpaceDrawQuad: the quad is inflated by the smoothing range, which the shader blends out.
+      const inflation = this.inflationAmount(renderer.pixelRatio);
+      quad = this.toScreenSpaceRect(this.drawRectangle.inflate(inflation));
+      inflationPercentage = new Vector2(inflation.x / drawSize.x, inflation.y / drawSize.y);
+    }
+
+    // TextureCoords = DrawRectangle.RelativeIn(DrawTextureRectangle) * texture display size
+    const t = this.drawTextureRectangle;
+    const textureCoords = new RectangleF(
+      -t.x / t.width * texture.displayWidth, -t.y / t.height * texture.displayHeight,
+      drawSize.x / t.width * texture.displayWidth, drawSize.y / t.height * texture.displayHeight);
+
+    renderer.drawQuad(texture, quad, this.drawColourInfo.colour, null, inflationPercentage, null, textureCoords);
   }
 
   private lastBackground = '';

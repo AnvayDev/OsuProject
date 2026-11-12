@@ -19,7 +19,10 @@ import { AbsoluteSequenceSender, type Transformable } from '../../transforms/Tra
 import { InvokeOnDisposal } from '../../allocation/InvokeOnDisposal';
 import { Colour4 } from '../Colour4';
 import { ColourInfo } from '../ColourInfo';
-import { EdgeEffectParameters, EdgeEffectType } from '../DrawInfo';
+import { BlendingParameters, EdgeEffectParameters, EdgeEffectType } from '../DrawInfo';
+import type { MaskingInfo } from '../rendering/MaskingInfo';
+import type { Renderer } from '../rendering/Renderer';
+import { Texture } from '../textures/Texture';
 import { edgeEffectCss } from './EdgeEffectStyle';
 import { Drawable } from '../Drawable';
 // Registers Drawable.proxyFactory (ProxyDrawable extends Drawable, so Drawable.ts cannot import it).
@@ -316,7 +319,8 @@ export abstract class CompositeDrawable extends Drawable {
         return false;
 
       this.internalChildrenList.removeAt(index);
-      drawable.element.remove();
+      if (drawable.hasElement)
+        drawable.element.remove();
 
       if (drawable.isAlive) {
         this.aliveInternalChildrenList.remove(drawable);
@@ -352,7 +356,8 @@ export abstract class CompositeDrawable extends Drawable {
 
       t.isAlive = false;
       t.parent = null;
-      t.element.remove();
+      if (t.hasElement)
+        t.element.remove();
 
       if (disposeChildren)
         this.disposeChildAsync(t);
@@ -451,8 +456,26 @@ export abstract class CompositeDrawable extends Drawable {
       this.insertChildElement(this.internalChildrenList.get(i), i);
   }
 
+  /**
+   * DOM: whether the children's elements still have to be put into childElementContainer. Elements are created by the element walk
+   * (validateElementSubTree), not when a child is added: a composite that is never walked (it is drawn by a Renderer, or never shown) has no
+   * elements at all.
+   */
+  private childElementsPending = true;
+
+  /** Puts every child's element into childElementContainer, in order (last to first, as each is inserted before its next sibling). */
+  private insertChildElements(): void {
+    this.childElementsPending = false;
+
+    for (let i = this.internalChildrenList.count - 1; i >= 0; i--)
+      this.insertChildElement(this.internalChildrenList.get(i), i);
+  }
+
   /** Keeps DOM order equal to internalChildren order (draw order). */
   private insertChildElement(drawable: Drawable, index: number): void {
+    if (this.childElementsPending)
+      return;
+
     // Proxied drawables' elements live in their proxy's element.
     if (drawable.hasProxy)
       return;
@@ -781,6 +804,9 @@ export abstract class CompositeDrawable extends Drawable {
     try {
       this.validateElement();
 
+      if (this.childElementsPending)
+        this.insertChildElements();
+
       const children = this.internalChildrenList;
 
       for (let i = 0; i < children.count; ++i) {
@@ -820,6 +846,180 @@ export abstract class CompositeDrawable extends Drawable {
 
   private static elementValidationDepth = 0;
 
+  // #endregion
+
+  // #region DrawNode (Renderer): CompositeDrawable.DrawNode.cs
+
+  /** cNode.Children: the drawables this composite draws, in order (flattened composites contribute their children). */
+  private drawChildren: Drawable[] = [];
+  private drawChildCount = 0;
+
+  /** addFromComposite: adds the drawn children of parentComposite at index j of target, flattening composites. Returns the new j. */
+  private static addFromComposite(j: number, parentComposite: CompositeDrawable, target: Drawable[]): number {
+    const children = parentComposite.aliveInternalChildrenList;
+
+    for (let i = 0; i < children.count; ++i) {
+      const drawable = children.get(i);
+
+      if (!drawable.isLoaded)
+        continue;
+
+      if (!drawable.isProxy) {
+        if (!drawable.isPresent)
+          continue;
+
+        if (drawable.isMaskedAway)
+          continue;
+
+        if (drawable instanceof CompositeDrawable && drawable.canBeFlattened) {
+          j = CompositeDrawable.addFromComposite(j, drawable, target);
+          continue;
+        }
+      }
+
+      if (!drawable.generateDrawNodeSubtree())
+        continue;
+
+      if (drawable.hasProxy)
+        drawable.validateProxyDrawNode();
+      else
+        target[j++] = drawable;
+    }
+
+    return j;
+  }
+
+  /** @internal */
+  override generateDrawNodeSubtree(): boolean {
+    // No need for a draw node at all if there are no children and we are not glowing.
+    if (this.aliveInternalChildrenList.count === 0 && this.canBeFlattened)
+      return false;
+
+    if (this.addChildDrawNodes) {
+      const target = this.drawChildren;
+      const j = CompositeDrawable.addFromComposite(0, this, target);
+
+      // (release the drawables of a longer previous frame)
+      for (let i = j; i < this.drawChildCount; i++)
+        target[i] = undefined!;
+
+      this.drawChildCount = j;
+    }
+
+    return true;
+  }
+
+  /** ICompositeDrawNode.AddChildDrawNodes: whether the children are drawn (a cached BufferedContainer doesn't draw them). */
+  protected get addChildDrawNodes(): boolean {
+    return true;
+  }
+
+  /** The MaskingInfo of CompositeDrawableDrawNode.ApplyState (null when not masking). */
+  private computeMaskingInfo(renderer: Renderer): MaskingInfo | null {
+    if (!this.masking) {
+      if (this.borderThickness !== 0 || this.edgeEffect.type !== EdgeEffectType.None)
+        throw new Error('Can not have border effects/edge effects if masking is disabled.');
+
+      return null;
+    }
+
+    const drawInfo = this.drawInfo;
+    const scale = drawInfo.matrixInverse.extractScale();
+
+    // We are setting the linear blend range to the approximate size of a _pixel_ here.
+    // This results in the optimal trade-off between crispness and smoothness of the
+    // edges of the masked region according to sampling theory.
+    const blendRange = this.maskingSmoothness * (scale.x + scale.y) / 2 / renderer.pixelRatio;
+
+    return {
+      screenSpaceAABB: this.screenSpaceDrawQuad.aabbFloat,
+      maskingRect: this.drawRectangle.normalize(),
+      toMaskingSpace: drawInfo.matrixInverse,
+      cornerRadius: this.effectiveCornerRadius,
+      cornerExponent: this.cornerExponent,
+      borderThickness: this.borderThickness,
+      borderColour: this.borderColour,
+      blendRange,
+      alphaExponent: 1,
+      edgeOffset: Vector2.Zero,
+      hollow: false,
+      hollowCornerRadius: 0,
+    };
+  }
+
+  private drawEdgeEffect(renderer: Renderer, maskingInfo: MaskingInfo | null): void {
+    const edgeEffect = this.edgeEffect;
+
+    if (maskingInfo === null || edgeEffect.type === EdgeEffectType.None || edgeEffect.radius <= 0 || edgeEffect.colour.a <= 0)
+      return;
+
+    const r = maskingInfo.maskingRect;
+    const effectRect = new RectangleF(r.x - edgeEffect.radius + edgeEffect.offset.x, r.y - edgeEffect.radius + edgeEffect.offset.y,
+      r.width + edgeEffect.radius * 2, r.height + edgeEffect.radius * 2);
+
+    const screenSpaceMaskingQuad = this.toScreenSpaceRect(effectRect);
+
+    renderer.pushMaskingInfo({
+      ...maskingInfo,
+      maskingRect: effectRect,
+      screenSpaceAABB: screenSpaceMaskingQuad.aabbFloat,
+      cornerRadius: maskingInfo.cornerRadius + edgeEffect.radius + edgeEffect.roundness,
+      borderThickness: 0,
+      // HACK HACK HACK. We abuse blend range to give us the linear alpha gradient of
+      // the edge effect along its radius using the same rounded-corners shader.
+      blendRange: edgeEffect.radius,
+      alphaExponent: 2,
+      edgeOffset: edgeEffect.offset,
+      hollow: edgeEffect.hollow,
+      hollowCornerRadius: maskingInfo.cornerRadius + edgeEffect.radius,
+    });
+
+    renderer.setBlend(edgeEffect.type === EdgeEffectType.Glow ? BlendingParameters.Additive : BlendingParameters.Mixture);
+
+    renderer.bindShader(renderer.textureShader);
+
+    const drawColour = this.drawColourInfo.colour;
+    const colour = drawColour.hasSingleColour
+      ? ColourInfo.singleColour(edgeEffect.colour.multiplyAlpha(drawColour.topLeft.a))
+      : ColourInfo.fromCorners(
+        edgeEffect.colour.multiplyAlpha(drawColour.topLeft.a), edgeEffect.colour.multiplyAlpha(drawColour.topRight.a),
+        edgeEffect.colour.multiplyAlpha(drawColour.bottomLeft.a), edgeEffect.colour.multiplyAlpha(drawColour.bottomRight.a));
+
+    // HACK HACK HACK. We re-use the unused vertex blend range to store the original
+    // masking blend range when rendering edge effects. This is needed for smooth inner edges
+    // with a hollow edge effect.
+    renderer.drawQuad(Texture.WhitePixel, screenSpaceMaskingQuad, colour, null, null, new Vector2(maskingInfo.blendRange, maskingInfo.blendRange));
+
+    renderer.popMaskingInfo();
+  }
+
+  /** CompositeDrawableDrawNode.Draw (SetBlending is false: children will set their own blending parameters). */
+  override draw(renderer: Renderer): void {
+    const maskingInfo = this.computeMaskingInfo(renderer);
+
+    this.drawEdgeEffect(renderer, maskingInfo);
+
+    if (maskingInfo !== null) {
+      if (maskingInfo.borderThickness > 0)
+        maskingInfo.borderColour = ColourInfo.multiply(maskingInfo.borderColour!, this.drawColourInfo.colour);
+
+      renderer.pushMaskingInfo(maskingInfo);
+    }
+
+    this.drawChildNodes(renderer);
+
+    if (maskingInfo !== null)
+      renderer.popMaskingInfo();
+  }
+
+  /** Draws cNode.Children. */
+  protected drawChildNodes(renderer: Renderer): void {
+    const children = this.drawChildren;
+
+    for (let i = 0; i < this.drawChildCount; i++)
+      children[i].draw(renderer);
+  }
+
   /** Where children's elements are inserted: the mask element when masking, else our own element. */
   protected get childElementContainer(): HTMLElement {
     return this.maskElement ?? this.element;
@@ -843,9 +1043,11 @@ export abstract class CompositeDrawable extends Drawable {
     mask.style.pointerEvents = 'none';
 
     // move existing children into the mask.
-    for (const c of this.internalChildrenList.toArray()) {
-      if (!c.hasProxy)
-        mask.appendChild(c.element);
+    if (!this.childElementsPending) {
+      for (const c of this.internalChildrenList.toArray()) {
+        if (!c.hasProxy)
+          mask.appendChild(c.element);
+      }
     }
 
     this.element.appendChild(mask);

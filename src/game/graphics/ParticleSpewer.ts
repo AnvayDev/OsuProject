@@ -130,7 +130,7 @@ export abstract class ParticleSpewer extends CanvasDrawable {
 
   // #region DrawNode (ParticleSpewerDrawNode.Blit)
 
-  protected override draw(ctx: CanvasRenderingContext2D): void {
+  protected override drawCanvas(ctx: CanvasRenderingContext2D): void {
     const texture = this._texture;
     const image = this.image;
     if (texture === null || image === null)

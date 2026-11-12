@@ -17,6 +17,9 @@ export class Texture {
   /** Optional asset name for debugging. */
   assetName = '';
 
+  /** The decoded image, which a Renderer uploads on first use (null: the texture can only be displayed by the DOM, through its url). */
+  image: TexImageSource | null = null;
+
   constructor(url: string | null, width: number, height: number) {
     this.url = url;
     this.width = width;
@@ -58,6 +61,7 @@ export class Texture {
     await img.decode();
 
     const t = new Texture(url, img.naturalWidth, img.naturalHeight);
+    t.image = img;
     t.scaleAdjust = scaleAdjust;
     t.assetName = assetName;
     return t;

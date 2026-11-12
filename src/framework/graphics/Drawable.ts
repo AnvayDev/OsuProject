@@ -8,6 +8,7 @@
 //
 // Input handlers live in Drawable.input.ts (added with the InputManager port).
 
+import type { Renderer } from './rendering/Renderer';
 import { isFocusManager, type IFocusManager } from '../input/IFocusManager';
 import { type IReadOnlyDependencyContainer } from '../allocation/DependencyContainer';
 import { Signal } from '../bindables/Signal';
@@ -59,13 +60,23 @@ const MAX_VALUE = Number.MAX_VALUE;
 export abstract class Drawable extends Transformable {
   // #region Construction and disposal
 
-  /** The DOM element representing this drawable. */
-  readonly element: HTMLElement;
+  private elementBacking: HTMLElement | null = null;
+
+  /**
+   * The DOM element representing this drawable. It is created on first use, which is the DOM draw walk (validateElementSubTree) reaching
+   * this drawable or its parent: a drawable drawn by a Renderer (under a GLContainer) never has one.
+   */
+  get element(): HTMLElement {
+    return this.elementBacking ??= this.createElement();
+  }
+
+  /** @internal Whether the element has been created. */
+  get hasElement(): boolean {
+    return this.elementBacking !== null;
+  }
 
   constructor() {
     super();
-
-    this.element = this.createElement();
 
     this.addLayout(this.drawInfoBacking);
     this.addLayout(this.drawSizeBacking);
@@ -126,7 +137,7 @@ export abstract class Drawable extends Transformable {
     this.onDispose?.();
     this.onDispose = null;
 
-    this.element.remove();
+    this.elementBacking?.remove();
 
     this._isDisposed = true;
   }
@@ -1584,6 +1595,27 @@ export abstract class Drawable extends Transformable {
   /** @internal Positions this (proxied) drawable's element inside its proxy's element: our DrawInfo in the proxy's space. */
   applyProxiedElementPosition(proxy: Drawable): void {
     this.writeElementPosition(0, 0, this.drawInfo.matrix.multiply(proxy.drawInfo.matrixInverse).toCss());
+  }
+
+  // #endregion
+
+  // #region DrawNode (Renderer)
+
+  /**
+   * @internal GenerateDrawNodeSubtree: prepares this drawable (and for composites, the list of children to draw) for Drawable.elementFrame.
+   * Returns false if there is nothing to draw (a null DrawNode).
+   */
+  generateDrawNodeSubtree(): boolean {
+    return true;
+  }
+
+  /**
+   * DrawNode.Draw: draws this drawable with a Renderer. Called instead of the element walk for drawables under a GLContainer, in draw
+   * order, from the drawable's current state (there is no draw thread, so no DrawNode carries a copy of it).
+   * Screen space is CSS pixels: code that means "one pixel" divides by renderer.pixelRatio.
+   */
+  draw(renderer: Renderer): void {
+    renderer.setBlend(this.drawColourInfo.blending);
   }
 
   // #endregion

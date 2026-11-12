@@ -124,7 +124,7 @@ export class LogoVisualisation extends CanvasDrawable {
     return bar_overflow;
   }
 
-  protected override draw(ctx: CanvasRenderingContext2D): void {
+  protected override drawCanvas(ctx: CanvasRenderingContext2D): void {
     // Assuming the logo is a circle, we don't need a second dimension.
     const size = this.drawSize.x;
 

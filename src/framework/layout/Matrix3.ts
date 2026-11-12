@@ -44,6 +44,11 @@ export class Matrix3 {
     return new Vector2(pos.x * this.m11 + pos.y * this.m21 + this.m31, pos.x * this.m12 + pos.y * this.m22 + this.m32);
   }
 
+  /** osuTK Matrix3.ExtractScale(), X and Y: the lengths of the first two rows. */
+  extractScale(): Vector2 {
+    return new Vector2(Math.hypot(this.m11, this.m12, this.m13), Math.hypot(this.m21, this.m22, this.m23));
+  }
+
   // ---- MatrixExtensions ----
 
   translateFromLeft(v: Vector2): void {
