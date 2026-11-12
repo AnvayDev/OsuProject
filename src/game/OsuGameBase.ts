@@ -5,6 +5,8 @@
 // container and the beatmap clock. The content chain is CreateScalingContainer() → content.
 // Storage is window.localStorage (config) and IndexedDB (RealmAccess).
 
+// (RulesetStore loads the ruleset assemblies: this registers the ported rulesets for RulesetInfo.createInstance.)
+import './rulesets/osu/OsuRuleset';
 import { DependencyContainer, type IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import { AdjustableProperty } from '@fw/audio/AudioComponent';
 import { Bindable } from '@fw/bindables/Bindable';

@@ -120,6 +120,11 @@ export class BeatmapInfo {
     return this.file?.filename ?? null;
   }
 
+  /** A shallow copy (MemberwiseClone). */
+  clone(): BeatmapInfo {
+    return Object.assign(Object.create(Object.getPrototypeOf(this)) as BeatmapInfo, this);
+  }
+
   toString(): string {
     return getDisplayTitle(this);
   }

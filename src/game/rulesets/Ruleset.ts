@@ -1,5 +1,8 @@
-// Ported subset of osu.Game/Rulesets/Ruleset.cs: the mod lists (no gameplay, difficulty calculation or settings are ported).
+// Ported subset of osu.Game/Rulesets/Ruleset.cs: the mod lists, and beatmap conversion and processing.
 
+import type { IBeatmap } from '../beatmaps/Beatmap';
+import type { IBeatmapConverter } from '../beatmaps/BeatmapConverter';
+import type { IBeatmapProcessor } from '../beatmaps/BeatmapProcessor';
 import type { Mod } from './mods/Mod';
 import { MultiMod } from './mods/Mods';
 import { ModType } from './mods/ModType';
@@ -37,4 +40,12 @@ export abstract class Ruleset {
 
   /** Creates the mods that are supported by the ruleset for the supplied type (empty if there are none). */
   abstract getModsFor(type: ModType): Mod[];
+
+  /** Creates a IBeatmapConverter to convert a IBeatmap to one that is applicable for this Ruleset. */
+  abstract createBeatmapConverter(beatmap: IBeatmap): IBeatmapConverter;
+
+  /** Optionally creates a IBeatmapProcessor to alter a IBeatmap after it has been converted. */
+  createBeatmapProcessor(_beatmap: IBeatmap): IBeatmapProcessor | null {
+    return null;
+  }
 }

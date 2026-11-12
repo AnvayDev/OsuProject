@@ -1,9 +1,15 @@
-// Ported subset of osu.Game.Rulesets.Osu/OsuRuleset.cs: the mods (no gameplay is ported).
+// Ported subset of osu.Game.Rulesets.Osu/OsuRuleset.cs: the mods, and beatmap conversion and processing.
 
+import type { IBeatmap } from '../../beatmaps/Beatmap';
+import type { IBeatmapConverter } from '../../beatmaps/BeatmapConverter';
+import type { IBeatmapProcessor } from '../../beatmaps/BeatmapProcessor';
 import type { Mod } from '../mods/Mod';
 import { ModAdaptiveSpeed, ModScoreV2, ModWindDown, ModWindUp, MultiMod } from '../mods/Mods';
 import { ModType } from '../mods/ModType';
 import { Ruleset } from '../Ruleset';
+import { registerRuleset } from '../RulesetInfo';
+import { OsuBeatmapConverter } from './beatmaps/OsuBeatmapConverter';
+import { OsuBeatmapProcessor } from './beatmaps/OsuBeatmapProcessor';
 import {
   OsuModAccuracyChallenge, OsuModAlternate, OsuModApproachDifferent, OsuModAutopilot, OsuModAutoplay, OsuModBarrelRoll, OsuModBlinds,
   OsuModBloom, OsuModBubbles, OsuModCinema, OsuModClassic, OsuModDaycore, OsuModDeflate, OsuModDepth, OsuModDifficultyAdjust,
@@ -18,6 +24,14 @@ export class OsuRuleset extends Ruleset {
 
   override get shortName(): string {
     return OsuRuleset.SHORT_NAME;
+  }
+
+  override createBeatmapConverter(beatmap: IBeatmap): IBeatmapConverter {
+    return new OsuBeatmapConverter(beatmap);
+  }
+
+  override createBeatmapProcessor(beatmap: IBeatmap): IBeatmapProcessor {
+    return new OsuBeatmapProcessor(beatmap);
   }
 
   override getModsFor(type: ModType): Mod[] {
@@ -89,3 +103,5 @@ export class OsuRuleset extends Ruleset {
     }
   }
 }
+
+registerRuleset(OsuRuleset.SHORT_NAME, () => new OsuRuleset());

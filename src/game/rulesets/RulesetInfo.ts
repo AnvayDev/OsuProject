@@ -1,8 +1,18 @@
 // Ported from osu.Game/Rulesets/RulesetInfo.cs, plus the built-in RulesetStore lookup (osu.Game/Rulesets/RulesetStore.cs) for the four official
 // rulesets. Rulesets other than osu! are metadata-only in this port.
+//
+// C# instantiates a ruleset by reflection from InstantiationInfo. Here a ruleset's module registers how to create it (registerRuleset), so
+// that this model does not import the ruleset implementation (which imports beatmaps, which import this). The game loads the ported
+// rulesets' modules at startup (OsuGameBase), as RulesetStore loads their assemblies.
 
-import { OsuRuleset } from './osu/OsuRuleset';
 import type { Ruleset } from './Ruleset';
+
+const instantiators = new Map<string, () => Ruleset>();
+
+/** Makes RulesetInfo.createInstance work for a ruleset. Called by the ruleset's own module. */
+export function registerRuleset(shortName: string, create: () => Ruleset): void {
+  instantiators.set(shortName, create);
+}
 
 export class RulesetInfo {
   shortName = '';
@@ -52,7 +62,7 @@ export class RulesetInfo {
 
   /** (CreateInstance: only the osu! ruleset is ported; the others have no instance, so no mods.) */
   createInstance(): Ruleset | null {
-    return this.shortName === OsuRuleset.SHORT_NAME ? new OsuRuleset() : null;
+    return instantiators.get(this.shortName)?.() ?? null;
   }
 
   clone(): RulesetInfo {

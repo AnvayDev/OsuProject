@@ -1,5 +1,4 @@
-// Ported from osu.Game/Beatmaps/WorkingBeatmap.cs (and IWorkingBeatmap.cs). Storyboards, skins, waveforms and GetPlayableBeatmap are gameplay or
-// editor features and are not ported. Decoding reads from IndexedDB, so the C# `Beatmap` getter (which blocks) is the value once
+// Ported from osu.Game/Beatmaps/WorkingBeatmap.cs (and IWorkingBeatmap.cs). Storyboards, skins and waveforms are not ported. Decoding reads from IndexedDB, so the C# `Beatmap` getter (which blocks) is the value once
 // loadBeatmapAsync() has settled; getBackground() and getStream() return Promises.
 
 import type { AudioManager } from '@fw/audio/AudioManager';
@@ -10,6 +9,11 @@ import { Beatmap, type IBeatmap } from './Beatmap';
 import type { BeatmapInfo } from './BeatmapInfo';
 import type { BeatmapMetadata } from './BeatmapMetadata';
 import { BeatmapSetInfo } from './BeatmapSetInfo';
+import { IApplicableToDifficulty } from '../rulesets/mods/IApplicableToDifficulty';
+import type { Mod } from '../rulesets/mods/Mod';
+import type { Ruleset } from '../rulesets/Ruleset';
+import type { RulesetInfo } from '../rulesets/RulesetInfo';
+import type { IBeatmapConverter } from './BeatmapConverter';
 
 /** MusicController.DELAY_BEFORE_FADE */
 const delay_before_fade = 30;
@@ -137,6 +141,64 @@ export abstract class WorkingBeatmap {
   /** The decoded beatmap once loaded (C# blocks until it is), else null. */
   get beatmap(): IBeatmap | null {
     return this.loadedBeatmap ?? null;
+  }
+
+  /**
+   * Constructs a playable IBeatmap from beatmap using the applicable converters for a specific RulesetInfo.
+   * The returned IBeatmap is in a playable state - all HitObject and BeatmapDifficulty Mods have been applied, and HitObjects have been fully constructed.
+   * The beatmap must have been loaded (loadBeatmapAsync); C# blocks on the load here.
+   */
+  getPlayableBeatmap(ruleset: RulesetInfo, mods: readonly Mod[] = []): IBeatmap {
+    const rulesetInstance = ruleset.createInstance();
+
+    if (rulesetInstance === null)
+      throw new Error('Creating ruleset instance failed when attempting to create playable beatmap.');
+
+    const beatmap = this.beatmap;
+
+    if (beatmap === null)
+      throw new Error('The beatmap must be loaded before a playable beatmap can be created.');
+
+    const converter = this.createBeatmapConverter(beatmap, rulesetInstance);
+
+    // Check if the beatmap can be converted
+    if (beatmap.hitObjects.length > 0 && !converter.canConvert())
+      throw new Error(`Beatmap can not be converted for the ruleset (ruleset: ${ruleset.instantiationInfo}).`);
+
+    // Apply conversion mods (IApplicableToBeatmapConverter: none of the ported mods implement it yet)
+
+    // Convert
+    const converted = converter.convert();
+
+    // Apply conversion mods to the result (IApplicableAfterBeatmapConversion: none ported yet)
+
+    // Apply difficulty mods
+    for (const mod of mods) {
+      if (mod instanceof IApplicableToDifficulty)
+        mod.applyToDifficulty(converted.difficulty);
+    }
+
+    const processor = rulesetInstance.createBeatmapProcessor(converted);
+
+    // (IApplicableToBeatmapProcessor: none ported yet)
+    processor?.preProcess();
+
+    // Compute default values for hitobjects, including creating nested hitobjects in-case they're needed
+    for (const obj of converted.hitObjects)
+      obj.applyDefaults(converted.controlPointInfo, converted.difficulty);
+
+    // (IApplicableToHitObject: none ported yet)
+
+    processor?.postProcess();
+
+    // (IApplicableToBeatmap: none ported yet)
+
+    return converted;
+  }
+
+  /** Creates a IBeatmapConverter to convert a IBeatmap for a specified Ruleset. */
+  protected createBeatmapConverter(beatmap: IBeatmap, ruleset: Ruleset): IBeatmapConverter {
+    return ruleset.createBeatmapConverter(beatmap);
   }
 
   private loadedBeatmap: IBeatmap | null | undefined = undefined;

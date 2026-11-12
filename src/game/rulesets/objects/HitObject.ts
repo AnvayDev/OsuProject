@@ -1,4 +1,4 @@
-// Ported from osu.Game/Rulesets/Objects/HitObject.cs (judgements are not ported).
+// Ported from osu.Game/Rulesets/Objects/HitObject.cs
 
 import { BindableList } from '@fw/bindables/BindableList';
 import { BindableDouble } from '@fw/bindables/BindableNumber';
@@ -8,6 +8,7 @@ import type { IBeatmapDifficultyInfo } from '../../beatmaps/BeatmapDifficulty';
 import type { ControlPointInfo } from '../../beatmaps/controlPoints/ControlPointInfo';
 import { DefaultHitWindows, type HitWindows } from '../scoring/HitWindows';
 import { HitResult } from '../scoring/HitResult';
+import { Judgement } from '../judgements/Judgement';
 import { hasDuration } from './types/Types';
 
 /**
@@ -124,9 +125,39 @@ export class HitObject {
     return new DefaultHitWindows();
   }
 
+  private judgementBacking: Judgement | null = null;
+
+  /** The Judgement that represents the scoring information for this HitObject. */
+  get judgement(): Judgement {
+    return this.judgementBacking ??= this.createJudgement();
+  }
+
+  /**
+   * Should be overridden to create a Judgement that represents the scoring information for this HitObject.
+   * For read access, use judgement to avoid unnecessary allocations.
+   */
+  createJudgement(): Judgement {
+    return new Judgement();
+  }
+
   /** The maximum offset from the end time of HitObject at which this HitObject can be judged. */
   get maximumJudgementOffset(): number {
     return this.hitWindows?.windowFor(HitResult.Miss) ?? 0;
+  }
+
+  /** Creates the looping samples played while this object is slid: "sliderslide", and "sliderwhistle" if it has a whistle. */
+  createSlidingSamples(): HitSampleInfo[] {
+    const slidingSamples: HitSampleInfo[] = [];
+
+    const normalSample = this.samples.find(s => s.name === HitSampleInfo.HIT_NORMAL);
+    if (normalSample !== undefined)
+      slidingSamples.push(normalSample.with({ name: 'sliderslide' }));
+
+    const whistleSample = this.samples.find(s => s.name === HitSampleInfo.HIT_WHISTLE);
+    if (whistleSample !== undefined)
+      slidingSamples.push(whistleSample.with({ name: 'sliderwhistle' }));
+
+    return slidingSamples;
   }
 
   /** Create a SampleInfo based on the sample settings of the hit normal sample in Samples. */
