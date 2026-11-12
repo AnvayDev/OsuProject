@@ -79,7 +79,7 @@ Prior browser ports (the user asked for claims to be verified, not inherited):
 
 Status values: **decided** (with evidence), **hypothesis** (to be confirmed by the bench in `bench.html`), **OPEN**.
 
-### 4.1 Rendering: a GPU draw path for gameplay (hypothesis, bench pending)
+### 4.1 Rendering: a GPU draw path for gameplay (hypothesis, supported by cloud numbers, M1 numbers pending)
 
 The DOM renderer stays for menus. Gameplay (playfield and HUD) is drawn by a port of osu!framework's own renderer: the scene graph is
 walked every frame and drawables emit batched quads to WebGL2 through ports of the framework's shaders (`sh_Texture`, `sh_Masking`,
@@ -91,7 +91,10 @@ walked every frame and drawables emit batched quads to WebGL2 through ports of t
 - Drawables under a GPU surface never create DOM elements (elements become lazy).
 
 To be confirmed by measurement before committing: the cost of the scene-graph update itself at playfield density, and WebGL2 against
-Canvas 2D, WebGPU and a worker-driven OffscreenCanvas on the user's GPU.
+Canvas 2D, WebGPU and a worker-driven OffscreenCanvas on the user's GPU. First numbers are in §7.
+
+Status: the renderer core exists (`src/framework/graphics/rendering/`, `GLContainer`; notes in `docs/spec/framework.md` §14). Boxes,
+sprites, masking, borders, edge effects, blending and proxies draw; text, paths, frame buffers and circular progress do not yet.
 
 ### 4.2 Input: timestamped, judged in the listener (decided)
 
@@ -114,8 +117,8 @@ to be measured, not guessed.
 
 | # | Milestone | State |
 |---|---|---|
-| M0 | Research, plan, questions, capture requests, measurement harness, rendering/audio spikes | in progress |
-| M1 | GPU draw path in the framework, timestamped input, gameplay audio clock | not started |
+| M0 | Research, plan, questions, capture requests, measurement harness, rendering/audio spikes | done except the user's M1 bench run |
+| M1 | GPU draw path in the framework, timestamped input, gameplay audio clock | renderer core done; text, paths, frame buffers, input and clock not started |
 | M2 | osu! ruleset model: hit objects, beatmap conversion and processing, judgements, scoring, health (unit tests with exact values) | not started |
 | M3 | Drawable hit objects, playfield, Argon skin, cursor and trail, hit sounds | not started |
 | M4 | Player, PlayerLoader, HUD, pause/fail, break and skip overlays, results, local scores, replays; connect song select | not started |
@@ -125,7 +128,52 @@ to be measured, not guessed.
 A milestone is done when the build and tests are green, behaviour is checked against the C# source, and latency and frame-time numbers
 come from the harness with the environment stated.
 
-## 6. Decision log
+## 6. Open questions
+
+- **Audio offset basis.** `AudioContext.getOutputTimestamp()` gives the context time that is leaving the device now, so the game could
+  follow the audio as it is *heard* and compensate a Bluetooth device's delay with no setting. The client does not do that: it follows
+  BASS's position and leaves device delay to the "Audio offset" setting. Following the heard audio would double-compensate an offset
+  copied from the client. Decide when the user's `game.ini` (their `AudioOffset`) and their bench numbers are in: either follow the client
+  exactly, or add a web-only "compensate output latency" option and record it as a deviation.
+- **Batching across masking.** In the client and in the port, every masked container ends the current batch (a draw call and a uniform
+  upload each). The synthetic playfield issues 174 draw calls for 323 quads. If the M1 numbers show this matters, masking parameters can
+  move into per-vertex data (same shader maths, same pixels) so the batch survives.
+
+## 7. Bench results
+
+`bench.html`, opened on the machine to be measured, exports JSON (what each field means is in the page's source, `src/bench/`).
+
+### 7.1 Cloud, headless Chromium, software GL, no audio device (2026-11-12): relative numbers only
+
+Our JavaScript per frame for the same synthetic playfield (16 hit circles shaped like `ArgonMainCirclePiece`, 4 sliders, 150 static HUD
+drawables per density unit; every object animates every frame). Times are medians in ms; the timer steps in 0.1 ms.
+
+| Variant | Drawables | Update | Draw | Total p50 | Total p99 |
+|---|---|---|---|---|---|
+| scene graph → DOM, 1x | 512 | 1.3 | 2.5 | 3.7 | 7.7 |
+| scene graph → WebGL2, 1x | 512 | 1.0 | 0.8 | 1.8 | 4.2 |
+| scene graph → DOM, 4x | 1592 | 4.6 | 9.9 | 14.6 | 36.9 |
+| scene graph → WebGL2, 4x | 1592 | 2.6 | 2.2 | 4.7 | 6.6 |
+
+- The DOM figure covers only our style writes; the browser's own style, layout and paint come on top and are not in it. The WebGL2
+  figure covers generating the draw list and submitting it; rasterisation happens off the main thread.
+- Raw baselines (400 quads per density unit, no scene graph): WebGL2 and WebGPU submit in about 0.1 ms at every density; Canvas 2D takes
+  0.4 ms at 1x and 63 ms at 16x here (software canvas). Frame intervals and the worker's message delay are dominated by software
+  rasterisation in this environment and say nothing about a GPU.
+- Audio clocks read once per frame: `AudioContext.currentTime` advances in 20 ms steps here (read jitter 2.9 ms std, 7.9 ms max);
+  extrapolating `getOutputTimestamp()` is smooth to 0.05 ms std, 0.13 ms max; `HTMLAudioElement.currentTime` jitters 2.1 ms std, 6.4 ms
+  max and ran 0.8 ms behind the audio it delivered. The click-detection method reads 0.000 ms error for an `AudioBufferSourceNode`.
+
+What this supports: the scene graph is not the bottleneck at playfield density, and drawing it with WebGL2 costs less of our JavaScript
+than writing DOM styles while also removing the browser's style and paint work. What it cannot show: anything about the M1's GPU,
+display, compositor or audio output. Those come from the user's run.
+
+### 7.2 User's M1 (pending)
+
+Ask: open `bench.html` on the dev URL in Chrome at the usual window size with the Bluetooth headphones connected, press "Run all", follow
+the two input prompts, paste the JSON.
+
+## 8. Decision log
 
 - 2026-11-12: gameplay exclusion lifted (user). Scope as in §1.
 - 2026-11-12: judgement and hit sounds run from the input listener at the event's timestamp (§4.2), because Chrome dispatches discrete

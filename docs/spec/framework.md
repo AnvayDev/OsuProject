@@ -48,6 +48,7 @@ easy to get wrong, the DOM mapping decisions, and known limitations.
 | PathApproximator (bezier/B-spline/catmull/circular arc/linear) + CircularArcProperties, float32-exact Vector2F, .NET semantics (Math.Round half-even, invariant parsing, char.IsWhiteSpace trims), Logger (console) | done, tested | `utils/PathApproximator.ts`, `utils/CircularArcProperties.ts`, `layout/Vector2F.ts`, `utils/DotNet.ts`, `logging/Logger.ts` |
 | ExtensionMethods (SHA-256 via WebCrypto, MD5, ToStandardisedPath), GetCommonPrefix, ExcludeSystemFileNames, TextureStore/LargeTextureStore (lookup + cache, texture sources wrapped like TextureLoaderStore: png/jpg extensions), Game.Textures | done, tested | `extensions/*`, `io/ResourceStore.ts`, `graphics/textures/TextureStore.ts` |
 | NonNullableBindable, TransformBindable (`transformBindableTo`), DrawableAudioWrapper/DrawableTrack (+`volumeTo`/`balanceTo`/`frequencyTo`/`tempoTo`; no DrawableAudioMixer), ConfigManager/IniConfigManager (ini text in `localStorage`), GameHost caches the Game, DependencyKey admits private-constructor classes | done, tested | `bindables/NonNullableBindable.ts`, `transforms/TransformBindable.ts`, `graphics/audio/*`, `configuration/*` |
+| Renderer (WebGL2): shaders, masking, blending, quad batch, textures; `Drawable.draw`, `GLContainer` (§14) | core done; text, Path, frame buffers pending | `graphics/rendering/*`, `graphics/containers/GLContainer.ts` |
 | Mixer effects (AudioFilter/BQF) | **not started** (port when first needed) | |
 
 Verification: `npm test` (transforms, primitives, layout: 43 tests) and `tests/visual/framework-scene.html`, a scene that exercises masking, borders, edge effects, additive blending and per-leaf alpha.
@@ -211,3 +212,44 @@ Limitation: CSS stacking contexts isolate blending. To keep that rare, drawables
 - Not ported yet: mixer effects (`AudioFilter` low-pass ducking used by dialogs), device selection, `Waveform`.
 - Risk: BASS is configured with `BASS_CONFIG_MP3_OLDGAPS` (no iTunSMPB, no assumed 529-sample delay). Browsers' MP3 decoders apply LAME
   gapless trimming, so beatmap time may differ by ~25 ms on some MP3s. Verify against a real client before tuning offsets.
+
+## 14. Renderer (`Graphics/Rendering/*`, `Resources/Shaders/*`): the GPU draw path
+
+A `GLContainer` draws its subtree with a WebGL2 port of the framework's renderer instead of DOM elements. It exists for gameplay
+(`docs/GAMEPLAY-PLAN.md` §4.1); menus stay on the DOM. Files: `graphics/rendering/Renderer.ts`, `shaders.ts`, `MaskingInfo.ts`,
+`graphics/containers/GLContainer.ts`.
+
+- **No DrawNodes.** The client copies drawable state into DrawNodes for its draw thread. Here everything runs on one thread, so
+  `Drawable.draw(renderer)` is `DrawNode.Draw` reading the drawable directly. `generateDrawNodeSubtree()` is `GenerateDrawNodeSubtree`:
+  it fills each non-flattened composite's list of children to draw (`addFromComposite`, with the same skips: not loaded, not present,
+  masked away, flattened composites) and validates proxies. The draw pass then runs over those lists, so a proxy that comes before its
+  original in the tree still knows whether the original was reached this frame.
+- **Shaders** are the client's (`sh_Texture2D.vs`, `sh_Texture.fs`, `sh_Masking.h`, `sh_TextureWrapping.h`, `sh_Utils.h`,
+  `Internal/sh_GlobalUniforms.h`, `Internal/sh_Vertex_Output.h`) rewritten from GLSL 450 to GLSL ES 3.00: combined samplers, named
+  varyings, float literals, `highp` everywhere (desktop GL and Metal ignore `lowp`/`mediump`). The maths is unchanged. Global uniforms are
+  one std140 block, 272 bytes; the offsets are in `Renderer.uploadGlobalUniforms`.
+- **Colours** are passed as sRGB and blended as they are, as in the client (its shaders no longer convert to linear).
+- **Screen space is CSS pixels**; the canvas has `renderer.pixelRatio` device pixels per unit. The client's screen space is device pixels,
+  so draw code that means "one pixel" divides by `pixelRatio`: masking smoothness (`CompositeDrawable.computeMaskingInfo`) and sprite edge
+  smoothness (`Sprite.inflationAmount`). Port every later `MatrixInverse.ExtractScale()` use the same way.
+- **The backbuffer is a transparent layer over the DOM** (premultiplied alpha). The client's blend presets write alpha as (One, One)
+  because its backbuffer is opaque. On the backbuffer the port writes alpha as "over" for Mixture and leaves it unchanged for Additive,
+  so compositing the canvas over the page gives the same picture as drawing over the background directly. Colour factors are the
+  client's. Inside frame buffers the client's factors apply unchanged.
+- **Masking scissor**: the client takes `Quad.AABB` (floor and ceiling in screen pixels); the port takes the enclosing rectangle in device
+  pixels.
+- **Vertices**: `TexturedVertex2D` without `backbufferDrawDepth`. The front-to-back opaque interior pass (an overdraw optimisation that
+  does not change the image) is not ported, so the backbuffer draws without a depth test. A frame's quads go into one streaming buffer;
+  each flush uploads and draws its own range.
+- **Textures** upload on first use from `Texture.image` with straight alpha, mipmaps to level 3 (`IRenderer.MAX_MIPMAP_LEVELS`), trilinear
+  filtering and the shader's −0.9 LOD bias. There is no atlas yet: every texture is its own GL texture, so a change of texture ends a batch.
+- **Sprite edges**: without `EdgeSmoothness` a sprite outside any masking container has hard edges, as in the client. The DOM renderer
+  anti-aliases them, which is its deviation, not the renderer's.
+- **DOM elements are lazy.** The element walk (`validateElementSubTree`) creates a drawable's element and inserts its children; a
+  drawable under a `GLContainer` is never walked and never has one. `CanvasDrawable`'s Canvas 2D hook is `drawCanvas`.
+- Not ported yet: SpriteText and SpriteIcon drawing (needs a padded glyph atlas like the client's `TextureAtlas`), `Path`, frame buffers
+  (`BufferedContainer`), `CircularProgress`, `Triangles`, depth and stencil, wrap modes other than through the shader uniforms.
+
+Verification: `tests/visual/gl-scene.html?gl=0` (DOM) against `?gl=1` (WebGL2) with `scripts/pixeldiff.mjs`. They differ by 1.5% of
+pixels at threshold 12, all on one-pixel edges: the DOM anti-aliases unmasked edges and approximates edge effects with sampled gradients.
+
