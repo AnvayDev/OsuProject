@@ -1,6 +1,6 @@
 # osu!lazer web portfolio
 
-Read `docs/ARCHITECTURE.md` before writing code. Specs with exact constants live in `docs/spec/`; real-client screenshots in `docs/reference/real/`.
+Read `docs/ARCHITECTURE.md` before writing code, and `docs/GAMEPLAY-PLAN.md` before gameplay or settings work. Specs with exact constants live in `docs/spec/`; real-client screenshots in `docs/reference/real/`.
 Source of truth for behaviour: `_reference/osu`, `_reference/osu-framework`, `_reference/osu-resources` (read-only), pinned to the user's
 client: osu **2026.1005.0-lazer** → osu-framework **2026.921.1**, osu-resources **2026.918.0** (versions from osu.Game.csproj). Never use master.
 
@@ -65,5 +65,12 @@ no UI, song from 0, undimmed background/video; back or song end exits). Mirror m
 BeatmapDownloadTracker, shared mirror rate limiter). Beatmap listing overlay done (main menu "browse"; mirror search (keyword results fetched once and sorted client-side), Normal/Extra cards,
 previews, downloads, PresentBeatmap): overlay base classes (WaveOverlayContainer/FullscreenOverlay/OnlineOverlay, OverlayHeader,
 OverlayScrollContainer), IOverlayManager dim, framework CircularProgress/DelayedLoadWrapper/ModelBackedDrawable. No beatmap set overlay.
-No gameplay is ported (user decision).
+Gameplay (2026-11-12): the gameplay exclusion is lifted (user decision). osu!standard gameplay, results, local scores, replays, the
+difficulty/pp calculators, the whole settings overlay and mod select are in scope; the plan, the latency definitions, the research and the
+decision log are in `docs/GAMEPLAY-PLAN.md` (read it before touching gameplay, update it at every milestone). What to ask the user to capture
+from the real client: `docs/reference/CAPTURE-REQUESTS.md`. Decisions so far: judgement and hit sounds run from the input listener at
+`event.timeStamp` (never quantised to a frame); the engine stays TypeScript (no WASM engine); the playfield gets a GPU draw path that ports
+osu!framework's renderer while menus stay on the DOM renderer (to be confirmed by `bench.html` numbers from the user's M1); reference beatmap
+for comparisons is Soleily - Renatus [Insane] (set 241526). User setup: M1 Air, Chrome, built-in 60 Hz display, mouse + keyboard keys,
+Bluetooth headphones. Nothing of gameplay is ported yet.
 Cloud screenshots: `PW_CHROMIUM=/opt/pw-browsers/chromium node scripts/shot.mjs ...` (dev server running). Recordings: docs/reference/recordings/web/*.mp4 (ffmpeg available).

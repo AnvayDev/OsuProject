@@ -5,7 +5,8 @@ spec in `docs/spec/`, the spec wins for *visual/behavioural* facts and this file
 
 ## Goal
 
-A browser port of osu!lazer's (2026.1005-lazer) non-gameplay UI that serves as a personal portfolio. Fidelity first: same
+A browser port of osu!lazer (2026.1005-lazer) that serves as a personal portfolio: first the non-gameplay UI, and since 2026-11-12
+osu!standard gameplay and the settings overlay too (plan and decisions: `docs/GAMEPLAY-PLAN.md`). Fidelity first: same
 layout, proportions, colours, typography, timings, easings, samples and interaction behaviour as the real client.
 The main menu's **edit** button (beatmap editor / skin editor = osu!'s "customise" entry point) is replaced by a
 **portfolio** button with a sub-menu; everything else behaves like lazer.
