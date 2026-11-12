@@ -21,8 +21,13 @@ Ground truth, in priority order:
 
 - TypeScript (strict) + Vite 8, no UI framework. Path aliases: `@fw/*` → `src/framework/*`, `@game/*` → `src/game/*`, `@/*` → `src/*`.
 - Rendering: **DOM retained scene graph** driven by our own TS port of osu!framework's layout and transform model.
-  Every `Drawable` owns one absolutely-positioned `HTMLElement`; the framework computes layout itself (anchor/origin,
-  relative sizing, autosize, fill flows) and writes `transform`/`width`/`height`/`opacity`/colour styles only when they change.
+  A `Drawable` drawn by the DOM owns one absolutely-positioned `HTMLElement` (created when the element walk first reaches it); the
+  framework computes layout itself (anchor/origin, relative sizing, autosize, fill flows) and writes
+  `transform`/`width`/`height`/`opacity`/colour styles only when they change.
+- Rendering, GPU path: a `GLContainer` draws its whole subtree with a WebGL2 port of osu!framework's renderer
+  (`src/framework/graphics/rendering/`: the framework's shaders, masking, blending, quad batch). Drawables implement `draw(renderer)`, the
+  counterpart of `DrawNode.Draw`, and never create DOM elements there. It exists for gameplay; a drawable type can only be used under a
+  `GLContainer` once it has a `draw` implementation (see `docs/spec/framework.md` §14).
   CSS layout (flexbox/grid) is NOT used for osu! UI; it may be used inside leaf "HTML content" drawables (e.g. resume PDF viewer,
   long-form portfolio text) where osu! itself would use a TextFlowContainer.
 - Canvas 2D is used inside specific drawables where the original is procedural (Triangles/TrianglesV2 backgrounds, LogoVisualisation bars,
@@ -150,6 +155,11 @@ A tiny `Signal<T>` (add/remove/emit) lives in `src/framework/bindables/Signal.ts
   States are driven through the debug hook `window.__osu` (exposed in dev builds only): `__osu.goto('mainmenu-initial' | 'mainmenu-toplevel' | 'mainmenu-play' | 'songselect' | ...)`,
   `__osu.selectBeatmap(index)`, `__osu.importUrl(url)`, `__osu.ready` (promise).
 - Compare screenshots by viewing both images (Read tool shows images) and by `scripts/compare.mjs` (pixel diff + side-by-side composite).
+- `npm run pixeldiff -- --a one.png --b two.png [--out heat.png] [--threshold 8] [--fail 0.5]` prints how many pixels differ and writes a
+  heat map. Use it for before/after checks of a renderer change (a static scene must come out with 0 differing pixels), for DOM against
+  WebGL (`tests/visual/gl-scene.html?gl=0` and `?gl=1`), and against `docs/reference/real` with a looser threshold.
+- `bench.html` (built and deployed next to the game) measures rendering, input delay and audio clocks on the machine it runs on; see
+  `docs/GAMEPLAY-PLAN.md` §2 and §7. `npm run bench` runs it headless for relative numbers.
 
 ## Licensing notes (for the final README)
 

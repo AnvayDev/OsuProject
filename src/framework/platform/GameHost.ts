@@ -38,6 +38,15 @@ export class GameHost {
   private frameCount = 0;
   private rafHandle = 0;
 
+  /**
+   * Timings of the last frame, in milliseconds on the performance.now() timeline (the web's counterpart of the update and draw threads'
+   * frame statistics): when it started, how long the update took (audio, clock, UpdateSubTree, masking) and how long the draw took (the
+   * element walk and everything drawn from it, WebGL submission included). They cover our JavaScript only, not the browser's own work.
+   */
+  lastFrameStart = 0;
+  lastUpdateDuration = 0;
+  lastDrawDuration = 0;
+
   /** The DOM element the scene graph is mounted into (defaults to document.body). */
   constructor(private readonly mount: HTMLElement = document.body) {}
 
@@ -123,6 +132,9 @@ export class GameHost {
     this.frameCount++;
     this.inFrame = true;
 
+    const frameStart = performance.now();
+    let updateEnd = frameStart;
+
     try {
       this.audioThread.onNewFrame();
 
@@ -133,10 +145,17 @@ export class GameHost {
       root.updateSubTree();
       root.updateSubTreeMasking();
 
+      updateEnd = performance.now();
+
       root.validateElementSubTree();
     } finally {
       this.inFrame = false;
     }
+
+    const frameEnd = performance.now();
+    this.lastFrameStart = frameStart;
+    this.lastUpdateDuration = updateEnd - frameStart;
+    this.lastDrawDuration = frameEnd - updateEnd;
 
     if (this.exitRequested)
       this.performExit();

@@ -12,7 +12,11 @@ export default defineConfig({
   worker: { format: 'es' },
   // ffmpeg.wasm starts its worker from a URL relative to its own module, which pre-bundling would move.
   optimizeDeps: { exclude: ['@ffmpeg/ffmpeg'] },
-  build: { target: 'es2022', sourcemap: true, chunkSizeWarningLimit: 2000 },
+  // bench.html is the measurement page (docs/GAMEPLAY-PLAN.md §2); it is built and deployed next to the game.
+  build: {
+    target: 'es2022', sourcemap: true, chunkSizeWarningLimit: 2000,
+    rollupOptions: { input: { main: fileURLToPath(new URL('./index.html', import.meta.url)), bench: fileURLToPath(new URL('./bench.html', import.meta.url)) } },
+  },
   server: {
     // dev-only proxies mirroring vercel.json rewrites
     proxy: {

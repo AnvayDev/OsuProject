@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osu! web: latency and rendering benchmark</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; background: #111; color: #eee; font: 15px/1.5 system-ui, sans-serif; }
+      main { max-width: 760px; margin: 0 auto; padding: 32px 20px; }
+      h1 { font-size: 22px; margin: 0 0 8px; }
+      p { margin: 8px 0; color: #bbb; }
+      button { font: inherit; padding: 10px 18px; border: 0; border-radius: 6px; background: #ff66aa; color: #111; font-weight: 600; cursor: pointer; }
+      button:disabled { background: #555; color: #999; cursor: default; }
+      textarea { width: 100%; height: 320px; margin-top: 12px; background: #1b1b1b; color: #cde; border: 1px solid #333; border-radius: 6px; font: 12px/1.4 ui-monospace, monospace; }
+      #stage { position: fixed; inset: 0; display: none; background: #000; overflow: hidden; }
+      #stage canvas.raw { position: absolute; inset: 0; width: 100%; height: 100%; }
+      #status { position: fixed; left: 12px; bottom: 10px; z-index: 10; padding: 4px 10px; border-radius: 4px; background: rgba(0, 0, 0, 0.7); color: #fff; font: 13px ui-monospace, monospace; display: none; }
+      #prompt { position: fixed; inset: 0; z-index: 9; display: none; align-items: center; justify-content: center; text-align: center; font-size: 22px; color: #fff; pointer-events: none; text-shadow: 0 2px 8px #000; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Latency and rendering benchmark</h1>
+      <p>
+        Measures, on this machine and browser: what the display and GPU do for each candidate renderer, how late input events reach the
+        page, and how accurate the audio clocks are. It takes about two minutes. Nothing is uploaded: the result is JSON to copy.
+      </p>
+      <p>
+        Before you start: use the window size you play at, close other heavy tabs, and connect the headphones you play with. Twice during
+        the run you will be asked to <b>move the mouse and tap Z and X as if you were playing</b>, for eight seconds each time.
+      </p>
+      <p><button id="run">Run all</button> <button id="copy" disabled>Copy result</button></p>
+      <textarea id="output" readonly placeholder="The result appears here."></textarea>
+    </main>
+    <div id="stage"></div>
+    <div id="prompt"></div>
+    <div id="status"></div>
+    <script type="module" src="/src/bench/main.ts"></script>
+  </body>
+</html>

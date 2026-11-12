@@ -14,7 +14,9 @@
     "pretest": "node scripts/prepare-assets.mjs",
     "test": "vitest run",
     "e2e": "playwright test",
-    "shot": "node scripts/shot.mjs"
+    "shot": "node scripts/shot.mjs",
+    "pixeldiff": "node scripts/pixeldiff.mjs",
+    "bench": "node scripts/bench.mjs"
   },
   "dependencies": {
     "@ffmpeg/core": "^0.12.10",
