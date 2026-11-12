@@ -14,6 +14,10 @@ import { BackgroundPreviewScreen } from '../BackgroundPreviewScreen';
 interface DebugHook {
   readonly game: OsuGame;
   readonly ready: Promise<void>;
+  /** Stops (true) or resumes frames, so two screenshots show the same instant (scripts/stalecheck.mjs). */
+  suspend(suspended: boolean): void;
+  /** Re-applies every element from current state (GameHost.redrawAll): the picture must not change. */
+  redrawAll(): void;
   goto(state: string): Promise<void>;
   importUrl(url: string): Promise<void>;
 }
@@ -62,6 +66,8 @@ export function installDebugHook(game: OsuGame): void {
     game,
     ready,
     importUrl,
+    suspend: suspended => { game.host!.suspended = suspended; },
+    redrawAll: () => game.host!.redrawAll(),
     async goto(state: string) {
       await ready;
 

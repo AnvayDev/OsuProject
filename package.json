@@ -16,6 +16,7 @@
     "e2e": "playwright test",
     "shot": "node scripts/shot.mjs",
     "pixeldiff": "node scripts/pixeldiff.mjs",
+    "stalecheck": "node scripts/stalecheck.mjs",
     "bench": "node scripts/bench.mjs"
   },
   "dependencies": {

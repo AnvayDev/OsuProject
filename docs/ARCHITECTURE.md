@@ -158,6 +158,9 @@ A tiny `Signal<T>` (add/remove/emit) lives in `src/framework/bindables/Signal.ts
 - `npm run pixeldiff -- --a one.png --b two.png [--out heat.png] [--threshold 8] [--fail 0.5]` prints how many pixels differ and writes a
   heat map. Use it for before/after checks of a renderer change (a static scene must come out with 0 differing pixels), for DOM against
   WebGL (`tests/visual/gl-scene.html?gl=0` and `?gl=1`), and against `docs/reference/real` with a looser threshold.
+- `node scripts/stalecheck.mjs --state songselect` freezes a state, screenshots it, re-applies every element from current state
+  (`GameHost.redrawAll`) and screenshots again. Any differing pixel is a stale render: state that changed without invalidating. Run it
+  after touching invalidation or element code.
 - `bench.html` (built and deployed next to the game) measures rendering, input delay and audio clocks on the machine it runs on; see
   `docs/GAMEPLAY-PLAN.md` §2 and §7. `npm run bench` runs it headless for relative numbers.
 

@@ -5,6 +5,7 @@ import { DependencyContainer } from '../allocation/DependencyContainer';
 import { FrameworkConfigManager } from '../configuration/FrameworkConfigManager';
 import { BindableBool } from '../bindables/Bindable';
 import { Container } from '../graphics/containers/Container';
+import type { Drawable } from '../graphics/Drawable';
 import { InputKey, KeyBinding } from '../input/bindings/KeyBindings';
 import { DomInputHandler } from '../input/handlers/DomInputHandler';
 import { InputHandler, UserInputManager } from '../input/InputManager';
@@ -115,13 +116,38 @@ export class GameHost {
     this.bootstrapSceneGraph(game);
 
     const loop = () => {
-      this.updateFrame();
+      if (!this.suspended)
+        this.updateFrame();
 
       if (!this.exitRequested)
         this.rafHandle = requestAnimationFrame(loop);
     };
 
     this.rafHandle = requestAnimationFrame(loop);
+  }
+
+  /** Stops frames from running while set (the scene graph and its clocks stand still). For tooling: see redrawAll. */
+  suspended = false;
+
+  /**
+   * Re-applies every drawn drawable's element state from its current state, without running an update. Nothing may change on screen: a
+   * drawable is only supposed to be re-applied when it was invalidated, so a difference between a screenshot taken before this call and
+   * one taken after it (with frames suspended) is a stale render: state that changed without invalidating. scripts/stalecheck.mjs does that.
+   */
+  redrawAll(): void {
+    const root = this.root;
+    if (root === null) return;
+
+    const invalidate = (d: Drawable): void => {
+      d.invalidateElementState();
+
+      const children = (d as unknown as { internalChildren?: readonly Drawable[] }).internalChildren;
+      if (children !== undefined)
+        for (const c of children) invalidate(c);
+    };
+
+    invalidate(root);
+    root.validateElementSubTree();
   }
 
   /** Runs one frame: clock, update, masking, DOM. Exposed for tests and screenshot tooling. */
