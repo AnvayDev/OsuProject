@@ -33,6 +33,17 @@ export class Matrix3 {
       this.m31 * o.m13 + this.m32 * o.m23 + this.m33 * o.m33);
   }
 
+  /**
+   * a * b for matrices of 2D affine transforms (third column 0, 0, 1), which every DrawInfo matrix is.
+   * Row-vector convention: the result applies a first, then b.
+   */
+  static multiplyAffine(a: Matrix3, b: Matrix3): Matrix3 {
+    return new Matrix3(
+      a.m11 * b.m11 + a.m12 * b.m21, a.m11 * b.m12 + a.m12 * b.m22, 0,
+      a.m21 * b.m11 + a.m22 * b.m21, a.m21 * b.m12 + a.m22 * b.m22, 0,
+      a.m31 * b.m11 + a.m32 * b.m21 + b.m31, a.m31 * b.m12 + a.m32 * b.m22 + b.m32, 1);
+  }
+
   equals(o: Matrix3): boolean {
     return this.m11 === o.m11 && this.m12 === o.m12 && this.m13 === o.m13
       && this.m21 === o.m21 && this.m22 === o.m22 && this.m23 === o.m23

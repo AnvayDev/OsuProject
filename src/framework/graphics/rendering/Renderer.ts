@@ -729,25 +729,31 @@ export class Renderer {
    * Uploads the current contents of a changing image (a canvas that was redrawn, a video frame) to its texture, creating it on first use.
    * Such textures have no mipmaps.
    */
-  updateImage(key: string, source: TexImageSource): void {
+  updateImage(key: string, source: TexImageSource, premultiplied = false): void {
     const gl = this.gl;
     const native = this.nativeTextures.get(key);
 
     this.flushCurrentBatch();
 
-    if (native === undefined) {
+    // (premultiplied: the source's colours are stored multiplied by alpha and are uploaded as they are; draw with drawPremultiplied)
+    if (premultiplied)
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+
+    if (native === undefined)
       this.nativeTextures.set(key, this.createNativeTexture(source, false));
-      return;
+    else {
+      const size = sourceSize(source);
+
+      gl.bindTexture(gl.TEXTURE_2D, native.texture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+      this.boundTexture = null;
+
+      native.width = size.width;
+      native.height = size.height;
     }
 
-    const size = sourceSize(source);
-
-    gl.bindTexture(gl.TEXTURE_2D, native.texture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
-    this.boundTexture = null;
-
-    native.width = size.width;
-    native.height = size.height;
+    if (premultiplied)
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
   }
 
   /** Whether updateImage or bindImage has created a texture for the key. */
@@ -1063,6 +1069,58 @@ export class Renderer {
       quad, colour, region.left, region.top, region.right, region.bottom,
       region.left - inflationX, region.top - inflationY, region.right + inflationX, region.bottom + inflationY,
       inflationX, inflationY);
+  }
+
+  /** IRenderer.WhitePixel, as a region for drawRegionAt. */
+  get whiteRegion(): AtlasRegion {
+    return this.whiteRegionBacking ??= { native: this.whitePixel, left: 0, top: 0, right: 1, bottom: 1 };
+  }
+
+  private whiteRegionBacking: AtlasRegion | null = null;
+
+  /**
+   * Adds a quad given as eight numbers at `offset` of `quads` (top-left, top-right, bottom-left, bottom-right; x then y), with a colour per
+   * corner and its texture rectangle and coordinates in UV. The texture must be bound.
+   */
+  drawQuadAt(
+    quads: Float32Array, offset: number, topLeft: Colour4, topRight: Colour4, bottomLeft: Colour4, bottomRight: Colour4,
+    texLeft: number, texTop: number, texRight: number, texBottom: number,
+    coordLeft: number, coordTop: number, coordRight: number, coordBottom: number,
+    blendRangeX: number, blendRangeY: number,
+  ): void {
+    if (this.quadCount === MAX_QUADS)
+      this.flushCurrentBatch();
+
+    const v = this.vertices;
+    let o = this.quadCount++ * QUAD_FLOATS;
+
+    // BottomLeft, BottomRight, TopRight, TopLeft
+    o = writeVertexXY(v, o, quads[offset + 4], quads[offset + 5], bottomLeft, coordLeft, coordBottom, texLeft, texTop, texRight, texBottom, blendRangeX, blendRangeY);
+    o = writeVertexXY(v, o, quads[offset + 6], quads[offset + 7], bottomRight, coordRight, coordBottom, texLeft, texTop, texRight, texBottom, blendRangeX, blendRangeY);
+    o = writeVertexXY(v, o, quads[offset + 2], quads[offset + 3], topRight, coordRight, coordTop, texLeft, texTop, texRight, texBottom, blendRangeX, blendRangeY);
+    writeVertexXY(v, o, quads[offset], quads[offset + 1], topLeft, coordLeft, coordTop, texLeft, texTop, texRight, texBottom, blendRangeX, blendRangeY);
+  }
+
+  /**
+   * Draws a texture whose colours are premultiplied by their alpha (a 2D canvas's): `draw` runs with the current blending's factors for
+   * such a source. A canvas is uploaded as it is stored (see updateImage), since dividing its colours by a small alpha and multiplying
+   * again loses most of their bits.
+   */
+  drawPremultiplied(draw: () => void): void {
+    const gl = this.gl;
+
+    this.flushCurrentBatch();
+
+    if (this.currentBlending === BlendingParameters.Additive)
+      gl.blendFuncSeparate(gl.ONE, gl.ONE, this.usingBackbuffer ? gl.ZERO : gl.ONE, gl.ONE);
+    else
+      gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, this.usingBackbuffer ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
+
+    draw();
+    this.flushCurrentBatch();
+
+    if (this.currentBlending !== null)
+      this.setBlendImplementation(this.currentBlending);
   }
 
   /**

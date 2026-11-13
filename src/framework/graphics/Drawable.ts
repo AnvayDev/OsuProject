@@ -15,6 +15,7 @@ import { Signal } from '../bindables/Signal';
 import { Anchor, Axes, FillMode, Invalidation, LoadState, RotationDirection } from '../layout/Enums';
 import { InvalidationList, InvalidationSource, LayoutMember, LayoutValueOf } from '../layout/Layout';
 import { MarginPadding } from '../layout/MarginPadding';
+import { Matrix3 } from '../layout/Matrix3';
 import { Precision, Quad, RectangleF } from '../layout/Primitives';
 import { Vector2 } from '../layout/Vector2';
 import { type IFrameBasedClock } from '../timing/IClock';
@@ -91,11 +92,15 @@ export const O_POSITIONAL_INPUT_QUEUE = 1 << 15;
 export const O_NON_POSITIONAL_INPUT_QUEUE = 1 << 16;
 /** draw (for a CompositeDrawable: hasCustomDrawNode) */
 export const O_DRAW = 1 << 17;
+export const O_ON_INVALIDATE = 1 << 18;
+/** A member the local transform is computed from (computeDrawInfo), other than the size */
+export const O_LOCAL_TRANSFORM = 1 << 20;
+/** elementStateUsesScreenSpace (DOM renderer) */
+export const O_ELEMENT_STATE_USES_SCREEN_SPACE = 1 << 19;
 
 const override_flags = new Map<string, number>([
   ['update', O_UPDATE],
   ['isPresent', O_IS_PRESENT],
-  ['drawScale', O_IS_PRESENT],
   ['shouldBeAlive', O_SHOULD_BE_ALIVE],
   ['lifetimeStart', O_SHOULD_BE_ALIVE],
   ['lifetimeEnd', O_SHOULD_BE_ALIVE],
@@ -112,6 +117,19 @@ const override_flags = new Map<string, number>([
   ['generateDrawNodeSubtree', O_GENERATE_DRAW_NODE_SUBTREE],
   ['original', O_PROXY],
   ['draw', O_DRAW],
+  ['onInvalidate', O_ON_INVALIDATE],
+  ['drawPosition', O_LOCAL_TRANSFORM],
+  ['anchorPosition', O_LOCAL_TRANSFORM],
+  ['relativeAnchorPosition', O_LOCAL_TRANSFORM],
+  ['originPosition', O_LOCAL_TRANSFORM],
+  ['relativeOriginPosition', O_LOCAL_TRANSFORM],
+  ['drawScale', O_IS_PRESENT | O_LOCAL_TRANSFORM],
+  ['position', O_LOCAL_TRANSFORM],
+  ['x', O_LOCAL_TRANSFORM],
+  ['y', O_LOCAL_TRANSFORM],
+  ['rotation', O_LOCAL_TRANSFORM],
+  ['shear', O_LOCAL_TRANSFORM],
+  ['elementStateUsesScreenSpace', O_ELEMENT_STATE_USES_SCREEN_SPACE],
   ['propagatePositionalInputSubTree', O_POSITIONAL_INPUT_QUEUE],
   ['buildPositionalInputQueue', O_POSITIONAL_INPUT_QUEUE],
   ['propagateNonPositionalInputSubTree', O_NON_POSITIONAL_INPUT_QUEUE],
@@ -589,7 +607,7 @@ export abstract class Drawable extends Transformable {
     this.invalidateParentSizeDependencies(Invalidation.MiscGeometry, Axes.Y);
   }
 
-  private _relativePositionAxes = Axes.None;
+  /** @internal */ _relativePositionAxes = Axes.None;
 
   /** Controls which Axes of Position are relative w.r.t. the Parent's size (from 0 to 1) rather than absolute. */
   get relativePositionAxes(): Axes {
@@ -689,7 +707,7 @@ export abstract class Drawable extends Transformable {
     this.invalidateParentSizeDependencies(Invalidation.DrawSize, Axes.Y);
   }
 
-  private _relativeSizeAxes = Axes.None;
+  /** @internal */ _relativeSizeAxes = Axes.None;
 
   /** Controls which Axes are relative sizes w.r.t. Parent's size (from 0 to 1) in the Parent's coordinate system, rather than absolute sizes. */
   get relativeSizeAxes(): Axes {
@@ -1374,7 +1392,8 @@ export abstract class Drawable extends Transformable {
   private readonly screenSpaceDrawQuadBacking = new LayoutValueOf<Quad>(Invalidation.DrawInfo | Invalidation.RequiredParentSizeToFit | Invalidation.Presence);
 
   protected computeScreenSpaceDrawQuad(): Quad {
-    return this.toScreenSpaceRect(this.drawRectangle);
+    const size = this.drawSize;
+    return Quad.fromRectangleTransformed(0, 0, size.x, size.y, this.drawInfo.matrix);
   }
 
   /** The screen-space quad this drawable occupies. */
@@ -1387,22 +1406,63 @@ export abstract class Drawable extends Transformable {
   /** The local part of DrawInfo (parent's DrawRectangle space -> ours), as written to the element. */
   private localDrawInfo = new DrawInfo();
 
+  /**
+   * Whether localDrawInfo is current as far as this drawable's own state goes. Cleared by every invalidation that can change the local
+   * transform (see invalidateOf); a change of the parent's ChildSize, ChildOffset or relative coordinate system is detected by
+   * localParentVersion.
+   */
+  private localValid = false;
+  private localParentVersion = -1;
+
+  /** @internal For tests and tooling: checks every kept local DrawInfo against a fresh computation and records the differences. */
+  static verifyLocalDrawInfo = false;
+  static readonly localDrawInfoMismatches: string[] = [];
+
+  /**
+   * C# copies the parent's DrawInfo and applies this drawable's transform to it. The transform by itself (the local DrawInfo) only changes
+   * when this drawable's own geometry or the space its parent gives its children changes, not when an ancestor moves (a scroll, a
+   * parallax, a sliding overlay: every drawable below gets a new DrawInfo on every frame of those). So the local part is kept, and the
+   * DrawInfo is its product with the parent's. The product and C#'s in-place operations are the same transform; they round differently in
+   * the last bits of a double.
+   */
   private computeDrawInfo(): DrawInfo {
-    const di = this._parent?.drawInfo.clone() ?? new DrawInfo();
+    const parent = this._parent;
 
-    let pos = this.drawPosition.add(this.anchorPosition);
-    const drawScale = this.drawScale;
+    if (!this.localValid || (this.overrides & O_LOCAL_TRANSFORM) !== 0 || (parent !== null && this.localParentVersion !== parent.childGeometryVersion)) {
+      let pos = this.drawPosition.add(this.anchorPosition);
 
-    if (this._parent !== null)
-      pos = pos.add(this._parent.childOffset);
+      if (parent !== null)
+        pos = pos.add(parent.childOffset);
 
-    di.applyTransform(pos, drawScale, this.rotation, this.shear, this.originPosition);
+      const local = new DrawInfo();
+      local.applyTransform(pos, this.drawScale, this.rotation, this.shear, this.originPosition);
 
-    const local = new DrawInfo();
-    local.applyTransform(pos, drawScale, this.rotation, this.shear, this.originPosition);
-    this.localDrawInfo = local;
+      this.localDrawInfo = local;
+      this.localValid = true;
+      this.localParentVersion = parent !== null ? parent.childGeometryVersion : -1;
+    } else if (Drawable.verifyLocalDrawInfo) {
+      let pos = this.drawPosition.add(this.anchorPosition);
 
-    return di;
+      if (parent !== null)
+        pos = pos.add(parent.childOffset);
+
+      const fresh = new DrawInfo();
+      fresh.applyTransform(pos, this.drawScale, this.rotation, this.shear, this.originPosition);
+
+      const a = fresh.matrix, b = this.localDrawInfo.matrix;
+      const differs = (x: number, y: number) => Math.abs(x - y) > 1e-6 * Math.max(1, Math.abs(x), Math.abs(y));
+
+      if (differs(a.m11, b.m11) || differs(a.m12, b.m12) || differs(a.m21, b.m21) || differs(a.m22, b.m22) || differs(a.m31, b.m31) || differs(a.m32, b.m32))
+        Drawable.localDrawInfoMismatches.push(`${this.constructor.name} in ${parent?.constructor.name}: kept (${b.m31}, ${b.m32}) scale ${b.m11}, now (${a.m31}, ${a.m32}) scale ${a.m11}`);
+    }
+
+    const local = this.localDrawInfo;
+
+    if (parent === null)
+      return local.clone();
+
+    const parentInfo = parent.drawInfo;
+    return new DrawInfo(Matrix3.multiplyAffine(local.matrix, parentInfo.matrix), Matrix3.multiplyAffine(parentInfo.matrixInverse, local.matrixInverse));
   }
 
   /** Contains the linear transformation of this Drawable that is used during draw. */
@@ -1533,14 +1593,15 @@ export abstract class Drawable extends Transformable {
 
   /** Invalidates the layout of this Drawable. Returns whether the invalidation was handled. */
   invalidate(invalidation = Invalidation.All, source = InvalidationSource.Self): boolean {
-    return this.invalidateInternal(invalidation, source);
+    return Drawable.invalidateOf(this, invalidation, source, true);
   }
 
-  private invalidateInternal(invalidation = Invalidation.All, source = InvalidationSource.Self, propagateToParent = true): boolean {
+  /** @internal Drawable.invalidate (see the note on Drawable.overrides: a moving parent invalidates every drawable below it on every frame). */
+  static invalidateOf(d: Drawable, invalidation: Invalidation, source: InvalidationSource, propagateToParent: boolean): boolean {
     if (source !== InvalidationSource.Child && source !== InvalidationSource.Parent && source !== InvalidationSource.Self)
       throw new Error('A Drawable can only be invalidated with a singular source (child, parent, or self).');
 
-    if (this._loadState < LoadState.Ready)
+    if (d._loadState < LoadState.Ready)
       return false;
 
     // Changes in the colour of children don't affect parents.
@@ -1550,29 +1611,37 @@ export abstract class Drawable extends Transformable {
     if (invalidation === Invalidation.None)
       return false;
 
+    // The local DrawInfo (see computeDrawInfo) survives a parent's DrawInfo or colour changing, and this drawable's or a child's colour or
+    // draw node changing; anything else may be a change of this drawable's own geometry or of its parent.
+    // (A child's geometry counts: our size may follow our children's, and a class may place its origin by a child.)
+    if (source === InvalidationSource.Self
+      ? (invalidation & (Invalidation.DrawInfo | Invalidation.RequiredParentSizeToFit | Invalidation.Presence | Invalidation.Parent)) !== 0
+      : (invalidation & (Invalidation.RequiredParentSizeToFit | Invalidation.Parent)) !== 0)
+      d.localValid = false;
+
     // If the invalidation originated locally, propagate to the immediate parent.
     // Note: This is done _before_ invalidation is blocked below, since the parent always needs to be aware of changes even if the Drawable's invalidation state hasn't changed.
     // This is for only propagating once, otherwise it would propagate all the way to the root Drawable.
-    if (propagateToParent && source === InvalidationSource.Self)
-      this._parent?.invalidate(invalidation, InvalidationSource.Child);
+    if (propagateToParent && source === InvalidationSource.Self && d._parent !== null)
+      Drawable.invalidateOf(d._parent, invalidation, InvalidationSource.Child, true);
 
     // DOM: our own change always reaches our element, even when the layout state below was already invalid (the element isn't re-applied
     // for ancestors merely moving, so it can't rely on one of those to catch up).
     if (source === InvalidationSource.Self)
-      this.invalidationID++;
+      d.invalidationID++;
 
     // Perform the invalidation.
-    if (!this.invalidationList.invalidate(source, invalidation))
+    if (!d.invalidationList.invalidate(source, invalidation))
       return false;
 
     // A DrawNode invalidation always invalidates.
     let anyInvalidated = (invalidation & Invalidation.DrawNode) > 0;
 
     // (a non-uniform colour is interpolated across the parent, so geometry can change it: see the element-state check below)
-    const colourWasValid = this.drawColourInfoBacking.isValid;
+    const colourWasValid = d.drawColourInfoBacking.isValid;
 
     // Invalidate all layout members
-    let nextLayout = this.layoutList;
+    let nextLayout = d.layoutList;
 
     while (nextLayout !== null) {
       // Only invalidate layout members that accept the given source.
@@ -1580,23 +1649,26 @@ export abstract class Drawable extends Transformable {
       const memberInvalidation = invalidation & nextLayout.invalidation;
 
       if ((nextLayout.source & source) !== 0 && memberInvalidation !== 0) {
-        if (nextLayout.conditions?.(this, memberInvalidation) !== false)
+        if (nextLayout.conditions === null || nextLayout.conditions(d, memberInvalidation))
           anyInvalidated = nextLayout.invalidate() || anyInvalidated;
       }
 
       nextLayout = nextLayout.next;
     }
 
-    // Allow any custom invalidation to take place.
-    anyInvalidated = this.onInvalidate(invalidation, source) || anyInvalidated;
+    // Allow any custom invalidation to take place. (Drawable.onInvalidate does nothing.)
+    if ((d.overrides & (O_COMPOSITE | O_ON_INVALIDATE)) !== 0)
+      anyInvalidated = d.onInvalidate(invalidation, source) || anyInvalidated;
 
     // DOM: an element is positioned relative to its parent's element, so a parent's DrawInfo change alone (it or an ancestor moved, scaled
     // or rotated) leaves this element's state as it is, unless the state depends on screen space (see elementStateUsesScreenSpace).
-    if (anyInvalidated && !(source === InvalidationSource.Parent && invalidation === Invalidation.DrawInfo && !this.elementStateUsesScreenSpace
-      && (!colourWasValid || this.drawColourInfoBacking.isValid)))
-      this.invalidationID++;
+    if (anyInvalidated && !(source === InvalidationSource.Parent && invalidation === Invalidation.DrawInfo
+      && ((d.overrides & O_ELEMENT_STATE_USES_SCREEN_SPACE) === 0 || !d.elementStateUsesScreenSpace)
+      && (!colourWasValid || d.drawColourInfoBacking.isValid)))
+      d.invalidationID++;
 
-    this.invalidated.emit([this, invalidation]);
+    if (d.invalidated.hasHandlers)
+      d.invalidated.emit([d, invalidation]);
 
     return anyInvalidated;
   }
@@ -1618,7 +1690,7 @@ export abstract class Drawable extends Transformable {
 
   private invalidateParentSizeDependencies(invalidation: Invalidation, changedAxes: Axes): void {
     // We're invalidating the parent manually, so we should not propagate it upwards.
-    this.invalidateInternal(invalidation, InvalidationSource.Self, false);
+    Drawable.invalidateOf(this, invalidation, InvalidationSource.Self, false);
 
     // The fast path, which performs an invalidation on the parent along with optimisations for bypassed sizing axes.
     this._parent?.invalidateChildrenSizeDependencies(invalidation, changedAxes, this);
@@ -1807,7 +1879,7 @@ export abstract class Drawable extends Transformable {
 
   /** Accepts a rectangle in local coordinates and converts it to a quad in screen space. */
   toScreenSpaceRect(input: RectangleF): Quad {
-    return Quad.fromRectangle(input).mul(this.drawInfo.matrix);
+    return Quad.fromRectangleTransformed(input.x, input.y, input.width, input.height, this.drawInfo.matrix);
   }
 
   /** Accepts a vector in screen coordinates and converts it to coordinates in local space. */

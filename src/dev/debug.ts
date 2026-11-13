@@ -1,5 +1,6 @@
 // Dev only: the window.__osu hook scripts/shot.mjs drives (see docs/ARCHITECTURE.md, Verification tools).
 
+import { Drawable } from '@fw/graphics/Drawable';
 import type { BeatmapManager } from '@game/beatmaps/BeatmapManager';
 import { ImportTask } from '@game/database/ImportTask';
 import { type ButtonSystem, ButtonSystemState } from '@game/screens/menu/ButtonSystem';
@@ -23,6 +24,8 @@ interface DebugHook {
    * where WebGL is software-rendered; images shown behind the canvas (Renderer, Underlays) are not part of it.
    */
   captureCanvas(): string | null;
+  /** Checks every kept local DrawInfo against a fresh computation from now on (Drawable.computeDrawInfo); returns the differences found so far. */
+  verifyLocalDrawInfo(): string[];
   goto(state: string): Promise<void>;
   importUrl(url: string): Promise<void>;
 }
@@ -73,6 +76,10 @@ export function installDebugHook(game: OsuGame): void {
     importUrl,
     suspend: suspended => { game.host!.suspended = suspended; },
     redrawAll: () => game.host!.redrawAll(),
+    verifyLocalDrawInfo: () => {
+      Drawable.verifyLocalDrawInfo = true;
+      return Drawable.localDrawInfoMismatches;
+    },
     captureCanvas: () => {
       const canvas = document.querySelector('canvas');
       if (canvas === null) return null;

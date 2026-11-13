@@ -1,7 +1,8 @@
 // Ported from osu.Game/Screens/Menu/LogoVisualisation.cs
-// The DrawNode is a canvas (CanvasDrawable): each bar is the C# quad (a rectangle rotated about the logo edge), filled with
-// DrawColourInfo.Colour × white α0.2. Bars blend additively with each other ('lighter') as well as with what is behind the drawable
-// (Blending.Additive); the per-bar edge smoothing (blend range) is left to the canvas' antialiasing.
+// The renderer draws the bars as the client's VisualisationDrawNode does (drawWithRenderer). For the DOM renderer the DrawNode is a canvas
+// (CanvasDrawable): each bar is the C# quad (a rectangle rotated about the logo edge), filled with DrawColourInfo.Colour × white α0.2.
+// Bars blend additively with each other ('lighter') as well as with what is behind the drawable (Blending.Additive); the per-bar edge
+// smoothing (blend range) is left to the canvas' antialiasing.
 
 import type { IReadOnlyDependencyContainer } from '@fw/allocation/DependencyContainer';
 import type { IHasAmplitudes } from '@fw/audio/IHasAmplitudes';
@@ -10,6 +11,8 @@ import { CanvasDrawable } from '@fw/graphics/CanvasDrawable';
 import { Colour4 } from '@fw/graphics/Colour4';
 import { ColourInfo } from '@fw/graphics/ColourInfo';
 import { BlendingParameters } from '@fw/graphics/DrawInfo';
+import type { Renderer } from '@fw/graphics/rendering/Renderer';
+import type { Matrix3 } from '@fw/layout/Matrix3';
 import { MarginPadding } from '@fw/layout/MarginPadding';
 import { BeatSyncProviderExtensions } from '../../beatmaps/BeatSyncProviderExtensions';
 import { IBeatSyncProvider } from '../../beatmaps/IBeatSyncProvider';
@@ -37,6 +40,12 @@ const time_between_updates = 50;
 const amplitude_dead_zone = Math.fround(1 / bar_length);
 
 const transparent_white = ColourInfo.singleColour(Colour4.White.opacity(0.2));
+
+/** Vector2Extensions.Transform((x, y), matrix) into quad[offset], quad[offset + 1]. */
+function transformTo(quad: Float32Array, offset: number, x: number, y: number, m: Matrix3): void {
+  quad[offset] = x * m.m11 + y * m.m21 + m.m31;
+  quad[offset + 1] = x * m.m12 + y * m.m22 + m.m32;
+}
 
 /** A visualiser that reacts to music coming from beatmaps. */
 export class LogoVisualisation extends CanvasDrawable {
@@ -122,6 +131,66 @@ export class LogoVisualisation extends CanvasDrawable {
   // Bars reach bar_length past the logo edge (amplitudes from several sources can add up beyond 1, but the bars are short-lived).
   protected override get drawOverflow(): MarginPadding {
     return bar_overflow;
+  }
+
+  private readonly barQuad = new Float32Array(8);
+
+  /** VisualisationDrawNode.Draw */
+  protected override drawWithRenderer(renderer: Renderer): boolean {
+    // Assuming the logo is a circle, we don't need a second dimension.
+    const size = this.drawSize.x;
+    const audioData = this.frequencyAmplitudes;
+
+    renderer.bindShader(renderer.textureShader);
+
+    const drawInfo = this.drawInfo;
+    const inverse = drawInfo.matrixInverse;
+
+    // (one screen pixel is 1 / pixelRatio screen-space units)
+    const inflationX = Math.hypot(inverse.m11, inverse.m12, inverse.m13) / renderer.pixelRatio;
+    const inflationY = Math.hypot(inverse.m21, inverse.m22, inverse.m23) / renderer.pixelRatio;
+
+    const colourInfo = this.drawColourInfo.colour.applyChild(transparent_white);
+
+    const m = drawInfo.matrix;
+    const quad = this.barQuad;
+    const white = renderer.whiteRegion;
+
+    const barWidth = size * Math.sqrt(2 * (1 - Math.cos((360 / bars_per_visualiser) * Math.PI / 180))) / 2;
+
+    for (let j = 0; j < visualiser_rounds; j++) {
+      for (let i = 0; i < bars_per_visualiser; i++) {
+        if (audioData[i] < amplitude_dead_zone)
+          continue;
+
+        const rotation = (i / bars_per_visualiser * 360 + Math.trunc(j * 360 / visualiser_rounds)) * Math.PI / 180;
+        const rotationCos = Math.cos(rotation);
+        const rotationSin = Math.sin(rotation);
+
+        // taking the cos and sin to the 0..1 range
+        const barX = (rotationCos / 2 + 0.5) * size;
+        const barY = (rotationSin / 2 + 0.5) * size;
+
+        const barLength = bar_length * audioData[i];
+
+        // The distance between the position and the sides of the bar.
+        const bottomX = -rotationSin * barWidth / 2;
+        const bottomY = rotationCos * barWidth / 2;
+        // The distance between the bottom side of the bar and the top side.
+        const amplitudeX = rotationCos * barLength;
+        const amplitudeY = rotationSin * barLength;
+
+        transformTo(quad, 0, barX - bottomX, barY - bottomY, m);
+        transformTo(quad, 2, barX - bottomX + amplitudeX, barY - bottomY + amplitudeY, m);
+        transformTo(quad, 4, barX + bottomX, barY + bottomY, m);
+        transformTo(quad, 6, barX + bottomX + amplitudeX, barY + bottomY + amplitudeY, m);
+
+        // barSize by itself will make it smooth more in the X axis than in the Y axis, this reverts that.
+        renderer.drawRegionAt(white, quad, 0, 0, 0, colourInfo, inflationX / barLength, inflationY / barWidth);
+      }
+    }
+
+    return true;
   }
 
   protected override drawCanvas(ctx: CanvasRenderingContext2D): void {

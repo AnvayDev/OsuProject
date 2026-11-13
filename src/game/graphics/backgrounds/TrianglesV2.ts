@@ -1,5 +1,6 @@
 // Ported from osu.Game/Graphics/Backgrounds/TrianglesV2.cs (+ osu-resources Shaders/sh_TriangleBorder.fs)
-// The DrawNode is a canvas (CanvasDrawable). The border shader is reproduced geometrically: in the triangle's normalised texture space the
+// The renderer draws the client's quads with its shader (drawWithRenderer).
+// For the DOM renderer the DrawNode is a canvas (CanvasDrawable), where the border shader is reproduced geometrically: in the triangle's normalised texture space the
 // border is the band within `thickness` of the bottom edge and of the two sides (distances measured in that space, as the shader does), whose
 // inner edge is the triangle apex (0.5, √5·t), corners (φ·t, 1 − t) and (1 − φ·t, 1 − t); outer minus inner is filled with the even-odd
 // rule. Clamping a triangle's quad to the drawable (ClampAxes) is a clip of the drawable's bounds on the clamped axes. Each triangle's
@@ -7,7 +8,10 @@
 
 import { BindableFloat } from '@fw/bindables/BindableNumber';
 import { CanvasDrawable } from '@fw/graphics/CanvasDrawable';
+import type { Renderer } from '@fw/graphics/rendering/Renderer';
+import { fragmentShader, MASKING } from '@fw/graphics/rendering/shaders';
 import { Axes } from '@fw/layout/Enums';
+import type { Matrix3 } from '@fw/layout/Matrix3';
 import { Vector2 } from '@fw/layout/Vector2';
 import { RNG } from '@fw/utils/RNG';
 
@@ -18,6 +22,68 @@ const equilateral_triangle_ratio = Math.fround(0.866);
 // Inner-edge factors of the border band (see header): √5 and the golden ratio φ = (1 + √5) / 2 follow from the side line's unit normal.
 const sqrt5 = Math.sqrt(5);
 const phi = (1 + sqrt5) / 2;
+
+/** osu-resources Shaders/sh_TriangleBorder.fs (the uniform block m_BorderData as plain uniforms) */
+const triangle_border_fs = fragmentShader(/* glsl */ `
+${MASKING}
+in vec2 v_TexCoord;
+
+uniform float thickness;
+uniform float texelSize;
+
+out vec4 o_Colour;
+
+// Distance to the line which starts at (0.0, 1.0) and ends at (0.5, 0.0)
+float dstToSideLine(vec2 pixelPos)
+{
+    // Unit vector in the direction of the line.
+    const vec2 v = vec2(0.4472, -0.8944);
+
+    // Vector in direction of the pixel.
+    vec2 r = vec2(pixelPos.x, pixelPos.y - 1.0);
+
+    // Cross product of the two vectors.
+    return abs(v.x * r.y - v.y * r.x);
+}
+
+void main(void)
+{
+    vec2 pixelPos = v_TexCoord / (v_TexRect.zw - v_TexRect.xy);
+    pixelPos.x = 0.5 - abs(pixelPos.x - 0.5); // Mirror coordinate space horizontally (0 -> 1 to 0 -> 0.5 -> 0)
+
+    // return if outside the triangle
+    if (pixelPos.y < 1.0 - 2.0 * pixelPos.x)
+    {
+        o_Colour = vec4(0.0);
+        return;
+    }
+
+    float dst = min(1.0 - pixelPos.y, dstToSideLine(pixelPos));
+
+    float alpha = 0.0;
+
+    if (texelSize == 0.0)
+    {
+        alpha = step(dst, thickness);
+    }
+    else
+    {
+        alpha = dst < texelSize
+            ? smoothstep(0.0, texelSize, dst) // outer border smoothing
+            : smoothstep(texelSize, 0.0, dst - thickness); // inner border smoothing
+    }
+
+    vec4 col = getRoundedColor(vec4(1.0), v_TexCoord);
+
+    o_Colour = vec4(col.rgb, col.a * alpha);
+}
+`);
+
+/** Vector2Extensions.Transform((x, y), matrix) into quad[offset], quad[offset + 1]. */
+function transformTo(quad: Float32Array, offset: number, x: number, y: number, m: Matrix3): void {
+  quad[offset] = x * m.m11 + y * m.m21 + m.m31;
+  quad[offset + 1] = x * m.m12 + y * m.m22 + m.m32;
+}
 
 /** Limited by the maximum size of QuadVertexBuffer for safety (ushort.MaxValue / (IRenderer.VERTICES_PER_QUAD + 2)). */
 const max_triangles = Math.trunc(65535 / (4 + 2));
@@ -180,6 +246,82 @@ export class TrianglesV2 extends CanvasDrawable {
 
   private nextRandom(): number {
     return Math.fround(this.stableRandom?.nextDouble() ?? RNG.nextSingle());
+  }
+
+  private readonly triangleQuad = new Float32Array(8);
+
+  /** TrianglesDrawNode.Draw */
+  protected override drawWithRenderer(renderer: Renderer): boolean {
+    if (this._aimCount === 0 || this.thickness === 0)
+      return true;
+
+    const size = this.drawSize;
+    const m = this.drawInfo.matrix;
+
+    const triangleWidth = triangle_size * this.scaleAdjust;
+    const triangleHeight = equilateral_triangle_ratio * triangle_size * this.scaleAdjust;
+
+    // texelSize = 1.5f / triangleQuad.Height: the height of a triangle on screen, in pixels (pixelRatio per screen-space unit).
+    const texelSize = 1.5 / (Math.hypot(triangleHeight * m.m21, triangleHeight * m.m22) * renderer.pixelRatio);
+
+    const shader = renderer.loadShader('TriangleBorder', triangle_border_fs);
+    const gl = renderer.gl;
+
+    renderer.bindShader(shader);
+    // (the uniforms belong to this drawable's quads)
+    renderer.flushCurrentBatch();
+    gl.uniform1f(shader.getUniformLocation('thickness'), this.thickness);
+    gl.uniform1f(shader.getUniformLocation('texelSize'), texelSize);
+
+    renderer.bindNativeTexture(renderer.whiteRegion.native);
+
+    const relativeWidth = triangleWidth / size.x;
+    const relativeHeight = triangleHeight / size.y;
+
+    const clampX = (this.clampAxes & Axes.X) !== 0;
+    const clampY = (this.clampAxes & Axes.Y) !== 0;
+
+    const colour = this.drawColourInfo.colour;
+    const quad = this.triangleQuad;
+
+    for (const particle of this.parts) {
+      const topLeftX = particle.position.x - relativeWidth * 0.5;
+      const topLeftY = particle.position.y;
+
+      // getClampedQuad
+      let left = topLeftX, top = topLeftY, width = relativeWidth, height = relativeHeight;
+
+      if (clampX) {
+        left = Math.min(Math.max(topLeftX, 0), 1);
+        width = Math.min(Math.max(topLeftX + width, 0), 1) - left;
+      }
+
+      if (clampY) {
+        top = Math.min(Math.max(topLeftY, 0), 1);
+        height = Math.min(Math.max(topLeftY + height, 0), 1) - top;
+      }
+
+      const right = left + width, bottom = top + height;
+
+      transformTo(quad, 0, left * size.x, top * size.y, m);
+      transformTo(quad, 2, right * size.x, top * size.y, m);
+      transformTo(quad, 4, left * size.x, bottom * size.y, m);
+      transformTo(quad, 6, right * size.x, bottom * size.y, m);
+
+      // textureCoords: the clamped quad within the triangle's own rectangle
+      const coordLeft = (left - topLeftX) / relativeWidth;
+      const coordTop = (top - topLeftY) / relativeHeight;
+
+      // DrawColourInfo.Colour.Interpolate(triangleQuad)
+      renderer.drawQuadAt(
+        quad, 0, colour.interpolate(left, top), colour.interpolate(right, top), colour.interpolate(left, bottom), colour.interpolate(right, bottom),
+        0, 0, 1, 1, coordLeft, coordTop, coordLeft + width / relativeWidth, coordTop + height / relativeHeight, 0, 0);
+    }
+
+    renderer.flushCurrentBatch();
+    renderer.bindShader(renderer.textureShader);
+
+    return true;
   }
 
   protected override drawCanvas(ctx: CanvasRenderingContext2D, width: number, height: number): void {

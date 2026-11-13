@@ -7,6 +7,7 @@
 import { BindableBool } from '@fw/bindables/Bindable';
 import { CanvasDrawable } from '@fw/graphics/CanvasDrawable';
 import { BlendingParameters } from '@fw/graphics/DrawInfo';
+import type { Renderer } from '@fw/graphics/rendering/Renderer';
 import type { Texture } from '@fw/graphics/textures/Texture';
 import { Axes } from '@fw/layout/Enums';
 import { Vector2 } from '@fw/layout/Vector2';
@@ -129,6 +130,83 @@ export abstract class ParticleSpewer extends CanvasDrawable {
   }
 
   // #region DrawNode (ParticleSpewerDrawNode.Blit)
+
+  private readonly particleQuad = new Float32Array(8);
+
+  /** ParticleSpewerDrawNode.Blit */
+  protected override drawWithRenderer(renderer: Renderer): boolean {
+    const texture = this._texture;
+
+    if (texture === null)
+      return true;
+
+    renderer.bindShader(renderer.textureShader);
+
+    if (!renderer.bindTexture(texture))
+      return true;
+
+    const currentTime = Math.fround(this.time.current);
+    const gravity = this.particleGravity;
+    const maxDuration = this.maxDuration;
+    const sourceSize = this.drawSize;
+    const colour = this.drawColourInfo.colour;
+    const single = colour.tryExtractSingleColour();
+
+    const m = this.drawInfo.matrix;
+    const quad = this.particleQuad;
+
+    const relativeX = (this.relativePositionAxes & Axes.X) !== 0;
+    const relativeY = (this.relativePositionAxes & Axes.Y) !== 0;
+
+    for (const p of this.particles) {
+      if (p === undefined || p.duration === 0)
+        continue;
+
+      const timeSinceStart = currentTime - p.startTime;
+
+      // ignore particles from the future.
+      // these can appear when seeking in replays.
+      if (timeSinceStart < 0) continue;
+
+      const alpha = p.alphaAtTime(timeSinceStart);
+      if (alpha <= 0) continue;
+
+      const pos = p.positionAtTime(timeSinceStart, gravity, maxDuration);
+      const scale = p.scaleAtTime(timeSinceStart);
+      const angle = p.angleAtTime(timeSinceStart);
+
+      // createDrawRect
+      const halfWidth = texture.displayWidth * scale / 2;
+      const halfHeight = texture.displayHeight * scale / 2;
+      const centreX = relativeX ? pos.x * sourceSize.x : pos.x;
+      const centreY = relativeY ? pos.y * sourceSize.y : pos.y;
+
+      // transformPosition: each corner turned about the rectangle's centre
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+
+      for (let corner = 0; corner < 4; corner++) {
+        const dx = (corner & 1) !== 0 ? halfWidth : -halfWidth;
+        const dy = (corner & 2) !== 0 ? halfHeight : -halfHeight;
+        const x = centreX + dx * cos + dy * sin;
+        const y = centreY + dy * cos - dx * sin;
+
+        quad[corner * 2] = x * m.m11 + y * m.m21 + m.m31;
+        quad[corner * 2 + 1] = x * m.m12 + y * m.m22 + m.m32;
+      }
+
+      // DrawColourInfo.Colour.MultiplyAlpha(alpha). (EdgeSmoothness is zero: no inflation; TextureCoords is the whole texture.)
+      if (single !== null) {
+        const c = single.multiplyAlpha(alpha);
+        renderer.drawQuadAt(quad, 0, c, c, c, c, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0);
+      } else {
+        const c = colour.multiplyAlpha(alpha);
+        renderer.drawQuadAt(quad, 0, c.topLeft, c.topRight, c.bottomLeft, c.bottomRight, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0);
+      }
+    }
+
+    return true;
+  }
 
   protected override drawCanvas(ctx: CanvasRenderingContext2D): void {
     const texture = this._texture;

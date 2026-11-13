@@ -87,9 +87,13 @@ export abstract class CanvasDrawable extends Drawable {
   /**
    * The canvas is drawn as a texture: redrawn and uploaded whenever the drawable was invalidated, then shown on the quad of the draw
    * rectangle with its overflow. The picture already carries the draw colour, so the quad is white.
+   * (bindImage below must find the texture updateImage made: both use textureKey.)
    */
   override draw(renderer: Renderer): void {
     super.draw(renderer);
+
+    if (this.drawWithRenderer(renderer))
+      return;
 
     if (this.renderedInvalidationID !== this.invalidationID || this.renderedBy !== renderer) {
       this.renderedInvalidationID = this.invalidationID;
@@ -98,7 +102,7 @@ export abstract class CanvasDrawable extends Drawable {
       this.rendered = this.renderCanvas() && this.allocated;
 
       if (this.rendered)
-        renderer.updateImage(this.textureKey, this.canvas);
+        renderer.updateImage(this.textureKey, this.canvas, true);
     }
 
     // (nothing to show: no size, or the subclass released the canvas)
@@ -109,9 +113,18 @@ export abstract class CanvasDrawable extends Drawable {
     const overflow = this.drawOverflow;
 
     renderer.bindShader(renderer.textureShader);
-    renderer.drawQuadUV(
-      this.toScreenSpaceRect(new RectangleF(-overflow.left, -overflow.top, size.x + overflow.totalHorizontal, size.y + overflow.totalVertical)),
-      white, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0);
+
+    const quad = this.toScreenSpaceRect(new RectangleF(-overflow.left, -overflow.top, size.x + overflow.totalHorizontal, size.y + overflow.totalVertical));
+    renderer.drawPremultiplied(() => renderer.drawQuadUV(quad, white, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0));
+  }
+
+  /**
+   * The drawable's own DrawNode.Draw, for subclasses that draw with the renderer as the client does (quads and shaders). Returns true if
+   * it drew; false leaves the drawing to drawCanvas, shown as a texture. A canvas redrawn on every frame has to be uploaded on every
+   * frame, which at screen size costs more than everything else the renderer does, so anything animated should draw here.
+   */
+  protected drawWithRenderer(_renderer: Renderer): boolean {
+    return false;
   }
 
   protected override disposeInternal(isDisposing: boolean): void {

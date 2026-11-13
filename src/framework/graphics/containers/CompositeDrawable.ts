@@ -790,6 +790,10 @@ export abstract class CompositeDrawable extends Drawable {
     if (source === InvalidationSource.Child)
       return anyInvalidated;
 
+    // (our size may have changed, and with it the space our children are placed in: see Drawable.computeDrawInfo)
+    if ((invalidation & Invalidation.DrawSize) !== 0)
+      this.childGeometryVersion++;
+
     // DrawNode invalidations should not propagate to children.
     invalidation &= ~Invalidation.DrawNode;
     if (invalidation === Invalidation.None)
@@ -812,19 +816,19 @@ export abstract class CompositeDrawable extends Drawable {
       childInvalidation &= ~Invalidation.MiscGeometry;
 
       // Relative positioning can however affect child geometry.
-      if (c.relativePositionAxes !== Axes.None && (invalidation & Invalidation.DrawSize) > 0)
+      if (c._relativePositionAxes !== Axes.None && (invalidation & Invalidation.DrawSize) > 0)
         childInvalidation |= Invalidation.MiscGeometry;
 
       // No draw size changes if relative size axes does not propagate it downward.
-      if (c.relativeSizeAxes === Axes.None)
+      if (c._relativeSizeAxes === Axes.None)
         childInvalidation &= ~Invalidation.DrawSize;
 
       // DOM: a child's position in our element depends on our size (anchors) and geometry; a DrawInfo change that only moves us doesn't
-      // need its element re-applied, but these do (see Drawable.invalidateInternal).
+      // need its element re-applied, but these do (see Drawable.invalidateOf).
       if ((invalidation & Invalidation.RequiredParentSizeToFit) > 0)
-        c.invalidateElementState();
+        c.invalidationID++;
 
-      anyInvalidated = c.invalidate(childInvalidation, InvalidationSource.Parent) || anyInvalidated;
+      anyInvalidated = Drawable.invalidateOf(c, childInvalidation, InvalidationSource.Parent, true) || anyInvalidated;
     }
 
     return anyInvalidated;
@@ -1593,6 +1597,7 @@ export abstract class CompositeDrawable extends Drawable {
     if (![value.top, value.left, value.bottom, value.right].every(Number.isFinite)) throw new Error(`Padding must be finite, but is ${value}.`);
 
     this._padding = value;
+    this.childGeometryVersion++;
 
     for (const c of this.internalChildrenList.toArray())
       c.invalidate(c.invalidationFromParentSize | Invalidation.MiscGeometry);
@@ -1607,6 +1612,12 @@ export abstract class CompositeDrawable extends Drawable {
   get childOffset(): Vector2 {
     return new Vector2(this.padding.left, this.padding.top);
   }
+
+  /**
+   * @internal Incremented whenever ChildSize, ChildOffset, RelativeChildSize or RelativeChildOffset may have changed: what a child's
+   * local transform takes from its parent (see Drawable.computeDrawInfo).
+   */
+  childGeometryVersion = 0;
 
   private _relativeChildSize = Vector2.One;
 
@@ -1623,6 +1634,7 @@ export abstract class CompositeDrawable extends Drawable {
     if (value.x === 0 || value.y === 0) throw new Error(`RelativeChildSize must be non-zero, but is ${value}.`);
 
     this._relativeChildSize = value;
+    this.childGeometryVersion++;
 
     for (const c of this.internalChildrenList.toArray())
       c.invalidate(c.invalidationFromParentSize);
@@ -1642,6 +1654,7 @@ export abstract class CompositeDrawable extends Drawable {
     if (!Number.isFinite(value.x) || !Number.isFinite(value.y)) throw new Error(`RelativeChildOffset must be finite, but is ${value}.`);
 
     this._relativeChildOffset = value;
+    this.childGeometryVersion++;
 
     for (const c of this.internalChildrenList.toArray())
       c.invalidate(c.invalidationFromParentSize & ~Invalidation.DrawSize);

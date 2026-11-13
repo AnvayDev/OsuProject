@@ -87,6 +87,9 @@ const samples = await page.evaluate((count) => new Promise((resolve) => {
       const walk = (d) => 1 + (d.internalChildren ?? []).reduce((a, c) => a + walk(c), 0);
       out.drawables = walk(window.__osu.game);
       out.elements = document.querySelectorAll('*').length;
+      // (the WebGL renderer's statistics for its last frame)
+      const find = (d) => d.renderer !== undefined ? d : (d.internalChildren ?? []).map(find).find(Boolean);
+      out.renderer = find(host.root)?.renderer?.statistics ?? null;
       resolve(out);
     } else
       requestAnimationFrame(tick);
@@ -109,7 +112,7 @@ const n = samples.update.length;
 const perFrame = (name) => Math.round((after[name] - before[name]) / n * 100000) / 100;
 
 const result = {
-  state: args.state, scroll: !!args.scroll, frames: n, drawables: samples.drawables, elements: samples.elements,
+  state: args.state, scroll: !!args.scroll, frames: n, drawables: samples.drawables, elements: samples.elements, renderer: samples.renderer,
   updateMs: summarise(samples.update),
   drawMs: summarise(samples.draw),
   totalMs: summarise(samples.update.map((u, i) => u + samples.draw[i])),

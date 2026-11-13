@@ -201,6 +201,17 @@ export class Quad implements IConvexPolygon {
       new Vector2(rectangle.right, rectangle.bottom));
   }
 
+  /** Quad.FromRectangle(rectangle) * matrix, for the rectangle (x, y, width, height). */
+  static fromRectangleTransformed(x: number, y: number, width: number, height: number, m: Matrix3): Quad {
+    const right = x + width, bottom = y + height;
+
+    return new Quad(
+      new Vector2(x * m.m11 + y * m.m21 + m.m31, x * m.m12 + y * m.m22 + m.m32),
+      new Vector2(right * m.m11 + y * m.m21 + m.m31, right * m.m12 + y * m.m22 + m.m32),
+      new Vector2(x * m.m11 + bottom * m.m21 + m.m31, x * m.m12 + bottom * m.m22 + m.m32),
+      new Vector2(right * m.m11 + bottom * m.m21 + m.m31, right * m.m12 + bottom * m.m22 + m.m32));
+  }
+
   /** operator *(Quad, Matrix3) */
   mul(m: Matrix3): Quad {
     return new Quad(m.transform(this.topLeft), m.transform(this.topRight), m.transform(this.bottomLeft), m.transform(this.bottomRight));
@@ -218,13 +229,19 @@ export class Quad implements IConvexPolygon {
     return Vector2.distance(this.topLeft, this.bottomLeft);
   }
 
+  private aabb: RectangleF | null = null;
+
+  /** (a Quad and a RectangleF are immutable here, so the rectangle is computed once) */
   get aabbFloat(): RectangleF {
+    if (this.aabb !== null)
+      return this.aabb;
+
     const xMin = Math.min(this.topLeft.x, this.topRight.x, this.bottomLeft.x, this.bottomRight.x);
     const yMin = Math.min(this.topLeft.y, this.topRight.y, this.bottomLeft.y, this.bottomRight.y);
     const xMax = Math.max(this.topLeft.x, this.topRight.x, this.bottomLeft.x, this.bottomRight.x);
     const yMax = Math.max(this.topLeft.y, this.topRight.y, this.bottomLeft.y, this.bottomRight.y);
 
-    return new RectangleF(xMin, yMin, xMax - xMin, yMax - yMin);
+    return this.aabb = new RectangleF(xMin, yMin, xMax - xMin, yMax - yMin);
   }
 
   getAxisVertices(): readonly Vector2[] {
