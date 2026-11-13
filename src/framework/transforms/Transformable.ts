@@ -100,6 +100,14 @@ export abstract class Transformable {
 
   private _removeCompletedTransforms = true;
 
+  /** @internal updateTransforms without a method lookup on the object (it runs for every drawable on every frame). */
+  static updateTransformsOf(t: Transformable): void {
+    t._transformDelay = 0;
+
+    if (t.targetGroupingTrackers !== null)
+      t.updateTransformsAt(t.clock!.currentTime);
+  }
+
   /** Resets transformDelay and processes updates to this class based on loaded transforms. */
   protected updateTransforms(): void {
     this._transformDelay = 0;

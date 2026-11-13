@@ -56,6 +56,70 @@ const layer_settle_frames = 30;
 const MIN_VALUE = -Number.MAX_VALUE;
 const MAX_VALUE = Number.MAX_VALUE;
 
+// Drawable.overrides: which members used by the per-frame passes a drawable's class overrides.
+//
+// Not in osu!framework. A scene graph holds a few hundred classes, and V8 resolves a property or method on "any drawable" through a
+// megamorphic lookup: measured on this project's song select, about 50 ns for each getter or method call, where reading a field costs about
+// 5 ns. The passes that visit every drawable on every frame (UpdateSubTree, UpdateSubTreeMasking, the draw node walk) made 30 to 40 such
+// calls per drawable, most of them to members that almost no class overrides (Update, IsPresent, ShouldBeAlive, UpdateAfterChildren...).
+// So each class's overrides are recorded once, and those passes are static functions which read fields and only make the virtual call for
+// the classes that override it. The functions do what the members they replace do, in the same order.
+
+/** The class is a CompositeDrawable. */
+export const O_COMPOSITE = 1 << 0;
+export const O_UPDATE = 1 << 1;
+/** isPresent or drawScale */
+export const O_IS_PRESENT = 1 << 2;
+/** shouldBeAlive, lifetimeStart or lifetimeEnd */
+export const O_SHOULD_BE_ALIVE = 1 << 3;
+export const O_UPDATE_SUBTREE = 1 << 4;
+export const O_UPDATE_SUBTREE_MASKING = 1 << 5;
+export const O_COMPUTE_MASKING_BOUNDS = 1 << 6;
+/** updateChildrenLife or checkChildrenLife */
+export const O_CHILDREN_LIFE = 1 << 7;
+export const O_REQUIRES_CHILDREN_UPDATE = 1 << 8;
+export const O_UPDATE_AFTER_CHILDREN_LIFE = 1 << 9;
+export const O_UPDATE_AFTER_CHILDREN = 1 << 10;
+export const O_UPDATE_AFTER_AUTO_SIZE = 1 << 11;
+export const O_CAN_BE_FLATTENED = 1 << 12;
+export const O_GENERATE_DRAW_NODE_SUBTREE = 1 << 13;
+/** original (the class is a proxy) */
+export const O_PROXY = 1 << 14;
+/** propagatePositionalInputSubTree or buildPositionalInputQueue */
+export const O_POSITIONAL_INPUT_QUEUE = 1 << 15;
+/** propagateNonPositionalInputSubTree or buildNonPositionalInputQueue */
+export const O_NON_POSITIONAL_INPUT_QUEUE = 1 << 16;
+
+const override_flags = new Map<string, number>([
+  ['update', O_UPDATE],
+  ['isPresent', O_IS_PRESENT],
+  ['drawScale', O_IS_PRESENT],
+  ['shouldBeAlive', O_SHOULD_BE_ALIVE],
+  ['lifetimeStart', O_SHOULD_BE_ALIVE],
+  ['lifetimeEnd', O_SHOULD_BE_ALIVE],
+  ['updateSubTree', O_UPDATE_SUBTREE],
+  ['updateSubTreeMasking', O_UPDATE_SUBTREE_MASKING],
+  ['computeMaskingBounds', O_COMPUTE_MASKING_BOUNDS],
+  ['updateChildrenLife', O_CHILDREN_LIFE],
+  ['checkChildrenLife', O_CHILDREN_LIFE],
+  ['requiresChildrenUpdate', O_REQUIRES_CHILDREN_UPDATE],
+  ['updateAfterChildrenLife', O_UPDATE_AFTER_CHILDREN_LIFE],
+  ['updateAfterChildren', O_UPDATE_AFTER_CHILDREN],
+  ['updateAfterAutoSize', O_UPDATE_AFTER_AUTO_SIZE],
+  ['canBeFlattened', O_CAN_BE_FLATTENED],
+  ['generateDrawNodeSubtree', O_GENERATE_DRAW_NODE_SUBTREE],
+  ['original', O_PROXY],
+  ['propagatePositionalInputSubTree', O_POSITIONAL_INPUT_QUEUE],
+  ['buildPositionalInputQueue', O_POSITIONAL_INPUT_QUEUE],
+  ['propagateNonPositionalInputSubTree', O_NON_POSITIONAL_INPUT_QUEUE],
+  ['buildNonPositionalInputQueue', O_NON_POSITIONAL_INPUT_QUEUE],
+]);
+
+/** The classes whose members are the ones the static passes implement (Drawable, CompositeDrawable), with the flags of being one. */
+const base_classes = new Map<object, number>();
+
+const class_overrides = new Map<Function, number>();
+
 /** Drawables are the basic building blocks of a scene graph in this framework. Anything that is visible or that the user interacts with has to be a Drawable. */
 export abstract class Drawable extends Transformable {
   // #region Construction and disposal
@@ -75,8 +139,44 @@ export abstract class Drawable extends Transformable {
     return this.elementBacking !== null;
   }
 
+  /** @internal The O_ flags of this drawable's class. */
+  readonly overrides: number;
+
+  /** Whether ShouldBeAlive is true whatever the time: the class doesn't override it and the lifetime has no start and no end. */
+  private lifetimeUnbounded: boolean;
+
+  /** @internal Registers a class whose members the static passes implement. */
+  static registerBaseClass(prototype: object, flags: number): void {
+    base_classes.set(prototype, flags);
+  }
+
+  private static overridesOf(type: Function): number {
+    let flags = class_overrides.get(type);
+
+    if (flags === undefined) {
+      flags = 0;
+
+      let prototype: object | null = type.prototype as object;
+
+      for (; prototype !== null && !base_classes.has(prototype); prototype = Object.getPrototypeOf(prototype) as object | null) {
+        for (const name of Object.getOwnPropertyNames(prototype))
+          flags |= override_flags.get(name) ?? 0;
+      }
+
+      if (prototype !== null)
+        flags |= base_classes.get(prototype)!;
+
+      class_overrides.set(type, flags);
+    }
+
+    return flags;
+  }
+
   constructor() {
     super();
+
+    this.overrides = Drawable.overridesOf(new.target);
+    this.lifetimeUnbounded = (this.overrides & O_SHOULD_BE_ALIVE) === 0;
 
     this.addLayout(this.drawInfoBacking);
     this.addLayout(this.drawSizeBacking);
@@ -186,7 +286,7 @@ export abstract class Drawable extends Transformable {
     return this._loadState >= LoadState.Loaded;
   }
 
-  private _loadState = LoadState.NotLoaded;
+  /** @internal */ _loadState = LoadState.NotLoaded;
 
   /** Describes the current state of this Drawable within the loading pipeline. */
   get loadState(): LoadState {
@@ -325,29 +425,55 @@ export abstract class Drawable extends Transformable {
 
   /** Updates this Drawable and all Drawables further down the scene graph. Called once every frame. Returns false if the drawable should not be updated. */
   updateSubTree(): boolean {
-    if (this._isDisposed)
-      throw new Error(`Disposed Drawables may never be in the scene graph. (${this})`);
+    return Drawable.updateSubTreeOf(this);
+  }
 
-    if (this.processCustomClock)
-      this.customClock?.processFrame();
+  /** @internal Drawable.UpdateSubTree (see the note on Drawable.overrides). */
+  static updateSubTreeOf(d: Drawable): boolean {
+    if (d._isDisposed)
+      throw new Error(`Disposed Drawables may never be in the scene graph. (${d})`);
 
-    if (this._loadState < LoadState.Ready)
+    if (d.customClock !== null && d.processCustomClock)
+      d.customClock.processFrame();
+
+    if (d._loadState < LoadState.Ready)
       return false;
 
-    if (this._loadState === LoadState.Ready)
-      this.loadCompleteInternal();
+    if (d._loadState === LoadState.Ready)
+      d.loadCompleteInternal();
 
-    this.updateTransforms();
+    Transformable.updateTransformsOf(d);
 
-    if (!this.isPresent)
+    if (!Drawable.isPresentOf(d))
       return true;
 
-    if (this._scheduler !== null)
-      this._scheduler.update();
+    if (d._scheduler !== null)
+      d._scheduler.update();
 
-    this.update();
-    this.onUpdate.emit(this);
+    if ((d.overrides & O_UPDATE) !== 0)
+      d.update();
+
+    if (d.onUpdate.hasHandlers)
+      d.onUpdate.emit(d);
+
     return true;
+  }
+
+  /** @internal IsPresent, read from the fields unless the class overrides it. */
+  static isPresentOf(d: Drawable): boolean {
+    return (d.overrides & O_IS_PRESENT) !== 0
+      ? d.isPresent
+      : d._alwaysPresent || (d._alpha > visibility_cutoff && d._scale.x !== 0 && d._scale.y !== 0);
+  }
+
+  /** @internal ShouldBeAlive is true without looking at the clock: the class doesn't override it and the lifetime is unbounded. */
+  static isAlwaysAlive(d: Drawable): boolean {
+    return d.lifetimeUnbounded;
+  }
+
+  /** @internal IsLoaded, read from the field. */
+  static isLoadedOf(d: Drawable): boolean {
+    return d._loadState >= LoadState.Loaded;
   }
 
   /** Computes the RectangleF where masking happens (the parent's ChildMaskingBounds). */
@@ -365,14 +491,27 @@ export abstract class Drawable extends Transformable {
 
   /** Updates all masking calculations for this Drawable and its children. This occurs post-update. Returns false if this drawable is not present. */
   updateSubTreeMasking(): boolean {
-    if (!this.isPresent)
+    return Drawable.updateSubTreeMaskingOf(this, null);
+  }
+
+  /**
+   * @internal Drawable.UpdateSubTreeMasking (see the note on Drawable.overrides).
+   * @param parentChildMaskingBounds The parent's ChildMaskingBounds if the caller has them: what ComputeMaskingBounds returns for a
+   * drawable that has a parent, no proxy and no override.
+   */
+  static updateSubTreeMaskingOf(d: Drawable, parentChildMaskingBounds: RectangleF | null): boolean {
+    if (!Drawable.isPresentOf(d))
       return false;
 
-    const maskingBounds = this.computeMaskingBounds();
+    const maskingBounds = parentChildMaskingBounds !== null && d.proxy === null && (d.overrides & O_COMPUTE_MASKING_BOUNDS) === 0
+      ? parentChildMaskingBounds
+      : d.computeMaskingBounds();
 
-    if (!this.maskingBacking.isValid || this.lastMaskingBounds === null || !this.lastMaskingBounds.equals(maskingBounds)) {
-      this.lastMaskingBounds = maskingBounds;
-      this.isMaskedAway = this.maskingBacking.value = this.computeIsMaskedAway(maskingBounds);
+    const last = d.lastMaskingBounds;
+
+    if (!d.maskingBacking.isValid || last === null || (last !== maskingBounds && !last.equals(maskingBounds))) {
+      d.lastMaskingBounds = maskingBounds;
+      d.isMaskedAway = d.maskingBacking.value = d.computeIsMaskedAway(maskingBounds);
     }
 
     return true;
@@ -1006,7 +1145,15 @@ export abstract class Drawable extends Transformable {
 
   /** Determines whether this Drawable is present based on its Alpha value. Can be forced always on with AlwaysPresent. */
   get isPresent(): boolean {
-    return this.alwaysPresent || (this.alpha > visibility_cutoff && this.drawScale.x !== 0 && this.drawScale.y !== 0);
+    if (this._alwaysPresent)
+      return true;
+
+    if (!(this._alpha > visibility_cutoff))
+      return false;
+
+    // (DrawScale is Scale unless overridden)
+    const drawScale = (this.overrides & O_IS_PRESENT) !== 0 ? this.drawScale : this._scale;
+    return drawScale.x !== 0 && drawScale.y !== 0;
   }
 
   private _alwaysPresent = false;
@@ -1071,8 +1218,8 @@ export abstract class Drawable extends Transformable {
   /** Whether customClock should be automatically invoked on this Drawable's updateSubTree(). */
   processCustomClock = true;
 
-  private _lifetimeStart = MIN_VALUE;
-  private _lifetimeEnd = MAX_VALUE;
+  /** @internal */ _lifetimeStart = MIN_VALUE;
+  /** @internal */ _lifetimeEnd = MAX_VALUE;
 
   /** @internal Invoked after lifetimeStart or lifetimeEnd has changed. */
   readonly lifetimeChanged = new Signal<Drawable>();
@@ -1086,6 +1233,7 @@ export abstract class Drawable extends Transformable {
     if (this._lifetimeStart === value) return;
 
     this._lifetimeStart = value;
+    this.lifetimeUnbounded = (this.overrides & O_SHOULD_BE_ALIVE) === 0 && value === MIN_VALUE && this._lifetimeEnd === MAX_VALUE;
     this.lifetimeChanged.emit(this);
   }
 
@@ -1098,6 +1246,7 @@ export abstract class Drawable extends Transformable {
     if (this._lifetimeEnd === value) return;
 
     this._lifetimeEnd = value;
+    this.lifetimeUnbounded = (this.overrides & O_SHOULD_BE_ALIVE) === 0 && this._lifetimeStart === MIN_VALUE && value === MAX_VALUE;
     this.lifetimeChanged.emit(this);
   }
 
@@ -2175,3 +2324,5 @@ const HandleInputCache = {
     return this.compute(d)[1];
   },
 };
+
+Drawable.registerBaseClass(Drawable.prototype, 0);

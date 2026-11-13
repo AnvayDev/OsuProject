@@ -24,7 +24,11 @@ import type { MaskingInfo } from '../rendering/MaskingInfo';
 import type { Renderer } from '../rendering/Renderer';
 import { Texture } from '../textures/Texture';
 import { edgeEffectCss } from './EdgeEffectStyle';
-import { Drawable } from '../Drawable';
+import {
+  Drawable, O_CAN_BE_FLATTENED, O_CHILDREN_LIFE, O_COMPOSITE, O_GENERATE_DRAW_NODE_SUBTREE, O_NON_POSITIONAL_INPUT_QUEUE, O_POSITIONAL_INPUT_QUEUE,
+  O_PROXY, O_REQUIRES_CHILDREN_UPDATE,
+  O_UPDATE_AFTER_AUTO_SIZE, O_UPDATE_AFTER_CHILDREN, O_UPDATE_AFTER_CHILDREN_LIFE, O_UPDATE_SUBTREE, O_UPDATE_SUBTREE_MASKING,
+} from '../Drawable';
 // Registers Drawable.proxyFactory (ProxyDrawable extends Drawable, so Drawable.ts cannot import it).
 import '../ProxyDrawable';
 
@@ -639,44 +643,107 @@ export abstract class CompositeDrawable extends Drawable {
   }
 
   override updateSubTree(): boolean {
-    if (!super.updateSubTree()) return false;
+    return CompositeDrawable.updateSubTreeOfComposite(this);
+  }
+
+  /** @internal CompositeDrawable.UpdateSubTree (see the note on Drawable.overrides). */
+  static updateSubTreeOfComposite(c: CompositeDrawable): boolean {
+    if (!Drawable.updateSubTreeOf(c)) return false;
+
+    const overrides = c.overrides;
 
     // We update our children's life even if we are invisible.
     // Note, that this does not propagate down and may need
     // generalization in the future.
-    this.updateChildrenLife();
+    if ((overrides & O_CHILDREN_LIFE) !== 0)
+      c.updateChildrenLife();
+    else {
+      // UpdateChildrenLife + CheckChildrenLife. (Can not have alive children if we are not loaded: we are, as the update above ran.)
+      const children = c.internalChildrenList;
+
+      for (let i = 0; i < children.count; i++) {
+        const child = children.get(i);
+
+        // checkChildLife does nothing for a child that is alive and should be.
+        if (child.isAlive && Drawable.isAlwaysAlive(child))
+          continue;
+
+        if ((c.checkChildLife(child) & ChildLifeStateChange.Removed) !== 0)
+          i--;
+      }
+    }
 
     // If we are not present then there is never a reason to check
     // for children, as they should never affect our present status.
-    if (!this.isPresent || !this.requiresChildrenUpdate) return false;
+    if (!Drawable.isPresentOf(c)) return false;
 
-    this.updateAfterChildrenLife();
+    if ((overrides & O_REQUIRES_CHILDREN_UPDATE) !== 0 ? !c.requiresChildrenUpdate : c.isMaskedAway && c.childrenSizeDependencies.isValid)
+      return false;
 
-    for (let i = 0; i < this.aliveInternalChildrenList.count; ++i)
-      this.aliveInternalChildrenList.get(i).updateSubTree();
+    if ((overrides & O_UPDATE_AFTER_CHILDREN_LIFE) !== 0)
+      c.updateAfterChildrenLife();
 
-    this._schedulerAfterChildren?.update();
+    const alive = c.aliveInternalChildrenList;
 
-    this.updateAfterChildren();
+    for (let i = 0; i < alive.count; ++i) {
+      const child = alive.get(i);
+      const childOverrides = child.overrides;
 
-    this.updateChildrenSizeDependencies();
-    this.updateAfterAutoSize();
+      if ((childOverrides & O_UPDATE_SUBTREE) !== 0)
+        child.updateSubTree();
+      else if ((childOverrides & O_COMPOSITE) !== 0)
+        CompositeDrawable.updateSubTreeOfComposite(child as CompositeDrawable);
+      else
+        Drawable.updateSubTreeOf(child);
+    }
+
+    if (c._schedulerAfterChildren !== null)
+      c._schedulerAfterChildren.update();
+
+    if ((overrides & O_UPDATE_AFTER_CHILDREN) !== 0)
+      c.updateAfterChildren();
+
+    if (!c.childrenSizeDependencies.isValid)
+      c.updateChildrenSizeDependencies();
+
+    if ((overrides & O_UPDATE_AFTER_AUTO_SIZE) !== 0)
+      c.updateAfterAutoSize();
+
     return true;
   }
 
   override updateSubTreeMasking(): boolean {
-    if (!super.updateSubTreeMasking())
+    return CompositeDrawable.updateSubTreeMaskingOfComposite(this, null);
+  }
+
+  /** @internal CompositeDrawable.UpdateSubTreeMasking (see the note on Drawable.overrides). */
+  static updateSubTreeMaskingOfComposite(c: CompositeDrawable, parentChildMaskingBounds: RectangleF | null): boolean {
+    if (!Drawable.updateSubTreeMaskingOf(c, parentChildMaskingBounds))
       return false;
 
-    if (this.isMaskedAway)
+    if (c.isMaskedAway)
       return true;
 
-    if (this.aliveInternalChildrenList.count === 0)
+    const alive = c.aliveInternalChildrenList;
+
+    if (alive.count === 0)
       return true;
 
-    if (this.requiresChildrenUpdate) {
-      for (let i = 0; i < this.aliveInternalChildrenList.count; i++)
-        this.aliveInternalChildrenList.get(i).updateSubTreeMasking();
+    // (RequiresChildrenUpdate is true by default here, as we are not masked away)
+    if ((c.overrides & O_REQUIRES_CHILDREN_UPDATE) === 0 || c.requiresChildrenUpdate) {
+      const bounds = c.childMaskingBounds;
+
+      for (let i = 0; i < alive.count; i++) {
+        const child = alive.get(i);
+        const childOverrides = child.overrides;
+
+        if ((childOverrides & O_UPDATE_SUBTREE_MASKING) !== 0)
+          child.updateSubTreeMasking();
+        else if ((childOverrides & O_COMPOSITE) !== 0)
+          CompositeDrawable.updateSubTreeMaskingOfComposite(child as CompositeDrawable, bounds);
+        else
+          Drawable.updateSubTreeMaskingOf(child, bounds);
+      }
     }
 
     return true;
@@ -861,26 +928,41 @@ export abstract class CompositeDrawable extends Drawable {
     for (let i = 0; i < children.count; ++i) {
       const drawable = children.get(i);
 
-      if (!drawable.isLoaded)
+      if (!Drawable.isLoadedOf(drawable))
         continue;
 
-      if (!drawable.isProxy) {
-        if (!drawable.isPresent)
+      // (see the note on Drawable.overrides: the checks below are the members named in the comments, read without virtual calls)
+      const overrides = drawable.overrides;
+
+      // IsProxy
+      if ((overrides & O_PROXY) === 0) {
+        if (!Drawable.isPresentOf(drawable))
           continue;
 
         if (drawable.isMaskedAway)
           continue;
 
-        if (drawable instanceof CompositeDrawable && drawable.canBeFlattened) {
-          j = CompositeDrawable.addFromComposite(j, drawable, target);
-          continue;
+        if ((overrides & O_COMPOSITE) !== 0) {
+          const composite = drawable as CompositeDrawable;
+
+          // CanBeFlattened
+          if ((overrides & O_CAN_BE_FLATTENED) !== 0 ? composite.canBeFlattened : !composite._masking && composite.proxy === null) {
+            j = CompositeDrawable.addFromComposite(j, composite, target);
+            continue;
+          }
         }
       }
 
-      if (!drawable.generateDrawNodeSubtree())
-        continue;
+      // GenerateDrawNodeSubtree (always true for a drawable that isn't a composite, unless overridden)
+      if ((overrides & O_GENERATE_DRAW_NODE_SUBTREE) !== 0) {
+        if (!drawable.generateDrawNodeSubtree())
+          continue;
+      } else if ((overrides & O_COMPOSITE) !== 0) {
+        if (!CompositeDrawable.generateDrawNodeSubtreeOf(drawable as CompositeDrawable))
+          continue;
+      }
 
-      if (drawable.hasProxy)
+      if (drawable.proxy !== null)
         drawable.validateProxyDrawNode();
       else
         target[j++] = drawable;
@@ -891,19 +973,23 @@ export abstract class CompositeDrawable extends Drawable {
 
   /** @internal */
   override generateDrawNodeSubtree(): boolean {
+    return CompositeDrawable.generateDrawNodeSubtreeOf(this);
+  }
+
+  private static generateDrawNodeSubtreeOf(c: CompositeDrawable): boolean {
     // No need for a draw node at all if there are no children and we are not glowing.
-    if (this.aliveInternalChildrenList.count === 0 && this.canBeFlattened)
+    if (c.aliveInternalChildrenList.count === 0 && c.canBeFlattened)
       return false;
 
-    if (this.addChildDrawNodes) {
-      const target = this.drawChildren;
-      const j = CompositeDrawable.addFromComposite(0, this, target);
+    if (c.addChildDrawNodes) {
+      const target = c.drawChildren;
+      const j = CompositeDrawable.addFromComposite(0, c, target);
 
       // (release the drawables of a longer previous frame)
-      for (let i = j; i < this.drawChildCount; i++)
+      for (let i = j; i < c.drawChildCount; i++)
         target[i] = undefined!;
 
-      this.drawChildCount = j;
+      c.drawChildCount = j;
     }
 
     return true;
@@ -1289,8 +1375,14 @@ export abstract class CompositeDrawable extends Drawable {
     const children = this.aliveInternalChildrenList;
 
     for (let i = 0; i < children.count; ++i) {
-      if (this.shouldBeConsideredForInput(children.get(i)))
-        children.get(i).buildNonPositionalInputQueue(queue, allowBlocking);
+      const child = children.get(i);
+
+      // (a drawable that requests no such input in its subtree adds nothing, unless its class overrides how it propagates)
+      if (!child.requestsNonPositionalInputSubTree && (child.overrides & O_NON_POSITIONAL_INPUT_QUEUE) === 0)
+        continue;
+
+      if (this.shouldBeConsideredForInput(child))
+        child.buildNonPositionalInputQueue(queue, allowBlocking);
     }
 
     return true;
@@ -1311,8 +1403,14 @@ export abstract class CompositeDrawable extends Drawable {
     const children = this.aliveInternalChildrenList;
 
     for (let i = 0; i < children.count; ++i) {
-      if (this.shouldBeConsideredForInput(children.get(i)))
-        children.get(i).buildPositionalInputQueue(screenSpacePos, queue);
+      const child = children.get(i);
+
+      // (as above)
+      if (!child.requestsPositionalInputSubTree && (child.overrides & O_POSITIONAL_INPUT_QUEUE) === 0)
+        continue;
+
+      if (this.shouldBeConsideredForInput(child))
+        child.buildPositionalInputQueue(screenSpacePos, queue);
     }
 
     return true;
@@ -1782,3 +1880,5 @@ for (const name of ['fadeEdgeEffectTo', 'tweenEdgeEffectTo'] as const) {
     },
   });
 }
+
+Drawable.registerBaseClass(CompositeDrawable.prototype, O_COMPOSITE);
