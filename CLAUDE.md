@@ -93,5 +93,6 @@ Measure with `scripts/perf.mjs` (per-frame update/draw, CPU profile, timeline, r
 Cloud Chromium renders WebGL in software, about 10 fps at 695x434 and 1 fps at full size: take screenshots with
 `PW_CHROMIUM=/opt/pw-browsers/chromium node scripts/shot.mjs --state songselect --w 695 --h 434 --frames 150 --out x.png` (dev server
 running), measure JavaScript with `scripts/perf.mjs --w 348 --h 217`, and compare renderers with `tests/visual/gl-scene.html?gl=0|1`
-(`&scene=2` for text, blur, progress, underlays). Nothing here measures the user's GPU: say so, and ask for their numbers.
+(`&scene=2` for text, blur, progress, underlays). Nothing here measures the user's GPU: say so, and ask for their numbers
+(`?stats=1` on the game shows frame statistics on their machine; click copies them as JSON).
 Recordings: docs/reference/recordings/web/*.mp4 (ffmpeg available).

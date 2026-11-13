@@ -28,5 +28,9 @@ const game = new WebOsuGame();
 
 host.run(game);
 
+// ?stats=1 shows frame statistics measured on this machine (src/StatsOverlay.ts).
+if (new URLSearchParams(location.search).get('stats') === '1')
+  void import('./StatsOverlay').then(m => m.installStatsOverlay(host));
+
 if (import.meta.env.DEV)
   void import('./dev/debug').then(m => m.installDebugHook(game));

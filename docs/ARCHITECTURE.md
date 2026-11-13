@@ -171,6 +171,10 @@ A tiny `Signal<T>` (add/remove/emit) lives in `src/framework/bindables/Signal.ts
 - `shot.mjs` options for the renderer: `--renderer dom`, `--canvas 1` (save the canvas itself), `--frames N` (wait for game frames),
   `--mouse x,y`, `--w/--h/--dpr`. Cloud Chromium renders WebGL in software (about 10 fps at 695x434, 1 fps at 1389x868), so shoot at
   695x434 and wait in frames.
+- `?stats=1` on the game's URL (any build) shows frame statistics measured on the machine it runs on: frames per second, the interval
+  between frames (mean, p95, worst), our update and draw time, draw calls and quads, and how many frames took over 25 ms. Clicking it
+  copies the numbers as JSON. This is the way to get numbers from the user's M1; GPU and compositor time are not visible to a page and
+  show only as a frame interval above 16.7 ms.
 - `window.__osu.verifyLocalDrawInfo()` turns on a check of every kept local transform against a fresh computation and returns the
   differences found (`docs/spec/framework.md` §15). `stalecheck.mjs` applies to `--renderer dom` only: the renderer redraws every frame.
 

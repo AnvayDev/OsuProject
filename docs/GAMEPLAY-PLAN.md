@@ -231,6 +231,9 @@ everything about the M1's GPU, which only the user's run can show.
 Ask: open `bench.html` on the dev URL in Chrome at the usual window size with the Bluetooth headphones connected, press "Run all", follow
 the two input prompts, paste the JSON.
 
+For the menus (asked 2026-11-13): open the game with `?stats=1`, and in each of the main menu, song select while scrolling the carousel,
+and the beatmap listing while scrolling, click the readout in the bottom-left corner after a few seconds and paste what it copied.
+
 ## 8. Decision log
 
 - 2026-11-12: gameplay exclusion lifted (user). Scope as in §1.
