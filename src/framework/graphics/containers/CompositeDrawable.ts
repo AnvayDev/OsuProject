@@ -25,7 +25,7 @@ import type { Renderer } from '../rendering/Renderer';
 import { Texture } from '../textures/Texture';
 import { edgeEffectCss } from './EdgeEffectStyle';
 import {
-  Drawable, O_CAN_BE_FLATTENED, O_CHILDREN_LIFE, O_COMPOSITE, O_GENERATE_DRAW_NODE_SUBTREE, O_NON_POSITIONAL_INPUT_QUEUE, O_POSITIONAL_INPUT_QUEUE,
+  Drawable, O_CAN_BE_FLATTENED, O_CHILDREN_LIFE, O_COMPOSITE, O_DRAW, O_GENERATE_DRAW_NODE_SUBTREE, O_NON_POSITIONAL_INPUT_QUEUE, O_POSITIONAL_INPUT_QUEUE,
   O_PROXY, O_REQUIRES_CHILDREN_UPDATE,
   O_UPDATE_AFTER_AUTO_SIZE, O_UPDATE_AFTER_CHILDREN, O_UPDATE_AFTER_CHILDREN_LIFE, O_UPDATE_SUBTREE, O_UPDATE_SUBTREE_MASKING,
 } from '../Drawable';
@@ -857,9 +857,11 @@ export abstract class CompositeDrawable extends Drawable {
   /** Whether this CompositeDrawable can be flattened into its parent's draw node (affects the masking-away check, as in osu!). */
   protected get canBeFlattened(): boolean {
     // Masking composite draw nodes define the masking area for their children.
-    return !this.masking
+    return !this._masking
       // Proxied drawables have their DrawNodes drawn elsewhere in the scene graph.
-      && !this.hasProxy;
+      && this.proxy === null
+      // Custom draw nodes may provide custom drawing procedures.
+      && (this.overrides & O_DRAW) === 0;
   }
 
   /** @internal Walks the drawn subtree (as addFromComposite does) and re-applies element state where invalidated. */
@@ -946,7 +948,7 @@ export abstract class CompositeDrawable extends Drawable {
           const composite = drawable as CompositeDrawable;
 
           // CanBeFlattened
-          if ((overrides & O_CAN_BE_FLATTENED) !== 0 ? composite.canBeFlattened : !composite._masking && composite.proxy === null) {
+          if ((overrides & O_CAN_BE_FLATTENED) !== 0 ? composite.canBeFlattened : !composite._masking && composite.proxy === null && (overrides & O_DRAW) === 0) {
             j = CompositeDrawable.addFromComposite(j, composite, target);
             continue;
           }

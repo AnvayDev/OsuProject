@@ -22,8 +22,8 @@ class WebGameHost extends GameHost {
 }
 
 const host = new WebGameHost(document.body);
-// (?renderer=gl draws the whole game with the framework's WebGL renderer; the DOM renderer stays the default until its parity is checked)
-host.drawWithRenderer = new URLSearchParams(location.search).get('renderer') === 'gl';
+// The game is drawn by the framework's WebGL renderer, as the client draws. ?renderer=dom keeps the earlier DOM renderer for comparison.
+host.drawWithRenderer = new URLSearchParams(location.search).get('renderer') !== 'dom';
 const game = new WebOsuGame();
 
 host.run(game);

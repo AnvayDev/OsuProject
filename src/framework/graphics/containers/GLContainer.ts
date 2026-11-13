@@ -44,9 +44,9 @@ export class GLContainer extends Container {
       return;
 
     if (this.canvas === null) {
-      // (behind the canvas: see Renderer, Underlays)
+      // (behind the canvas: see Renderer, Underlays. Isolated, so that the images' z-index orders them among themselves only.)
       const underlays = document.createElement('div');
-      underlays.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;pointer-events:none';
+      underlays.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;pointer-events:none;isolation:isolate';
       this.element.appendChild(underlays);
 
       const canvas = this.canvas = document.createElement('canvas');

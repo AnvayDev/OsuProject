@@ -12,7 +12,11 @@ import { Sprite } from '@fw/graphics/sprites/Sprite';
 import { Colour4 } from '@fw/graphics/Colour4';
 import { ColourInfo } from '@fw/graphics/ColourInfo';
 import { BlendingParameters, EdgeEffectParameters, EdgeEffectType } from '@fw/graphics/DrawInfo';
-import { Anchor, Axes } from '@fw/layout/Enums';
+import { Anchor, Axes, FillMode } from '@fw/layout/Enums';
+import { BufferedContainer } from '@fw/graphics/containers/BufferedContainer';
+import { SpriteText } from '@fw/graphics/sprites/SpriteText';
+import { CircularProgress } from '@fw/graphics/userInterface/CircularProgress';
+import { FontUsage } from '@fw/text/FontUsage';
 import { Vector2 } from '@fw/layout/Vector2';
 import { Texture } from '@fw/graphics/textures/Texture';
 import { ASSET_ROOT } from '@fw/Game';
@@ -24,7 +28,84 @@ class SceneGame extends Game {
   protected override loadComplete(): void {
     super.loadComplete();
 
-    void this.build();
+    void (params.get('scene') === '2' ? this.build2() : this.build());
+  }
+
+  /**
+   * ?scene=2: text, a blurred BufferedContainer, CircularProgress, and sprites whose texture the renderer may not upload (as an image from
+   * an origin without CORS): plain, masked, tinted, translucent, and with content drawn over them.
+   */
+  private async build2(): Promise<void> {
+    const pink = Colour4.fromHex('#ff66aa');
+    const background = await Texture.fromUrl(`${ASSET_ROOT}/osu.Game.Resources/Textures/Menu/menu-background-1.jpg`);
+
+    // The same picture as a texture without an uploadable image.
+    const remote = new Texture(background.url, background.width, background.height);
+
+    const content = new DrawSizePreservingFillContainer().with({
+      children: [
+        new Box().with({ relativeSizeAxes: Axes.Both, colour: ColourInfo.gradientVertical(Colour4.fromHex('#334'), Colour4.fromHex('#112')) }),
+
+        new SpriteText().with({ position: new Vector2(40, 30), text: 'Torus Regular 12 The quick brown fox', font: new FontUsage('Torus', 12, 'Regular') }),
+        new SpriteText().with({ position: new Vector2(40, 50), text: 'Torus SemiBold 17 The quick brown fox', font: new FontUsage('Torus', 17, 'SemiBold') }),
+        new SpriteText().with({ position: new Vector2(40, 76), text: 'Torus Bold 28 with shadow', font: new FontUsage('Torus', 28, 'Bold'), shadow: true }),
+        new SpriteText().with({ position: new Vector2(40, 114), text: 'VENERA 40', font: new FontUsage('Venera', 40, 'Black'), colour: ColourInfo.gradientVertical(Colour4.White, pink) }),
+        new SpriteText().with({ position: new Vector2(40, 164), text: 'rotated and sheared', font: new FontUsage('Torus', 24, 'Regular'), rotation: 8, shear: new Vector2(0.2, 0), colour: Colour4.Yellow, alpha: 0.7 }),
+        new SpriteText().with({ position: new Vector2(40, 220), text: '\uf001 \uf004 \uf013', font: new FontUsage('FontAwesome', 30, 'Solid') }),
+
+        new BufferedContainer().with({
+          position: new Vector2(420, 30), size: new Vector2(300, 200), blurSigma: new Vector2(8),
+          children: [
+            new Box().with({ position: new Vector2(40, 40), size: new Vector2(100, 100), colour: pink }),
+            new Box().with({ position: new Vector2(120, 80), size: new Vector2(120, 80), colour: Colour4.Cyan }),
+            new SpriteText().with({ position: new Vector2(60, 150), text: 'BLUR', font: new FontUsage('Venera', 32, 'Bold') }),
+          ],
+        }),
+
+        new CircularProgress().with({ position: new Vector2(780, 40), size: new Vector2(160), progress: 0.7, innerRadius: 0.2, colour: pink }),
+        new CircularProgress().with({ position: new Vector2(980, 40), size: new Vector2(60), progress: 0.3, innerRadius: 1, colour: Colour4.White }),
+
+        // plain, in a rounded mask
+        new Container().with({
+          position: new Vector2(40, 300), size: new Vector2(320, 180), masking: true, cornerRadius: 24,
+          child: new Sprite().with({ relativeSizeAxes: Axes.Both, texture: remote }),
+        }),
+        // tinted grey by a parent and half transparent, over a box
+        new Box().with({ position: new Vector2(400, 300), size: new Vector2(320, 180), colour: Colour4.fromHex('#0a0') }),
+        new Container().with({
+          position: new Vector2(420, 320), size: new Vector2(320, 180), colour: new Colour4(0.5, 0.5, 0.5, 1), alpha: 0.6,
+          child: new Sprite().with({ relativeSizeAxes: Axes.Both, texture: remote }),
+        }),
+        // with content over it, and part of the texture only
+        new Container().with({
+          position: new Vector2(780, 300), size: new Vector2(320, 180), masking: true, cornerRadius: 10,
+          children: [
+            new Sprite().with({ relativeSizeAxes: Axes.Both, texture: remote, fillMode: FillMode.Fill, anchor: Anchor.Centre, origin: Anchor.Centre }),
+            new Box().with({ relativeSizeAxes: Axes.Both, colour: ColourInfo.gradientHorizontal(Colour4.Black.opacity(0.9), Colour4.Black.opacity(0)) }),
+            new SpriteText().with({ position: new Vector2(16, 16), text: 'Text over a cover', font: new FontUsage('Torus', 24, 'Bold') }),
+            new Box().with({ anchor: Anchor.BottomRight, origin: Anchor.BottomRight, size: new Vector2(80, 30), colour: pink, alpha: 0.5 }),
+          ],
+        }),
+        // the uploadable texture for comparison, rotated
+        new Sprite().with({ position: new Vector2(120, 540), size: new Vector2(240, 135), texture: background, rotation: -6 }),
+        new Sprite().with({ position: new Vector2(460, 540), size: new Vector2(240, 135), texture: remote, rotation: -6 }),
+        // blurred in a buffered container (as a screen's Background), dimmed by a parent, with text over it
+        new Container().with({
+          position: new Vector2(780, 520), size: new Vector2(320, 180), masking: true, colour: new Colour4(0.6, 0.6, 0.6, 1),
+          children: [
+            new BufferedContainer({ cachedFrameBuffer: true }).with({
+              relativeSizeAxes: Axes.Both, blurSigma: new Vector2(6), redrawOnScale: false,
+              child: new Sprite().with({ relativeSizeAxes: Axes.Both, texture: remote, fillMode: FillMode.Fill, anchor: Anchor.Centre, origin: Anchor.Centre }),
+            }),
+            new SpriteText().with({ position: new Vector2(16, 16), text: 'Over a blurred cover', font: new FontUsage('Torus', 24, 'Bold') }),
+          ],
+        }),
+      ],
+    });
+
+    this.add(useGL ? new GLContainer().with({ relativeSizeAxes: Axes.Both, child: content }) : content);
+
+    (window as any).__sceneReady = true;
   }
 
   private async build(): Promise<void> {

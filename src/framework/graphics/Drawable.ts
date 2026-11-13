@@ -89,6 +89,8 @@ export const O_PROXY = 1 << 14;
 export const O_POSITIONAL_INPUT_QUEUE = 1 << 15;
 /** propagateNonPositionalInputSubTree or buildNonPositionalInputQueue */
 export const O_NON_POSITIONAL_INPUT_QUEUE = 1 << 16;
+/** draw (for a CompositeDrawable: hasCustomDrawNode) */
+export const O_DRAW = 1 << 17;
 
 const override_flags = new Map<string, number>([
   ['update', O_UPDATE],
@@ -109,6 +111,7 @@ const override_flags = new Map<string, number>([
   ['canBeFlattened', O_CAN_BE_FLATTENED],
   ['generateDrawNodeSubtree', O_GENERATE_DRAW_NODE_SUBTREE],
   ['original', O_PROXY],
+  ['draw', O_DRAW],
   ['propagatePositionalInputSubTree', O_POSITIONAL_INPUT_QUEUE],
   ['buildPositionalInputQueue', O_POSITIONAL_INPUT_QUEUE],
   ['propagateNonPositionalInputSubTree', O_NON_POSITIONAL_INPUT_QUEUE],

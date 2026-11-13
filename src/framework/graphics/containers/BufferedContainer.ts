@@ -325,7 +325,11 @@ export class BufferedContainer<T extends Drawable = Drawable> extends Container<
   // #region DrawNode (Renderer): BufferedDrawNode.cs, BufferedContainer.DrawNode.cs, BufferedDrawNodeSharedData.cs
 
   /** BufferedContainerDrawNodeSharedData: the main buffer and two effect buffers, of the renderer that last drew this container. */
-  private sharedData: { renderer: Renderer; mainBuffer: FrameBuffer; effectBuffers: (FrameBuffer | null)[]; currentEffectBuffer: number; drawVersion: number } | null = null;
+  private sharedData: {
+    renderer: Renderer; mainBuffer: FrameBuffer; effectBuffers: (FrameBuffer | null)[]; currentEffectBuffer: number; drawVersion: number;
+    /** The underlay sprites drawn into the buffer when it was last redrawn (Renderer, Underlays). */
+    underlays: ((blur: number) => void)[];
+  } | null = null;
 
   /** RequiresRedraw: GetDrawVersion() > SharedData.DrawVersion */
   private get requiresRedraw(): boolean {
@@ -344,7 +348,7 @@ export class BufferedContainer<T extends Drawable = Drawable> extends Container<
     if (this.sharedData !== null && this.sharedData.renderer !== renderer)
       this.disposeSharedData();
 
-    const sharedData = this.sharedData ??= { renderer, mainBuffer: new FrameBuffer(renderer), effectBuffers: [null, null], currentEffectBuffer: -1, drawVersion: -1 };
+    const sharedData = this.sharedData ??= { renderer, mainBuffer: new FrameBuffer(renderer), effectBuffers: [null, null], currentEffectBuffer: -1, drawVersion: -1, underlays: [] };
 
     // ApplyState
     let screenSpaceDrawRectangle = this.screenSpaceDrawQuad.aabbFloat;
@@ -400,7 +404,9 @@ export class BufferedContainer<T extends Drawable = Drawable> extends Container<
       renderer.clear(background.r, background.g, background.b, background.a);
 
       // DrawOther(Child): the CompositeDrawableDrawNode of this container.
+      const capture = renderer.beginUnderlayCapture();
       super.draw(renderer);
+      sharedData.underlays = renderer.endUnderlayCapture(capture);
 
       renderer.popProjectionMatrix();
 
@@ -423,6 +429,27 @@ export class BufferedContainer<T extends Drawable = Drawable> extends Container<
 
     // DrawContents
     const quad = Quad.fromRectangle(screenSpaceDrawRectangle);
+
+    if (sharedData.underlays.length > 0) {
+      // Web: the buffer holds the coverage of sprites whose images only the page can show. The images go behind the canvas, blurred by CSS
+      // as much as the buffer was (in CSS pixels: buffer texels / FrameBufferScale / pixelRatio), and the buffer is drawn as their hole.
+      if (renderer.canShowUnderlays) {
+        const sigmaX = effectiveKernelSigma(kernelSize(this._blurSigma.x), this._blurSigma.x) / this._frameBufferScale.x;
+        const sigmaY = effectiveKernelSigma(kernelSize(this._blurSigma.y), this._blurSigma.y) / this._frameBufferScale.y;
+        const blur = Math.max(sigmaX, sigmaY) / renderer.pixelRatio;
+
+        for (const place of sharedData.underlays)
+          place(blur);
+
+        const buffer = sharedData.currentEffectBuffer === -1 ? sharedData.mainBuffer : sharedData.effectBuffers[sharedData.currentEffectBuffer]!;
+        const colour = drawColourInfo.colour.applyChild(this._effectColour);
+        const average = colour.averageColour;
+
+        renderer.punchHole(colour, (average.r + average.g + average.b) / 3, c => renderer.drawFrameBuffer(buffer, quad, c));
+      }
+
+      return;
+    }
 
     if (this._drawOriginal && this._effectPlacement === EffectPlacement.InFront)
       renderer.drawFrameBuffer(sharedData.mainBuffer, quad, drawColourInfo.colour);

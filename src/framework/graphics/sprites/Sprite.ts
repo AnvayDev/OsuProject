@@ -165,6 +165,19 @@ export class Sprite extends Drawable {
     return new Vector2(scale.x * this._edgeSmoothness.x / pixelRatio, scale.y * this._edgeSmoothness.y / pixelRatio);
   }
 
+  /** Puts the texture's image behind the canvas where this sprite is now (Renderer, Underlays). */
+  private placeUnderlay(renderer: Renderer, texture: Texture, blur: number): void {
+    const quad = this.screenSpaceDrawQuad;
+    const drawSize = this.drawSize;
+
+    // TextureCoords = DrawRectangle.RelativeIn(DrawTextureRectangle), as a fraction of the texture
+    const t = this.drawTextureRectangle;
+
+    renderer.placeUnderlay(
+      this, texture.url!, texture.width, texture.height, quad.topLeft, quad.topRight, quad.bottomLeft,
+      -t.x / t.width, -t.y / t.height, (drawSize.x - t.x) / t.width, (drawSize.y - t.y) / t.height, blur);
+  }
+
   /** TexturedShaderDrawNode.BindTextureShader: binds the sprite's shader (TextureShader) with its uniforms. */
   protected bindTextureShader(renderer: Renderer): void {
     renderer.bindShader(renderer.textureShader);
@@ -220,15 +233,11 @@ export class Sprite extends Drawable {
     if (underlay) {
       const colour = this.drawColourInfo.colour;
       const average = colour.averageColour;
-      const plain = this.screenSpaceDrawQuad;
       const holeQuad = quad;
       const holeInflation = inflationPercentage;
 
       renderer.drawUnderlay(
-        this, texture.url!, texture.width, texture.height, plain.topLeft, plain.topRight, plain.bottomLeft,
-        textureCoords.x / texture.displayWidth, textureCoords.y / texture.displayHeight,
-        textureCoords.right / texture.displayWidth, textureCoords.bottom / texture.displayHeight,
-        colour, (average.r + average.g + average.b) / 3,
+        blur => this.placeUnderlay(renderer, texture, blur), colour, (average.r + average.g + average.b) / 3,
         c => renderer.drawQuad(Texture.WhitePixel, holeQuad, c, null, holeInflation));
 
       return;

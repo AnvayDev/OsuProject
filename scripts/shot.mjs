@@ -1,8 +1,9 @@
 // Screenshot a named app state at the same size as docs/reference/real (1389x868).
 // usage: node scripts/shot.mjs --state songselect --out /tmp/ss.png [--url http://127.0.0.1:5173] [--wait 1500] [--w 1389 --h 868]
-//        [--eval "await __osu.selectBeatmap(2)"] [--renderer gl] [--canvas 1] [--mouse 300,250]
-// --renderer gl draws with the WebGL renderer (?renderer=gl); --canvas 1 then saves the canvas itself (__osu.captureCanvas), which is what
-// to use where WebGL is software-rendered (cloud): a page screenshot of a full-size canvas can take minutes there.
+//        [--eval "await __osu.selectBeatmap(2)"] [--renderer dom] [--canvas 1] [--mouse 300,250] [--frames 120]
+// --renderer dom draws with the DOM renderer (?renderer=dom) instead of WebGL. --canvas 1 saves the canvas itself (__osu.captureCanvas).
+// Where WebGL is software-rendered (cloud), a full-size frame takes about a second: use --w 695 --h 434, and --frames to wait for game
+// frames instead of time.
 // Requires the dev server (npm run dev) unless --url points elsewhere. States are implemented by window.__osu.goto().
 import { chromium } from 'playwright';
 import { writeFileSync } from 'node:fs';
@@ -10,7 +11,7 @@ import { writeFileSync } from 'node:fs';
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((acc, a, i, all) => (a.startsWith('--') ? [...acc, [a.slice(2), all[i + 1]?.startsWith('--') ? 'true' : all[i + 1]]] : acc), []),
 );
-const url = (args.url ?? 'http://127.0.0.1:5173/') + (args.renderer === 'gl' ? '?renderer=gl' : '');
+const url = (args.url ?? 'http://127.0.0.1:5173/') + (args.renderer === 'dom' ? '?renderer=dom' : '');
 const width = Number(args.w ?? 1389);
 const height = Number(args.h ?? 868);
 const out = args.out ?? 'shot.png';

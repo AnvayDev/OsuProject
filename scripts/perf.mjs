@@ -1,6 +1,7 @@
 // Per-frame cost of a named app state, measured in headless Chromium against the dev server.
 // usage: node scripts/perf.mjs --state songselect [--scroll 1] [--frames 240] [--profile 1] [--top 40] [--eval "..."] [--url ...]
-//        [--cpu 4] (CDP CPU throttling factor) [--json out.json]
+//        [--cpu 4] (CDP CPU throttling factor) [--json out.json] [--renderer dom] [--w 348 --h 217]
+// Where WebGL is software-rendered (cloud), the GPU process competes for the CPU: measure JavaScript at a small viewport (--w 348 --h 217).
 // Reports, per frame: our JavaScript (update, draw) from GameHost, the frame interval, and the browser's own script/style/layout time
 // from CDP Performance metrics. With --profile, also the functions with the most self time (V8 sampling profiler, 100 µs interval).
 // Cloud Chromium has no GPU: compare runs with each other only (docs/GAMEPLAY-PLAN.md §2).
@@ -10,7 +11,7 @@ import { writeFileSync } from 'node:fs';
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((acc, a, i, all) => (a.startsWith('--') ? [...acc, [a.slice(2), all[i + 1]?.startsWith('--') ? 'true' : all[i + 1]]] : acc), []),
 );
-const url = args.url ?? 'http://127.0.0.1:5173/';
+const url = (args.url ?? 'http://127.0.0.1:5173/') + (args.renderer === 'dom' ? '?renderer=dom' : '');
 const frames = Number(args.frames ?? 240);
 const top = Number(args.top ?? 40);
 

@@ -19,7 +19,7 @@ interface DebugHook {
   /** Re-applies every element from current state (GameHost.redrawAll): the picture must not change. */
   redrawAll(): void;
   /**
-   * With the renderer drawing (?renderer=gl): runs a frame and returns the canvas as a PNG data URL. Far quicker than a page screenshot
+   * With the WebGL renderer drawing (the default): runs a frame and returns the canvas as a PNG data URL. Far quicker than a page screenshot
    * where WebGL is software-rendered; images shown behind the canvas (Renderer, Underlays) are not part of it.
    */
   captureCanvas(): string | null;

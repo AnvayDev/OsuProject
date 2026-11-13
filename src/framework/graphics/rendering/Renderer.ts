@@ -1099,28 +1099,75 @@ export class Renderer {
   // Not in the client. An image from an origin that doesn't allow cross-origin use (no CORS headers) can be shown by the page but never
   // uploaded to a texture. Such a texture is shown by an <img> element behind the canvas, and the sprite's quad is drawn as a hole: it
   // multiplies what is already there by (1 - alpha), colour and coverage alike, so the image shows through exactly where and as strongly as
-  // the sprite would have covered. Everything drawn later blends over the hole as usual. Limits: the picture's own transparency is ignored,
-  // a tint is reduced to its brightness, and there is no underlay inside a frame buffer (the sprite is not drawn there).
+  // the sprite would have covered. Everything drawn later blends over the hole as usual. Limits: the picture's own transparency is ignored
+  // and a tint is reduced to its brightness. In a frame buffer the sprite only leaves its coverage: the buffered container then draws its
+  // buffer as the hole and the image is blurred by CSS, so anything else drawn into that buffer is lost.
 
   /** The element behind the canvas that underlay images are put into (set by the canvas's owner; null: underlays are not drawn). */
   underlayHost: HTMLElement | null = null;
 
-  private readonly underlays = new Map<object, { wrapper: HTMLElement; image: HTMLImageElement; frame: number; url: string; clip: string; transform: string; index: number }>();
+  private readonly underlays = new Map<object, { wrapper: HTMLElement; image: HTMLImageElement; frame: number; url: string; clip: string; transform: string; filter: string; index: number }>();
   private underlayIndex = 0;
 
+  /** The underlays drawn while a frame buffer is bound are collected here by the buffered container being drawn (null: not collecting). */
+  private capturedUnderlays: ((blur: number) => void)[] | null = null;
+
+  /** Starts collecting the underlays drawn into the frame buffer about to be bound. Returns the collection in progress, for endUnderlayCapture. */
+  beginUnderlayCapture(): ((blur: number) => void)[] | null {
+    const previous = this.capturedUnderlays;
+    this.capturedUnderlays = [];
+    return previous;
+  }
+
+  /** Returns the underlays drawn since beginUnderlayCapture: functions which place their image, blurred by the given sigma in CSS pixels. */
+  endUnderlayCapture(previous: ((blur: number) => void)[] | null): ((blur: number) => void)[] {
+    const captured = this.capturedUnderlays!;
+    this.capturedUnderlays = previous;
+    return captured;
+  }
+
+  /** Whether underlay images can be shown where drawing currently goes (the canvas itself, with an element to hold them). */
+  get canShowUnderlays(): boolean {
+    return this.underlayHost !== null && this.usingBackbuffer && this.scissor !== null;
+  }
+
   /**
-   * Shows `url` behind the canvas, placed so that its texture coordinates (left, top, right, bottom; 0 to 1) fall on the given screen-space
-   * corners, and draws its hole with `drawHole` (which draws the sprite's quad with a white texture and the given colour).
+   * Draws a sprite whose texture is shown by an underlay.
+   * @param place Puts the image where the sprite is now (calls placeUnderlay), blurred by the given sigma in CSS pixels.
    * @param tint The brightness the image is shown at (the average of a grey tint's components).
+   * @param drawHole Draws the sprite's quad with a white texture and the given colour.
    */
-  drawUnderlay(
+  drawUnderlay(place: (blur: number) => void, colour: ColourInfo, tint: number, drawHole: (colour: ColourInfo) => void): void {
+    if (!this.usingBackbuffer) {
+      // In a frame buffer, the sprite leaves its coverage, and the buffered container that owns the buffer shows the image when it draws
+      // the buffer to the screen (BufferedContainer.draw).
+      if (this.capturedUnderlays !== null) {
+        this.capturedUnderlays.push(place);
+        drawHole(colour);
+      }
+
+      return;
+    }
+
+    if (!this.canShowUnderlays)
+      return;
+
+    place(0);
+    this.punchHole(colour, tint, drawHole);
+  }
+
+  /**
+   * Puts the image `url` behind the canvas so that its texture coordinates (left, top, right, bottom; 0 to 1) fall on the given
+   * screen-space corners. To be followed by punchHole.
+   * @param blur The standard deviation of a gaussian blur of the image, in CSS pixels.
+   */
+  placeUnderlay(
     owner: object, url: string, width: number, height: number,
-    topLeft: Vector2, topRight: Vector2, bottomLeft: Vector2, left: number, top: number, right: number, bottom: number,
-    colour: ColourInfo, tint: number, drawHole: (colour: ColourInfo) => void,
+    topLeft: Vector2, topRight: Vector2, bottomLeft: Vector2, left: number, top: number, right: number, bottom: number, blur: number,
   ): void {
     const host = this.underlayHost;
 
-    if (host === null || !this.usingBackbuffer || this.scissor === null)
+    if (host === null || this.scissor === null)
       return;
 
     let underlay = this.underlays.get(owner);
@@ -1134,7 +1181,7 @@ export class Renderer {
       wrapper.appendChild(image);
       host.appendChild(wrapper);
 
-      this.underlays.set(owner, underlay = { wrapper, image, frame: 0, url: '', clip: '', transform: '', index: -1 });
+      this.underlays.set(owner, underlay = { wrapper, image, frame: 0, url: '', clip: '', transform: '', filter: '', index: -1 });
     }
 
     if (underlay.url !== url)
@@ -1144,7 +1191,7 @@ export class Renderer {
     const ratio = this.pixelRatio;
     const scissor = this.scissor;
     const clipX = scissor.x / ratio, clipY = scissor.y / ratio;
-    const clip = `left:${clipX}px;top:${clipY}px;width:${scissor.width / ratio}px;height:${scissor.height / ratio}px`;
+    const clip = `${clipX},${clipY},${scissor.width},${scissor.height}`;
 
     if (underlay.clip !== clip) {
       const style = underlay.wrapper.style;
@@ -1167,6 +1214,13 @@ export class Renderer {
     if (underlay.transform !== transform)
       underlay.image.style.transform = underlay.transform = transform;
 
+    // (a filter's lengths are in the element's own space, before its transform)
+    const scale = Math.hypot(a, b);
+    const filter = blur > 0 && scale > 0 ? `blur(${Math.round(blur / scale * 100) / 100}px)` : '';
+
+    if (underlay.filter !== filter)
+      underlay.image.style.filter = underlay.filter = filter;
+
     // Later sprites' images are above earlier ones.
     if (underlay.index !== this.underlayIndex)
       underlay.wrapper.style.zIndex = `${underlay.index = this.underlayIndex}`;
@@ -1177,8 +1231,10 @@ export class Renderer {
       underlay.wrapper.style.display = '';
 
     underlay.frame = this.frameIndex;
+  }
 
-    // The hole.
+  /** Draws `drawHole` as a hole in the canvas for an underlay image shown at the brightness `tint`. */
+  punchHole(colour: ColourInfo, tint: number, drawHole: (colour: ColourInfo) => void): void {
     const gl = this.gl;
 
     this.flushCurrentBatch();
