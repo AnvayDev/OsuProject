@@ -18,6 +18,11 @@ interface DebugHook {
   suspend(suspended: boolean): void;
   /** Re-applies every element from current state (GameHost.redrawAll): the picture must not change. */
   redrawAll(): void;
+  /**
+   * With the renderer drawing (?renderer=gl): runs a frame and returns the canvas as a PNG data URL. Far quicker than a page screenshot
+   * where WebGL is software-rendered; images shown behind the canvas (Renderer, Underlays) are not part of it.
+   */
+  captureCanvas(): string | null;
   goto(state: string): Promise<void>;
   importUrl(url: string): Promise<void>;
 }
@@ -68,6 +73,14 @@ export function installDebugHook(game: OsuGame): void {
     importUrl,
     suspend: suspended => { game.host!.suspended = suspended; },
     redrawAll: () => game.host!.redrawAll(),
+    captureCanvas: () => {
+      const canvas = document.querySelector('canvas');
+      if (canvas === null) return null;
+
+      // (the drawing buffer is only readable in the task that drew it)
+      game.host!.updateFrame();
+      return canvas.toDataURL('image/png');
+    },
     async goto(state: string) {
       await ready;
 
