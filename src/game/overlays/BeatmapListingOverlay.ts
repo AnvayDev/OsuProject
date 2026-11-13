@@ -158,14 +158,17 @@ export class BeatmapListingOverlay extends OnlineOverlay<BeatmapListingHeader> {
         return;
       }
 
-      const content = createCardContainerFor(newCards);
+      const content = createCardContainerFor([]);
 
       this.foundContent = content;
 
       const token = this.beginPanelLoad();
-      this.trackPanelLoad(token, this.loadComponentAsync(content, loaded => {
-        if (!token.cancelled)
-          this.replaceResultsAreaContent(loaded);
+      this.trackPanelLoad(token, this.loadComponentsAsync(newCards, loaded => {
+        if (token.cancelled)
+          return;
+
+        this.replaceResultsAreaContent(content);
+        this.addCardsOverFrames(content, loaded, token);
       }));
     } else {
       // new results may contain beatmaps from a previous page,
@@ -182,10 +185,45 @@ export class BeatmapListingOverlay extends OnlineOverlay<BeatmapListingHeader> {
           return;
 
         this.lastFetchDisplayedTime = this.time.current;
-        foundContent?.addRange(loaded);
-        loaded.forEach(p => p.fadeIn(200, Easing.OutQuint));
+
+        if (foundContent !== null)
+          this.addCardsOverFrames(foundContent, loaded, token, p => p.fadeIn(200, Easing.OutQuint));
       }));
     }
+  }
+
+  /**
+   * Web: adds loaded cards to the results a few per frame, where the client adds them all at once (AddRange).
+   * A card is about 150 drawables, and the frame a drawable is added in runs its LoadComplete, its first layout and its first draw
+   * whether or not it is on screen (masking only knows afterwards). For a page of 50 cards that frame took 150 to 350 ms in cloud
+   * Chromium, a visible stall while scrolling; spread out, the last card of a page arrives about a quarter of a second after the first.
+   */
+  private addCardsOverFrames(content: FillFlowContainer<BeatmapCard>, cards: readonly BeatmapCard[], token: { cancelled: boolean }, onAdded?: (card: BeatmapCard) => void, onCompleted?: () => void): void {
+    let index = 0;
+
+    const step = (): void => {
+      if (token.cancelled || content.isDisposed) {
+        // (loaded but never shown)
+        for (; index < cards.length; index++)
+          cards[index].dispose();
+
+        return;
+      }
+
+      const end = Math.min(index + cards_per_frame, cards.length);
+
+      for (; index < end; index++) {
+        content.add(cards[index]);
+        onAdded?.(cards[index]);
+      }
+
+      if (index < cards.length)
+        this.schedule(step);
+      else
+        onCompleted?.();
+    };
+
+    step();
   }
 
   /** (new CancellationTokenSource() for a panel load: its callbacks check the token, as loads can't be cancelled mid-way) */
@@ -244,8 +282,7 @@ export class BeatmapListingOverlay extends OnlineOverlay<BeatmapListingHeader> {
         return;
 
       foundContent.clear();
-      foundContent.addRange(cards);
-      this.loading.hide();
+      this.addCardsOverFrames(foundContent, cards, token, undefined, () => this.loading.hide());
     }));
   }
 
@@ -270,6 +307,9 @@ export class BeatmapListingOverlay extends OnlineOverlay<BeatmapListingHeader> {
       this.filterControl.fetchNextPage();
   }
 }
+
+/** How many cards addCardsOverFrames adds per frame. */
+const cards_per_frame = 3;
 
 function createCardContainerFor(newCards: BeatmapCard[]): ReverseChildIDFillFlowContainer<BeatmapCard> {
   // spawn new children with the contained so we only clear old content at the last moment.

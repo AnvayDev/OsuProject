@@ -25,7 +25,7 @@ import type { Renderer } from '../rendering/Renderer';
 import { Texture } from '../textures/Texture';
 import { edgeEffectCss } from './EdgeEffectStyle';
 import {
-  Drawable, O_CAN_BE_FLATTENED, O_CHILDREN_LIFE, O_COMPOSITE, O_DRAW, O_GENERATE_DRAW_NODE_SUBTREE, O_NON_POSITIONAL_INPUT_QUEUE, O_POSITIONAL_INPUT_QUEUE,
+  Drawable, O_CHILD_SPACE, O_SIZE, O_CAN_BE_FLATTENED, O_CHILDREN_LIFE, O_COMPOSITE, O_DRAW, O_GENERATE_DRAW_NODE_SUBTREE, O_NON_POSITIONAL_INPUT_QUEUE, O_POSITIONAL_INPUT_QUEUE,
   O_PROXY, O_REQUIRES_CHILDREN_UPDATE,
   O_UPDATE_AFTER_AUTO_SIZE, O_UPDATE_AFTER_CHILDREN, O_UPDATE_AFTER_CHILDREN_LIFE, O_UPDATE_SUBTREE, O_UPDATE_SUBTREE_MASKING,
 } from '../Drawable';
@@ -1662,8 +1662,25 @@ export abstract class CompositeDrawable extends Drawable {
 
   /** Conversion factor from relative to absolute coordinates in our space. */
   get relativeToAbsoluteFactor(): Vector2 {
-    return this.childSize.div(this.relativeChildSize);
+    // Every relatively sized or positioned child asks for this each time its DrawSize or DrawInfo is recomputed. It only changes with
+    // what childGeometryVersion counts; with AutoSizeAxes the size is computed when read, so nothing is kept then.
+    if (this.sizeIsPlain && this.factorVersion === this.childGeometryVersion && (this.overrides & (O_SIZE | O_CHILD_SPACE)) === 0) {
+      if (Drawable.verifyLocalDrawInfo && !this.childSize.div(this.relativeChildSize).equals(this.factor!))
+        Drawable.localDrawInfoMismatches.push(`${this.constructor.name}: kept relativeToAbsoluteFactor ${this.factor}, now ${this.childSize.div(this.relativeChildSize)}`);
+
+      return this.factor!;
+    }
+
+    const factor = this.childSize.div(this.relativeChildSize);
+
+    this.factor = factor;
+    this.factorVersion = this.childGeometryVersion;
+
+    return factor;
   }
+
+  private factor: Vector2 | null = null;
+  private factorVersion = -1;
 
   /** Tweens the relativeChildSize of this CompositeDrawable. */
   protected transformRelativeChildSizeTo(newSize: Vector2, duration = 0, easing = Easing.None): TransformSequence<this> {
@@ -1704,6 +1721,8 @@ export abstract class CompositeDrawable extends Drawable {
       throw new Error('No axis can be relatively sized and automatically sized at the same time.');
 
     this._autoSizeAxes = value;
+    this.sizeIsPlain = value === Axes.None;
+    this.childGeometryVersion++;
 
     if (value === Axes.None)
       this.childrenSizeDependencies.validate();

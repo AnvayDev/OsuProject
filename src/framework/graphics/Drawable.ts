@@ -95,6 +95,10 @@ export const O_DRAW = 1 << 17;
 export const O_ON_INVALIDATE = 1 << 18;
 /** A member the local transform is computed from (computeDrawInfo), other than the size */
 export const O_LOCAL_TRANSFORM = 1 << 20;
+/** A member DrawSize is computed from */
+export const O_SIZE = 1 << 21;
+/** A member of a CompositeDrawable that defines the space its children are placed in (padding, child size and offset, relative coordinates) */
+export const O_CHILD_SPACE = 1 << 22;
 /** elementStateUsesScreenSpace (DOM renderer) */
 export const O_ELEMENT_STATE_USES_SCREEN_SPACE = 1 << 19;
 
@@ -118,6 +122,19 @@ const override_flags = new Map<string, number>([
   ['original', O_PROXY],
   ['draw', O_DRAW],
   ['onInvalidate', O_ON_INVALIDATE],
+  ['padding', O_CHILD_SPACE],
+  ['childSize', O_CHILD_SPACE],
+  ['childOffset', O_CHILD_SPACE],
+  ['relativeChildSize', O_CHILD_SPACE],
+  ['relativeChildOffset', O_CHILD_SPACE],
+  ['relativeToAbsoluteFactor', O_CHILD_SPACE],
+  ['size', O_SIZE],
+  ['width', O_SIZE],
+  ['height', O_SIZE],
+  ['relativeSizeAxes', O_SIZE],
+  ['fillMode', O_SIZE],
+  ['drawSize', O_SIZE],
+  ['applyRelativeAxes', O_SIZE],
   ['drawPosition', O_LOCAL_TRANSFORM],
   ['anchorPosition', O_LOCAL_TRANSFORM],
   ['relativeAnchorPosition', O_LOCAL_TRANSFORM],
@@ -749,9 +766,34 @@ export abstract class Drawable extends Transformable {
 
   private readonly drawSizeBacking = new LayoutValueOf<Vector2>(Invalidation.DrawInfo | Invalidation.RequiredParentSizeToFit | Invalidation.Presence);
 
+  /**
+   * @internal Whether Size is the plain width and height (CompositeDrawable clears it while AutoSizeAxes is set: its Size then computes
+   * the auto size when read).
+   */
+  sizeIsPlain = true;
+
+  private lastDrawSize: Vector2 | null = null;
+
   /** Absolute size of this Drawable in the Parent's coordinate system. */
   get drawSize(): Vector2 {
-    return this.drawSizeBacking.isValid ? this.drawSizeBacking.value : (this.drawSizeBacking.value = this.applyRelativeAxes(this.relativeSizeAxes, this.size, this.fillMode));
+    const backing = this.drawSizeBacking;
+
+    if (backing.isValid)
+      return backing.value;
+
+    // DrawSize is invalidated whenever an ancestor moves (every frame of a scroll, for everything in it), and is then almost always what
+    // it was. For a size that is the plain fields it is read from them, without the getters a class may override, and the same Vector2 is
+    // kept while the value is the same.
+    if (this.sizeIsPlain && (this.overrides & O_SIZE) === 0) {
+      if (this._relativeSizeAxes === Axes.None) {
+        const last = this.lastDrawSize;
+        return backing.value = this.lastDrawSize = last !== null && last.x === this._width && last.y === this._height ? last : new Vector2(this._width, this._height);
+      }
+
+      return backing.value = this.lastDrawSize = this.applyRelativeAxes(this._relativeSizeAxes, new Vector2(this._width, this._height), this._fillMode);
+    }
+
+    return backing.value = this.lastDrawSize = this.applyRelativeAxes(this.relativeSizeAxes, this.size, this.fillMode);
   }
 
   /** X component of DrawSize. */
@@ -1428,7 +1470,8 @@ export abstract class Drawable extends Transformable {
   private computeDrawInfo(): DrawInfo {
     const parent = this._parent;
 
-    if (!this.localValid || (this.overrides & O_LOCAL_TRANSFORM) !== 0 || (parent !== null && this.localParentVersion !== parent.childGeometryVersion)) {
+    if (!this.localValid || (this.overrides & O_LOCAL_TRANSFORM) !== 0
+      || (parent !== null && (this.localParentVersion !== parent.childGeometryVersion || (parent.overrides & O_CHILD_SPACE) !== 0))) {
       let pos = this.drawPosition.add(this.anchorPosition);
 
       if (parent !== null)
