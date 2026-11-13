@@ -201,21 +201,30 @@ Findings:
 Changes: the renderer draws everything (§4.1); per-frame passes without megamorphic calls and a kept local transform (framework.md §15);
 draws recorded and executed once per frame; the logo visualisation, TrianglesV2 and particles as quads instead of canvases.
 
-After (WebGL renderer). JavaScript measured at 348x217 so that the software GPU process competes less for the CPU; it still does, and
-the same build measures about twice as fast on the DOM renderer's update pass at full size (song select idle update: 5.7 → 2.5 ms):
+After (WebGL renderer, commit 0a6d84d). JavaScript measured at 348x217 so that the software GPU process competes less for the CPU (it
+still does: the same update pass measures about half as long on the DOM renderer at full size, where no GPU process runs):
 
 | State | Our update | Our draw (draw list, vertices, GL commands) | Draw calls | Quads |
 |---|---|---|---|---|
-| Song select, idle | 4.7 | 3.5 | 195 | 1,114 |
-| Beatmap listing, idle | 4.8 | 4.5 | 243 | 3,005 |
-| Beatmap listing, scrolling | 17.8 | 6.4 | 359 | 2,971 |
+| Main menu | 0.8 | 0.3 | 8 | 646 |
+| Song select, idle | 2.8 | 1.3 | 159 | 1,024 |
+| Beatmap listing, idle | 5.0 | 2.7 | 242 | 3,317 |
+| Beatmap listing, scrolling | 13.9 (p95 23.4, worst 34) | 3.5 | 324 | 3,456 |
 
-(taken before the kept local transform, the cheaper invalidation and the command list; to be re-measured.) The browser's per-frame work
-is now one canvas: no style, layout, paint or layerize of game content.
+The browser's per-frame work is now one canvas: no style, layout, paint or layerize of game content. The worst scroll frame was 190 ms
+while a page of 50 cards was added in one frame; cards are now added three per frame (a deliberate deviation: the client adds a page at
+once, where the same work costs it far less).
 
-Open after this round: the scroll frame's update pass (invalidation and DrawInfo recomputation for every visible drawable), batching
-across masking changes (§6), the frame that adds 50 cards at once (about 350 ms, synchronous as in the client), and everything about the
-M1's GPU, which only the user's run can show.
+What the user saw on the M1 after the first version of the renderer switch ("even more laggy", a blocky ring around the logo): the logo
+visualisation, the triangles and the fountains were still 2D canvases, uploaded to textures every frame; the visualisation's canvas alone
+covers the logo plus 600 units on each side. None of that showed in the cloud numbers above, because they count JavaScript and draw calls,
+not texture uploads on a real GPU. Lesson: a cost that only exists on the user's GPU cannot be ranked from here, so remove whole classes
+of it (per-frame uploads, buffer updates between draws) instead of estimating them.
+
+Open after this round: the scroll frame's update pass (still the largest: invalidation, masking and DrawInfo for every card of every
+loaded page plus everything visible), batching across masking changes (§6), the remaining canvas drawables (Triangles v1 on toolbar
+hover and dialogs, GhostIcon, the fail/retry graph), preview tracks reported to change speed (not reproduced, no cause found), and
+everything about the M1's GPU, which only the user's run can show.
 
 ### 7.2 User's M1 (pending)
 
@@ -243,3 +252,5 @@ the two input prompts, paste the JSON.
   immediately; on WebGL that updates buffers still in use by earlier draws, hundreds of times per frame.
 - 2026-11-13: an animated `CanvasDrawable` must draw with the renderer. Found by the user: the logo visualisation's canvas, uploaded every
   frame, made the menu slower than the DOM renderer and showed as a blocky ring.
+- 2026-11-13: the beatmap listing adds loaded cards three per frame instead of a page at once (`BeatmapListingOverlay.addCardsOverFrames`).
+  The client adds them in one frame; here that frame stalled scrolling for 150 to 350 ms.
