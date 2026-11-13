@@ -69,15 +69,29 @@ Gameplay (2026-11-12): the gameplay exclusion is lifted (user decision). osu!sta
 difficulty/pp calculators, the whole settings overlay and mod select are in scope; the plan, the latency definitions, the research and the
 decision log are in `docs/GAMEPLAY-PLAN.md` (read it before touching gameplay, update it at every milestone). What to ask the user to capture
 from the real client: `docs/reference/CAPTURE-REQUESTS.md`. Decisions so far: judgement and hit sounds run from the input listener at
-`event.timeStamp` (never quantised to a frame); the engine stays TypeScript (no WASM engine); the playfield gets a GPU draw path that ports
-osu!framework's renderer while menus stay on the DOM renderer (to be confirmed by `bench.html` numbers from the user's M1); reference beatmap
-for comparisons is Soleily - Renatus [Insane] (set 241526). User setup: M1 Air, Chrome, built-in 60 Hz display, mouse + keyboard keys,
-Bluetooth headphones.
+`event.timeStamp` (never quantised to a frame); the engine stays TypeScript (no WASM engine); the whole game is drawn by a WebGL2 port of
+osu!framework's renderer (2026-11-13, after the user reported menu lag on the DOM renderer; `?renderer=dom` keeps the old renderer for
+comparison only); reference beatmap for comparisons is Soleily - Renatus [Insane] (set 241526). User setup: M1 Air, Chrome, built-in 60 Hz
+display, mouse + keyboard keys, Bluetooth headphones.
 Gameplay status (2026-11-12): M0 done (plan, research, `bench.html`, `scripts/pixeldiff.mjs`, `scripts/stalecheck.mjs`); the user's M1 bench
-run is still owed (GAMEPLAY-PLAN §7.2). Renderer core done (`src/framework/graphics/rendering/`, `GLContainer`, `Drawable.draw`; spec
-framework.md §14): boxes, sprites, masking, borders, edge effects, blending, proxies; not yet text, Path, frame buffers. DOM elements are now
-created by the element walk, never under a `GLContainer`. osu! ruleset model done and tested against the client's own test data
+run is still owed (GAMEPLAY-PLAN §7.2). Renderer (`src/framework/graphics/rendering/`, `GLContainer`, `Drawable.draw`; spec framework.md
+§14) draws everything the game has: boxes, sprites, masking, borders, edge effects, blending, proxies, text and icons (glyph atlas),
+BufferedContainer (frame buffers, blur), CircularProgress, LogoAnimation, Video, TrianglesV2, LogoVisualisation, ParticleSpewer; not yet
+Path. Draws are recorded and executed once per frame. An image from an origin without CORS (assets.ppy.sh, a.ppy.sh) cannot become a
+texture: it is an `<img>` behind the canvas, seen through a hole its sprite punches ("underlay"). A new drawable type needs `draw(renderer)`;
+a `CanvasDrawable` that animates must implement `drawWithRenderer` (a canvas is uploaded whenever it is redrawn). Still on canvases:
+Triangles (v1), GhostIcon, the intro's OutlineTriangle, the fail/retry graph. osu! ruleset model done and tested against the client's own test data
 (`docs/spec/osu-ruleset.md`): hit objects, beatmap conversion and stacking, judgements, score/health processors, score multipliers.
 Rulesets register themselves (`registerRuleset`); tests calling `RulesetInfo.createInstance()` import `@game/rulesets/osu/OsuRuleset`.
 Not yet: drawable hit objects, playfield, input, gameplay clock, Player, HUD, results, settings overlay, mod select wiring, calculators.
-Cloud screenshots: `PW_CHROMIUM=/opt/pw-browsers/chromium node scripts/shot.mjs ...` (dev server running). Recordings: docs/reference/recordings/web/*.mp4 (ffmpeg available).
+Performance (2026-11-13, user report: menus lag). Rules that came out of it, in `docs/spec/framework.md` §14-15: the per-frame passes
+(UpdateSubTree, child life, UpdateSubTreeMasking, draw node walk, input queues, invalidation) are static functions that read fields and
+only make a virtual call for classes that override it (`Drawable.overrides`); a getter or method call on "any drawable" costs about 50 ns
+(240 classes), a field read about 5 ns, so don't add getter chains to those passes. A drawable's local transform is kept while only an
+ancestor moves (`Drawable.computeDrawInfo`; check with `__osu.verifyLocalDrawInfo()` after touching layout or invalidation).
+Measure with `scripts/perf.mjs` (per-frame update/draw, CPU profile, timeline, renderer statistics) and state the environment.
+Cloud Chromium renders WebGL in software, about 10 fps at 695x434 and 1 fps at full size: take screenshots with
+`PW_CHROMIUM=/opt/pw-browsers/chromium node scripts/shot.mjs --state songselect --w 695 --h 434 --frames 150 --out x.png` (dev server
+running), measure JavaScript with `scripts/perf.mjs --w 348 --h 217`, and compare renderers with `tests/visual/gl-scene.html?gl=0|1`
+(`&scene=2` for text, blur, progress, underlays). Nothing here measures the user's GPU: say so, and ask for their numbers.
+Recordings: docs/reference/recordings/web/*.mp4 (ffmpeg available).

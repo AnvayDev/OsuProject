@@ -20,18 +20,19 @@ Ground truth, in priority order:
 ## Stack
 
 - TypeScript (strict) + Vite 8, no UI framework. Path aliases: `@fw/*` → `src/framework/*`, `@game/*` → `src/game/*`, `@/*` → `src/*`.
-- Rendering: **DOM retained scene graph** driven by our own TS port of osu!framework's layout and transform model.
-  A `Drawable` drawn by the DOM owns one absolutely-positioned `HTMLElement` (created when the element walk first reaches it); the
-  framework computes layout itself (anchor/origin, relative sizing, autosize, fill flows) and writes
-  `transform`/`width`/`height`/`opacity`/colour styles only when they change.
-- Rendering, GPU path: a `GLContainer` draws its whole subtree with a WebGL2 port of osu!framework's renderer
-  (`src/framework/graphics/rendering/`: the framework's shaders, masking, blending, quad batch). Drawables implement `draw(renderer)`, the
-  counterpart of `DrawNode.Draw`, and never create DOM elements there. It exists for gameplay; a drawable type can only be used under a
-  `GLContainer` once it has a `draw` implementation (see `docs/spec/framework.md` §14).
+- Rendering: a retained scene graph, our own TS port of osu!framework's layout and transform model, drawn on **one WebGL2 canvas by a
+  port of osu!framework's renderer** (`src/framework/graphics/rendering/`: the framework's shaders, masking, blending, quad batches, glyph
+  atlas, frame buffers). The host wraps the game in a `GLContainer`; drawables implement `draw(renderer)`, the counterpart of
+  `DrawNode.Draw`. A drawable type can only be shown once it has a `draw` implementation (`docs/spec/framework.md` §14).
+  The first renderer was the DOM (one absolutely-positioned element per drawable). It is still there behind `?renderer=dom` for
+  comparison, but could not hold 60 fps in the menus and is no longer the target: style, layout, paint and layerize cost more per frame
+  than the whole scene graph (`docs/GAMEPLAY-PLAN.md` §7.3).
+  The only DOM elements under the renderer are `<img>` underlays for images whose origin sends no CORS headers (they sit behind the canvas
+  and show through holes), the hidden textarea of text input, and `<video>` elements used as texture sources.
   CSS layout (flexbox/grid) is NOT used for osu! UI; it may be used inside leaf "HTML content" drawables (e.g. resume PDF viewer,
   long-form portfolio text) where osu! itself would use a TextFlowContainer.
-- Canvas 2D is used inside specific drawables where the original is procedural (Triangles/TrianglesV2 backgrounds, LogoVisualisation bars,
-  logo ripple/flash may stay DOM).
+- Canvas 2D (`CanvasDrawable`) is a stopgap for procedural drawables that have no renderer draw yet: the canvas is uploaded as a texture
+  whenever it is redrawn, so it is only acceptable for things that rarely change. Animated ones draw quads (`drawWithRenderer`).
 - Audio: WebAudio. One `AudioContext`, created/resumed on the first user gesture.
   Track = `HTMLAudioElement` (object URL) → `MediaElementAudioSourceNode` → track gain → `AnalyserNode` (FFT 512 → 256 bins, smoothing 0, used as `CurrentAmplitudes`) → master gain → destination.
   Samples = decoded `AudioBuffer`s played through `AudioBufferSourceNode`s → effect gain → master gain.
@@ -163,6 +164,15 @@ A tiny `Signal<T>` (add/remove/emit) lives in `src/framework/bindables/Signal.ts
   after touching invalidation or element code.
 - `bench.html` (built and deployed next to the game) measures rendering, input delay and audio clocks on the machine it runs on; see
   `docs/GAMEPLAY-PLAN.md` §2 and §7. `npm run bench` runs it headless for relative numbers.
+- `node scripts/perf.mjs --state beatmap-listing --scroll 1 --profile 1 [--trace 1] [--renderer dom] [--w 348 --h 217]` reports a state's
+  per-frame cost: our update and draw time from `GameHost`, the renderer's draw calls and quads, the browser's script/style/layout time,
+  the functions with the most self time, and with `--trace` the timeline (paint, layerize, commit, raster). Use it before and after every
+  performance change and quote both numbers with the environment.
+- `shot.mjs` options for the renderer: `--renderer dom`, `--canvas 1` (save the canvas itself), `--frames N` (wait for game frames),
+  `--mouse x,y`, `--w/--h/--dpr`. Cloud Chromium renders WebGL in software (about 10 fps at 695x434, 1 fps at 1389x868), so shoot at
+  695x434 and wait in frames.
+- `window.__osu.verifyLocalDrawInfo()` turns on a check of every kept local transform against a fresh computation and returns the
+  differences found (`docs/spec/framework.md` §15). `stalecheck.mjs` applies to `--renderer dom` only: the renderer redraws every frame.
 
 ## Licensing notes (for the final README)
 

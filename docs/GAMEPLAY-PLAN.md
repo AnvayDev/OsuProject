@@ -79,9 +79,14 @@ Prior browser ports (the user asked for claims to be verified, not inherited):
 
 Status values: **decided** (with evidence), **hypothesis** (to be confirmed by the bench in `bench.html`), **OPEN**.
 
-### 4.1 Rendering: a GPU draw path for gameplay (hypothesis, supported by cloud numbers, M1 numbers pending)
+### 4.1 Rendering: the renderer draws everything (decided 2026-11-13; M1 numbers still pending)
 
-The DOM renderer stays for menus. Gameplay (playfield and HUD) is drawn by a port of osu!framework's own renderer: the scene graph is
+Superseded on 2026-11-13: "the DOM renderer stays for menus". The user reported the menus lagging on the M1, and the cloud measurements
+in §7.3 show why: in the beatmap listing the browser's own style, layout, paint and commit work was larger than all of our JavaScript,
+and no DOM-side fix (layers, style caching, blob URLs for glyph masks, tried earlier) changed that. The whole game is now drawn by the
+renderer, as the client is; details in `docs/spec/framework.md` §14 and §15.
+
+The original text, which still describes the renderer: gameplay (playfield and HUD) is drawn by a port of osu!framework's own renderer: the scene graph is
 walked every frame and drawables emit batched quads to WebGL2 through ports of the framework's shaders (`sh_Texture`, `sh_Masking`,
 `sh_Path`, `sh_Blur`, `sh_CircularProgress`). Reasons:
 
@@ -93,8 +98,8 @@ walked every frame and drawables emit batched quads to WebGL2 through ports of t
 To be confirmed by measurement before committing: the cost of the scene-graph update itself at playfield density, and WebGL2 against
 Canvas 2D, WebGPU and a worker-driven OffscreenCanvas on the user's GPU. First numbers are in §7.
 
-Status: the renderer core exists (`src/framework/graphics/rendering/`, `GLContainer`; notes in `docs/spec/framework.md` §14). Boxes,
-sprites, masking, borders, edge effects, blending and proxies draw; text, paths, frame buffers and circular progress do not yet.
+Status: boxes, sprites, masking, borders, edge effects, blending, proxies, text, icons, frame buffers with blur, circular progress, the
+logo animation, video, TrianglesV2, the logo visualisation and particles draw. Paths (slider bodies) do not yet.
 
 ### 4.2 Input: timestamped, judged in the listener (decided)
 
@@ -168,6 +173,50 @@ What this supports: the scene graph is not the bottleneck at playfield density, 
 than writing DOM styles while also removing the browser's style and paint work. What it cannot show: anything about the M1's GPU,
 display, compositor or audio output. Those come from the user's run.
 
+### 7.3 Menu lag (user report 2026-11-13): what was measured and what changed
+
+Environment for every number here: cloud Linux VM, 4 cores, headless Chromium, no GPU (WebGL through SwiftShader), `scripts/perf.mjs`.
+They rank causes and compare before with after. They are not the M1's numbers; nothing in this section measures a real GPU.
+
+Before (DOM renderer, 1389x868), milliseconds per frame:
+
+| State | Drawables | Our update | Our DOM writes | Browser, main thread besides script | Frame interval |
+|---|---|---|---|---|---|
+| Main menu | 1,229 | 2.7 | 1.5 | about 10 | 60 |
+| Song select, idle | 2,416 | 5.7 | 1.9 | layerize 2.5 + commit 2.2 | 16.8 |
+| Beatmap listing, idle | 8,757 | 10.1 | 3.6 | layerize 3.8 + commit 3.8 + paint 1.6 | 61 |
+| Beatmap listing, scrolling | 23,359 | 27.5 | 9.6 | style 6.1, layout 2.5, paint 13.1, image decode 17.9, commit 7.9 | 94 |
+
+Findings:
+
+1. The browser's work per frame was as large as ours or larger, and grew with the number of elements (16,909 elements while scrolling the
+   listing). That part cannot be fixed inside a DOM renderer.
+2. Our own time was spent on megamorphic getter and method calls, not on arithmetic: 875 drawables are visited per frame in song select,
+   6.5 µs each. Measured on the live objects: `isPresent` 133 ns, an `alpha` getter 56 ns, the `_alpha` field 16 ns, an empty loop 10 ns
+   (242 classes, 81 to 169 fields per drawable). A micro-benchmark with 200 subclasses reproduced the factor (3.8 µs per drawable through
+   getters against 0.05 to 0.19 µs through a shared-shape object).
+3. Only 37 to 40% of the visited drawables have anything to do in a frame (an `update` override, a transform, a scheduled task, a bounded
+   lifetime), so skipping idle subtrees would gain 2.5x at most; making each visit cheap gains more and helps scrolling and gameplay too.
+
+Changes: the renderer draws everything (§4.1); per-frame passes without megamorphic calls and a kept local transform (framework.md §15);
+draws recorded and executed once per frame; the logo visualisation, TrianglesV2 and particles as quads instead of canvases.
+
+After (WebGL renderer). JavaScript measured at 348x217 so that the software GPU process competes less for the CPU; it still does, and
+the same build measures about twice as fast on the DOM renderer's update pass at full size (song select idle update: 5.7 → 2.5 ms):
+
+| State | Our update | Our draw (draw list, vertices, GL commands) | Draw calls | Quads |
+|---|---|---|---|---|
+| Song select, idle | 4.7 | 3.5 | 195 | 1,114 |
+| Beatmap listing, idle | 4.8 | 4.5 | 243 | 3,005 |
+| Beatmap listing, scrolling | 17.8 | 6.4 | 359 | 2,971 |
+
+(taken before the kept local transform, the cheaper invalidation and the command list; to be re-measured.) The browser's per-frame work
+is now one canvas: no style, layout, paint or layerize of game content.
+
+Open after this round: the scroll frame's update pass (invalidation and DrawInfo recomputation for every visible drawable), batching
+across masking changes (§6), the frame that adds 50 cards at once (about 350 ms, synchronous as in the client), and everything about the
+M1's GPU, which only the user's run can show.
+
 ### 7.2 User's M1 (pending)
 
 Ask: open `bench.html` on the dev URL in Chrome at the usual window size with the Bluetooth headphones connected, press "Run all", follow
@@ -181,3 +230,16 @@ the two input prompts, paste the JSON.
 - 2026-11-12: no WASM engine (§3). The engine stays TypeScript.
 - 2026-11-12: reference beatmap for comparisons is **Soleily - Renatus [Insane]** (set 241526, beatmap 557821: 586 circles, 309 sliders,
   2 spinners, one break). Its `.osu` is in `tests/fixtures/osu-tests/`.
+- 2026-11-13: the whole game is drawn by the WebGL renderer; the DOM renderer is kept behind `?renderer=dom` for comparison only (§4.1,
+  §7.3). Reason: user report of menu lag on the M1, and measurements showing browser style/paint/commit work larger than our script.
+- 2026-11-13: per-frame passes are static functions reading fields, with per-class override flags (`Drawable.overrides`); the structure of
+  the client's methods is kept statement for statement, the dispatch is not ("performance wins on structure").
+- 2026-11-13: a drawable's local transform is kept while only an ancestor moves. This is not how the client computes DrawInfo; the result
+  differs in the last bits of a double. A verification mode guards it (`__osu.verifyLocalDrawInfo`).
+- 2026-11-13: images from origins without CORS are shown by `<img>` underlays behind the canvas through holes punched by their sprites.
+  Alternatives rejected: a proxy server (the site is static), mirror media endpoints with CORS (full-size backgrounds only, megabytes per
+  card), dropping the images.
+- 2026-11-13: draws are recorded and executed once per frame with one vertex upload and one uniform upload. The client issues batches
+  immediately; on WebGL that updates buffers still in use by earlier draws, hundreds of times per frame.
+- 2026-11-13: an animated `CanvasDrawable` must draw with the renderer. Found by the user: the logo visualisation's canvas, uploaded every
+  frame, made the menu slower than the DOM renderer and showed as a blocky ring.

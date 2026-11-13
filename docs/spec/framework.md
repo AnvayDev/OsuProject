@@ -215,9 +215,10 @@ Limitation: CSS stacking contexts isolate blending. To keep that rare, drawables
 
 ## 14. Renderer (`Graphics/Rendering/*`, `Resources/Shaders/*`): the GPU draw path
 
-A `GLContainer` draws its subtree with a WebGL2 port of the framework's renderer instead of DOM elements. It exists for gameplay
-(`docs/GAMEPLAY-PLAN.md` §4.1); menus stay on the DOM. Files: `graphics/rendering/Renderer.ts`, `shaders.ts`, `MaskingInfo.ts`,
-`graphics/containers/GLContainer.ts`.
+A `GLContainer` draws its subtree with a WebGL2 port of the framework's renderer instead of DOM elements. Since 2026-11-13 the host puts
+the whole game under one (`GameHost.drawWithRenderer`, the default in `src/main.ts`): the DOM renderer could not hold 60 fps in the menus
+(`docs/GAMEPLAY-PLAN.md` §7.3). `?renderer=dom` keeps the DOM renderer for comparison; it is no longer maintained for new drawables.
+Files: `graphics/rendering/Renderer.ts`, `shaders.ts`, `MaskingInfo.ts`, `graphics/containers/GLContainer.ts`.
 
 - **No DrawNodes.** The client copies drawable state into DrawNodes for its draw thread. Here everything runs on one thread, so
   `Drawable.draw(renderer)` is `DrawNode.Draw` reading the drawable directly. `generateDrawNodeSubtree()` is `GenerateDrawNodeSubtree`:
@@ -227,29 +228,83 @@ A `GLContainer` draws its subtree with a WebGL2 port of the framework's renderer
 - **Shaders** are the client's (`sh_Texture2D.vs`, `sh_Texture.fs`, `sh_Masking.h`, `sh_TextureWrapping.h`, `sh_Utils.h`,
   `Internal/sh_GlobalUniforms.h`, `Internal/sh_Vertex_Output.h`) rewritten from GLSL 450 to GLSL ES 3.00: combined samplers, named
   varyings, float literals, `highp` everywhere (desktop GL and Metal ignore `lowp`/`mediump`). The maths is unchanged. Global uniforms are
-  one std140 block, 272 bytes; the offsets are in `Renderer.uploadGlobalUniforms`.
+  one std140 block, 272 bytes; the offsets are in `Renderer.stageGlobalUniforms`.
 - **Colours** are passed as sRGB and blended as they are, as in the client (its shaders no longer convert to linear).
 - **Screen space is CSS pixels**; the canvas has `renderer.pixelRatio` device pixels per unit. The client's screen space is device pixels,
   so draw code that means "one pixel" divides by `pixelRatio`: masking smoothness (`CompositeDrawable.computeMaskingInfo`) and sprite edge
   smoothness (`Sprite.inflationAmount`). Port every later `MatrixInverse.ExtractScale()` use the same way.
-- **The backbuffer is a transparent layer over the DOM** (premultiplied alpha). The client's blend presets write alpha as (One, One)
-  because its backbuffer is opaque. On the backbuffer the port writes alpha as "over" for Mixture and leaves it unchanged for Additive,
-  so compositing the canvas over the page gives the same picture as drawing over the background directly. Colour factors are the
-  client's. Inside frame buffers the client's factors apply unchanged.
+- **The backbuffer's alpha is real coverage** (premultiplied canvas). The root canvas is cleared to opaque black like the client's
+  (`GLContainer.opaque`); a nested one starts transparent, as a layer over the page. The client's blend presets write alpha as (One, One)
+  because nothing reads its backbuffer's alpha. Here the page shows through wherever alpha is below 1 (underlays, below), so on the
+  backbuffer alpha is written as "over" for Mixture and left unchanged for Additive. Colour factors are the client's. Inside frame
+  buffers the client's factors apply unchanged, including its dark fringe where a blurred buffer is transparent (colour is multiplied by
+  alpha once when drawn into the buffer and again when the buffer is drawn).
 - **Masking scissor**: the client takes `Quad.AABB` (floor and ceiling in screen pixels); the port takes the enclosing rectangle in device
   pixels.
 - **Vertices**: `TexturedVertex2D` without `backbufferDrawDepth`. The front-to-back opaque interior pass (an overdraw optimisation that
-  does not change the image) is not ported, so the backbuffer draws without a depth test. A frame's quads go into one streaming buffer;
-  each flush uploads and draws its own range.
+  does not change the image) is not ported, so there is no depth buffer.
+- **Command list.** The client issues each batch when it is flushed. Here a flush records a command (quad range, target, viewport,
+  scissor, blend factors, shader and its uniforms, texture, the batch's `g_GlobalUniforms`), and `finishFrame` uploads the frame's
+  vertices once and the uniform blocks of all batches once, then draws each batch with `bindBufferRange`. Updating a buffer that earlier
+  draws of the frame still use makes a WebGL implementation copy or wait, and a menu frame has 200 to 400 batches (masking ends a batch,
+  as in the client). Consequences for draw code: set a shader's uniforms with `renderer.setShaderUniforms`, never `gl.uniform*`;
+  textures and frame buffers are deleted with `deleteWhenExecuted`; texture uploads and atlas additions still happen at once.
 - **Textures** upload on first use from `Texture.image` with straight alpha, mipmaps to level 3 (`IRenderer.MAX_MIPMAP_LEVELS`), trilinear
-  filtering and the shader's −0.9 LOD bias. There is no atlas yet: every texture is its own GL texture, so a change of texture ends a batch.
+  filtering and the shader's −0.9 LOD bias. Each is its own GL texture, so a change of texture ends a batch.
+- **Glyph atlas** (`TextureAtlas.cs`, `TextureAtlas.BackingAtlasTexture.cs`): glyphs of SpriteText and SpriteIcon are copied from their
+  font page into a 2048² atlas, `PADDING` = 24 apart, with 12 pixels around each filled with the edge pixel's colour at alpha 0, so
+  neither filtering nor mipmaps mix a glyph with its neighbours or with black. The client composes the padding on the CPU; here a shader
+  draws the glyph and its padding into the atlas (`ATLAS_BLIT_FS`), because the page is only available as an image.
+- **Frame buffers** (`BufferedDrawNode.cs`, `BufferedContainer.DrawNode.cs`): size is the screen-space rectangle × `FrameBufferScale` ×
+  `pixelRatio`; blur is the client's `sh_Blur.fs`; a cached buffer is redrawn when `updateVersion` changes. `CanBeFlattened` includes
+  `hasCustomDrawNode` (the class overrides `draw`): without it a buffered container's children were drawn straight to the screen.
+- **Underlays (web only).** `assets.ppy.sh` and `a.ppy.sh` send no CORS headers, so their images can be shown by the page but never
+  uploaded as textures. `Texture.fromUrl` asks with CORS once per origin; a refused image becomes a texture without `image`. Its sprite
+  places an `<img>` behind the canvas and draws its quad as a hole (destination × (1 − alpha), colour and coverage alike), so the image
+  shows exactly where and as strongly as the sprite would have covered, and everything drawn later blends over it. Limits: the image's own
+  transparency is ignored; a tint is reduced to its brightness (a second, alpha-only pass makes the hole shallower); inside a
+  `BufferedContainer` the sprite leaves only its coverage, the container draws the buffer as the hole and the image is blurred by CSS, so
+  other content of that buffer is lost. Each image is clipped to the scissor in force and stacked in draw order.
+- **Canvas drawables.** A `CanvasDrawable` under the renderer is its 2D canvas uploaded as a (premultiplied) texture whenever it is
+  redrawn. That is acceptable for something drawn once. Anything animated must implement `drawWithRenderer` and draw quads as its client
+  draw node does: `LogoVisualisation` (bars, with the client's inflation), `TrianglesV2` (`sh_TriangleBorder.fs`), `ParticleSpewer`.
+  The visualisation's canvas covered the logo plus 600 units on each side; uploading it every frame was the lag and the blocky ring
+  around the logo reported on 2026-11-13 (un-premultiplying its faint colours lost most of their bits).
 - **Sprite edges**: without `EdgeSmoothness` a sprite outside any masking container has hard edges, as in the client. The DOM renderer
   anti-aliases them, which is its deviation, not the renderer's.
 - **DOM elements are lazy.** The element walk (`validateElementSubTree`) creates a drawable's element and inserts its children; a
   drawable under a `GLContainer` is never walked and never has one. `CanvasDrawable`'s Canvas 2D hook is `drawCanvas`.
-- Not ported yet: SpriteText and SpriteIcon drawing (needs a padded glyph atlas like the client's `TextureAtlas`), `Path`, frame buffers
-  (`BufferedContainer`), `CircularProgress`, `Triangles`, depth and stencil, wrap modes other than through the shader uniforms.
+- Not ported yet: `Path`; `Triangles` (v1), `GhostIcon`, the intro's `OutlineTriangle` and the fail/retry graph are still canvases;
+  `CircularProgress` draws its whole quad (the client triangulates the ring to save fill rate, same pixels); `GrayscaleStrength`;
+  depth and stencil; batching across masking changes (masking data per vertex instead of per batch) and sprites in the atlas.
 
 Verification: `tests/visual/gl-scene.html?gl=0` (DOM) against `?gl=1` (WebGL2) with `scripts/pixeldiff.mjs`. They differ by 1.5% of
 pixels at threshold 12, all on one-pixel edges: the DOM anti-aliases unmasked edges and approximates edge effects with sampled gradients.
+`&scene=2` covers text, a blurred buffered container, CircularProgress and underlays (plain, masked, tinted, translucent, under other
+content, rotated, blurred in a buffer). A renderer-internal change must leave both scenes pixel-identical (it did for the command list).
+
+## 15. Per-frame cost (web only)
+
+Measured on song select and the beatmap listing (2026-11-13, cloud Chromium; `scripts/perf.mjs`, method and numbers in
+`docs/GAMEPLAY-PLAN.md` §7.3). The scene graph has about 240 drawable classes, so any property or method of "a drawable" is a megamorphic
+lookup for V8: a getter or method call costs about 50 ns, a plain field read about 5 ns. The client's per-frame passes made 30 to 40 such
+calls per drawable. What the port does about it, all in `Drawable.ts` and `CompositeDrawable.ts`:
+
+- **`Drawable.overrides`**: a bit per member the per-frame passes use (`O_UPDATE`, `O_IS_PRESENT`, `O_SHOULD_BE_ALIVE`, ...), computed once
+  per class from its prototype chain down to `Drawable` or `CompositeDrawable` (`registerBaseClass`). A class that overrides a member gets
+  the virtual call; every other drawable gets the member's body inline, reading fields.
+- **Static passes**: `updateSubTreeOf`, `updateSubTreeOfComposite` (with the child life check inline: an alive child with an unbounded
+  lifetime is skipped without a call), `updateSubTreeMaskingOf` (the parent hands its `ChildMaskingBounds` down), `addFromComposite`,
+  `invalidateOf`, and the input queue walks (a child that requests no input in its subtree is skipped). They are the client's methods
+  statement for statement; the instance methods call them, so overriding and `super` calls work as before.
+- **Local DrawInfo**: `computeDrawInfo` keeps the drawable's own transform and multiplies it with the parent's, instead of re-reading
+  position, anchor, origin and scale through getters every time an ancestor moves (a scroll invalidates every drawable below it on every
+  frame). The kept transform is dropped by any invalidation that can change it (`invalidateOf`), by a change of the parent's child space
+  (`CompositeDrawable.childGeometryVersion`), and is never kept for classes that override one of its inputs (`O_LOCAL_TRANSFORM`).
+  `__osu.verifyLocalDrawInfo()` checks every reuse against a fresh computation; run it over the states you touched (0 differences on the
+  main menu, song select and the beatmap listing with scrolling, resizing and screen changes).
+- When adding to these passes: no getter chains, no allocation per drawable, and a new virtual member needs a flag.
+
+Still per frame and not yet reduced: one megamorphic `draw` call per drawn drawable, `Vector2`/`Quad` allocation when a DrawInfo is
+recomputed, and the masking pass's field reads over large objects (a drawable has about 110 fields).
 
