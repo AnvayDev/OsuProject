@@ -501,19 +501,17 @@ export class BufferedContainer<T extends Drawable = Drawable> extends Container<
     target.bind();
 
     const radians = blurRotation * Math.PI / 180;
-    const shader = renderer.loadShader('Blur', BLUR_FS);
-    const gl = renderer.gl;
 
-    renderer.bindShader(shader);
-    gl.uniform2f(shader.getUniformLocation('g_TexSize'), current.width, current.height);
-    gl.uniform1i(shader.getUniformLocation('g_Radius'), kernelRadius);
-    gl.uniform1f(shader.getUniformLocation('g_Sigma'), sigma);
-    gl.uniform2f(shader.getUniformLocation('g_BlurDirection'), Math.cos(radians), Math.sin(radians));
+    renderer.bindShader(renderer.loadShader('Blur', BLUR_FS));
+    renderer.setShaderUniforms([
+      { name: 'g_TexSize', x: current.width, y: current.height },
+      { name: 'g_Radius', x: kernelRadius, integer: true },
+      { name: 'g_Sigma', x: sigma },
+      { name: 'g_BlurDirection', x: Math.cos(radians), y: Math.sin(radians) },
+    ]);
 
     renderer.drawFrameBuffer(current, Quad.fromRectangle(new RectangleF(0, 0, current.width, current.height)), white);
 
-    // (the uniforms belong to this draw)
-    renderer.flushCurrentBatch();
     renderer.bindShader(renderer.textureShader);
 
     target.unbind();

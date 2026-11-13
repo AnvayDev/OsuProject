@@ -60,18 +60,14 @@ export class CircularProgress extends Sprite {
   // (the client triangulates the ring to save fill rate when InnerRadius <= 0.95; the pixels are the shader's either way, so the quad is drawn)
 
   protected override bindTextureShader(renderer: Renderer): void {
-    const shader = renderer.loadShader('CircularProgress', CIRCULAR_PROGRESS_FS);
-    const gl = renderer.gl;
-
-    renderer.bindShader(shader);
-    // (the uniforms belong to this sprite's quad)
-    renderer.flushCurrentBatch();
-
-    gl.uniform1f(shader.getUniformLocation('innerRadius'), this._innerRadius);
-    gl.uniform1f(shader.getUniformLocation('progress'), Math.abs(this._progress));
-    // smoothstep looks too sharp with 1px, let's give it a bit more
-    gl.uniform1f(shader.getUniformLocation('texelSize'), 1.5 / (this.screenSpaceDrawQuad.width * renderer.pixelRatio));
-    gl.uniform1i(shader.getUniformLocation('roundedCaps'), 0);
+    renderer.bindShader(renderer.loadShader('CircularProgress', CIRCULAR_PROGRESS_FS));
+    renderer.setShaderUniforms([
+      { name: 'innerRadius', x: this._innerRadius },
+      { name: 'progress', x: Math.abs(this._progress) },
+      // smoothstep looks too sharp with 1px, let's give it a bit more
+      { name: 'texelSize', x: 1.5 / (this.screenSpaceDrawQuad.width * renderer.pixelRatio) },
+      { name: 'roundedCaps', x: 0, integer: true },
+    ]);
   }
 
   override draw(renderer: Renderer): void {
@@ -81,7 +77,6 @@ export class CircularProgress extends Sprite {
 
     super.draw(renderer);
 
-    renderer.flushCurrentBatch();
     renderer.bindShader(renderer.textureShader);
   }
 

@@ -9,7 +9,9 @@
 //  - The backbuffer is a transparent canvas composited over the DOM (premultiplied alpha), so on the backbuffer the alpha channel uses
 //    "over" factors instead of the client's (One, One): see setBlendImplementation.
 //  - The front-to-back opaque interior pass (an overdraw optimisation that doesn't change the image) is not ported.
-//  - Vertices of a frame go into one streaming buffer; each flush uploads and draws only its own range.
+//  - Drawing is recorded and executed at the end of the frame (see "Command list"): the frame's vertices and the uniform blocks of all its
+//    batches are uploaded once each, then the batches are drawn. Updating a buffer that draws issued earlier in the frame still use makes
+//    a WebGL implementation copy or wait (ANGLE on Metal keeps a shadow copy per buffer), and a frame here has hundreds of batches.
 
 import { Matrix3 } from '../../layout/Matrix3';
 import { type Quad, RectangleF } from '../../layout/Primitives';
@@ -201,9 +203,53 @@ export class FrameBuffer {
 
   dispose(): void {
     const gl = this.renderer.gl;
-    gl.deleteFramebuffer(this.framebuffer);
+    this.renderer.deleteWhenExecuted(this.framebuffer);
     this.renderer.deleteNativeTexture(this.native);
   }
+}
+
+/** A uniform of a fragment shader: a float, a vec2 (with y) or an int/bool (integer). */
+export interface ShaderUniform {
+  readonly name: string;
+  readonly x: number;
+  readonly y?: number;
+  readonly integer?: boolean;
+}
+
+/** A recorded draw of a range of the frame's quads, or a clear, with all the state it needs (see Renderer, Command list). */
+class Command {
+  clear = false;
+  clearR = 0;
+  clearG = 0;
+  clearB = 0;
+  clearA = 0;
+
+  quadStart = 0;
+  quadCount = 0;
+
+  framebuffer: WebGLFramebuffer | null = null;
+  viewportX = 0;
+  viewportY = 0;
+  viewportWidth = 0;
+  viewportHeight = 0;
+  scissorEnabled = false;
+  scissorX = 0;
+  scissorY = 0;
+  scissorWidth = 0;
+  scissorHeight = 0;
+  blendSource = 0;
+  blendDestination = 0;
+  blendSourceAlpha = 0;
+  blendDestinationAlpha = 0;
+  colorMask = 15;
+
+  shader: Shader | null = null;
+  uniforms: readonly ShaderUniform[] | null = null;
+  texture: NativeTexture | null = null;
+  wrapS = WrapMode.None;
+  wrapT = WrapMode.None;
+  /** The batch's g_GlobalUniforms: its index in the frame's uniform buffer. */
+  uniformSlot = 0;
 }
 
 /** Statistics of the last completed frame. */
@@ -236,7 +282,8 @@ export class Renderer {
       premultipliedAlpha: true,
       // Edges are anti-aliased by the shaders (blend ranges), as in the client, which doesn't use MSAA.
       antialias: false,
-      depth: true,
+      // (no depth buffer: the front-to-back pass that would use one is not ported, see the note at the top of the file)
+      depth: false,
       stencil: false,
       preserveDrawingBuffer: false,
       powerPreference: 'high-performance',
@@ -259,9 +306,12 @@ export class Renderer {
     this.textureShader = this.createShader('Texture', TEXTURE_2D_VS, TEXTURE_FS, TEXTURED_VERTEX_2D_ATTRIBUTES);
 
     this.uniformBuffer = gl.createBuffer()!;
-    gl.bindBuffer(gl.UNIFORM_BUFFER, this.uniformBuffer);
-    gl.bufferData(gl.UNIFORM_BUFFER, GLOBAL_UNIFORMS_SIZE, gl.DYNAMIC_DRAW);
-    gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, this.uniformBuffer);
+
+    // Each batch's g_GlobalUniforms is a range of one buffer; ranges must start at a multiple of the implementation's alignment.
+    const alignment = gl.getParameter(gl.UNIFORM_BUFFER_OFFSET_ALIGNMENT) as number;
+    this.uniformStride = Math.ceil(GLOBAL_UNIFORMS_SIZE / alignment) * alignment / 4;
+    this.uniformStaging = new Float32Array(this.uniformStride * 256);
+    this.uniformStagingInts = new Int32Array(this.uniformStaging.buffer);
 
     // Quad batch: one vertex buffer for the frame's quads and a static index buffer (GLQuadBuffer's indices: 0 1 3, 2 3 1 per quad).
     this.vertexArray = gl.createVertexArray()!;
@@ -342,13 +392,13 @@ export class Renderer {
     this.scissorStateStack.length = 0;
 
     this.quadStart = this.quadCount = 0;
+    this.commandCount = 0;
+    this.uniformSlots = 0;
+    this.shaderUniforms = null;
+    this.colorMask = 15;
 
-    // Orphan last frame's vertices, so this frame's uploads never wait for draws still reading them.
-    gl.bindVertexArray(this.vertexArray);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, this.vertices.byteLength, gl.STREAM_DRAW);
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    this.frameBufferStack.length = 0;
+    this.framebuffer = null;
     this.usingBackbuffer = true;
 
     this.scissor = null;
@@ -387,6 +437,7 @@ export class Renderer {
 
   finishFrame(): void {
     this.flushCurrentBatch();
+    this.execute();
     this.finishUnderlays();
 
     const fs = this.frameStatistics;
@@ -399,15 +450,15 @@ export class Renderer {
   }
 
   clear(r: number, g: number, b: number, a: number): void {
-    const gl = this.gl;
+    this.flushCurrentBatch();
 
-    this.pushScissorState(false);
-
-    gl.clearColor(r, g, b, a);
-    gl.clearDepth(1);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-    this.popScissorState();
+    // (the whole target is cleared: ClearInfo is applied with the scissor test off)
+    const command = this.nextCommand();
+    command.clear = true;
+    command.clearR = r;
+    command.clearG = g;
+    command.clearB = b;
+    command.clearA = a;
   }
 
   // #endregion
@@ -427,8 +478,23 @@ export class Renderer {
     this.currentBlending = blending;
   }
 
+  // The blend factors and colour write mask of the batch being recorded.
+  private blendSource: number = WebGL2RenderingContext.SRC_ALPHA;
+  private blendDestination: number = WebGL2RenderingContext.ONE_MINUS_SRC_ALPHA;
+  private blendSourceAlpha: number = WebGL2RenderingContext.ONE;
+  private blendDestinationAlpha: number = WebGL2RenderingContext.ONE_MINUS_SRC_ALPHA;
+  /** Bits: 1 red, 2 green, 4 blue, 8 alpha. */
+  private colorMask = 15;
+
+  private setBlendFactors(source: number, destination: number, sourceAlpha: number, destinationAlpha: number): void {
+    this.blendSource = source;
+    this.blendDestination = destination;
+    this.blendSourceAlpha = sourceAlpha;
+    this.blendDestinationAlpha = destinationAlpha;
+  }
+
   private setBlendImplementation(blending: BlendingParameters): void {
-    const gl = this.gl;
+    const gl = WebGL2RenderingContext;
 
     // The client's presets (BlendingParameters.cs) all write alpha as (One, One): its backbuffer is opaque, so the result's alpha never
     // shows. This backbuffer is composited over the page as a premultiplied layer, so its alpha has to be the true coverage: "over" for
@@ -437,16 +503,16 @@ export class Renderer {
 
     switch (blending) {
       case BlendingParameters.None:
-        gl.blendFuncSeparate(gl.ONE, gl.ZERO, gl.ONE, gl.ZERO);
+        this.setBlendFactors(gl.ONE, gl.ZERO, gl.ONE, gl.ZERO);
         break;
 
       case BlendingParameters.Additive:
-        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE, backbuffer ? gl.ZERO : gl.ONE, gl.ONE);
+        this.setBlendFactors(gl.SRC_ALPHA, gl.ONE, backbuffer ? gl.ZERO : gl.ONE, gl.ONE);
         break;
 
       // (Inherit resolves to Mixture at the root: DrawColourInfo never carries Inherit.)
       default:
-        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, backbuffer ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
+        this.setBlendFactors(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, backbuffer ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
         break;
     }
   }
@@ -482,7 +548,7 @@ export class Renderer {
     if (this.viewport !== null && this.viewport.equals(viewport))
       return;
 
-    this.gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+    this.flushCurrentBatch();
     this.viewport = viewport;
   }
 
@@ -494,6 +560,8 @@ export class Renderer {
   private readonly scissorStateStack: boolean[] = [];
   private scissor: RectangleF | null = null;
   private scissorState: boolean | null = null;
+  /** The scissor box's y in GL's orientation (see setScissor). */
+  private scissorY = 0;
 
   /** Applies a new scissor rectangle, in viewport (device) pixels with the origin at the top-left. */
   pushScissor(scissor: RectangleF): void {
@@ -530,8 +598,7 @@ export class Renderer {
 
     // GL's scissor box has its origin at the bottom-left. On the backbuffer that means flipping the top-left based rectangle; in a frame
     // buffer the image itself is drawn flipped (sh_Vertex_Output.h), so the rectangle is used as it is.
-    const y = this.usingBackbuffer ? this.viewport!.height - scissor.bottom : scissor.y;
-    this.gl.scissor(scissor.x, y, scissor.width, scissor.height);
+    this.scissorY = this.usingBackbuffer ? this.viewport!.height - scissor.bottom : scissor.y;
 
     this.scissor = scissor;
   }
@@ -541,11 +608,6 @@ export class Renderer {
       return;
 
     this.flushCurrentBatch();
-
-    if (enabled)
-      this.gl.enable(this.gl.SCISSOR_TEST);
-    else
-      this.gl.disable(this.gl.SCISSOR_TEST);
 
     this.scissorState = enabled;
   }
@@ -663,7 +725,6 @@ export class Renderer {
     } else
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 
-    this.boundTexture = null;
 
     const size = sourceSize(source);
     return { texture, wrapS: WrapMode.ClampToEdge, wrapT: WrapMode.ClampToEdge, width: size.width, height: size.height, mipmapsDirty: false };
@@ -691,7 +752,6 @@ export class Renderer {
     } else
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, nearest ? gl.NEAREST : gl.LINEAR);
 
-    this.boundTexture = null;
 
     return { texture, wrapS: WrapMode.ClampToEdge, wrapT: WrapMode.ClampToEdge, width, height, mipmapsDirty: false };
   }
@@ -704,7 +764,6 @@ export class Renderer {
 
     gl.bindTexture(gl.TEXTURE_2D, native.texture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    this.boundTexture = null;
 
     native.width = width;
     native.height = height;
@@ -713,7 +772,7 @@ export class Renderer {
   /** @internal */
   deleteNativeTexture(native: NativeTexture): void {
     this.flushCurrentBatch();
-    this.gl.deleteTexture(native.texture);
+    this.deleteWhenExecuted(native.texture);
 
     if (this.boundTexture === native)
       this.boundTexture = null;
@@ -746,7 +805,6 @@ export class Renderer {
 
       gl.bindTexture(gl.TEXTURE_2D, native.texture);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
-      this.boundTexture = null;
 
       native.width = size.width;
       native.height = size.height;
@@ -790,33 +848,15 @@ export class Renderer {
   }
 
   bindNativeTexture(native: NativeTexture, wrapModeS = WrapMode.None, wrapModeT = WrapMode.None): void {
-    if (this.boundTexture === native && this.currentWrapModeS === wrapModeS && this.currentWrapModeT === wrapModeT && !native.mipmapsDirty)
+    if (this.boundTexture === native && this.currentWrapModeS === wrapModeS && this.currentWrapModeT === wrapModeT)
       return;
 
     this.flushCurrentBatch();
 
-    const gl = this.gl;
-
+    // (the texture is bound, its wrap modes set and its mipmaps regenerated when the batch is executed)
     if (this.boundTexture !== native) {
-      gl.bindTexture(gl.TEXTURE_2D, native.texture);
       this.boundTexture = native;
       this.frameStatistics.textureBinds++;
-    }
-
-    if (native.mipmapsDirty) {
-      gl.generateMipmap(gl.TEXTURE_2D);
-      native.mipmapsDirty = false;
-    }
-
-    // (GLTexture.Bind: the wrap mode of the native texture follows the one it is bound with; None is clamped by the shader's texRect.)
-    if (native.wrapS !== wrapModeS) {
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapModeS === WrapMode.Repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE);
-      native.wrapS = wrapModeS;
-    }
-
-    if (native.wrapT !== wrapModeT) {
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapModeT === WrapMode.Repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE);
-      native.wrapT = wrapModeT;
     }
 
     if (this.currentWrapModeS !== wrapModeS || this.currentWrapModeT !== wrapModeT) {
@@ -831,7 +871,7 @@ export class Renderer {
     const native = this.nativeTextures.get(key);
     if (native === undefined) return;
 
-    this.gl.deleteTexture(native.texture);
+    this.deleteWhenExecuted(native.texture);
     this.nativeTextures.delete(key);
 
     if (this.boundTexture === native)
@@ -850,8 +890,19 @@ export class Renderer {
 
     this.flushCurrentBatch();
 
-    this.gl.useProgram(shader.program);
     this.shader = shader;
+    this.shaderUniforms = null;
+  }
+
+  private shaderUniforms: readonly ShaderUniform[] | null = null;
+
+  /**
+   * Sets uniforms of the bound shader for the quads drawn from here until the shader is bound again or changed (the uniform block a
+   * client draw node binds with its shader, e.g. m_BlurParameters).
+   */
+  setShaderUniforms(uniforms: readonly ShaderUniform[]): void {
+    this.flushCurrentBatch();
+    this.shaderUniforms = uniforms;
   }
 
   // #endregion
@@ -865,8 +916,23 @@ export class Renderer {
 
   private globalUniformsChanged = true;
 
-  /** Writes g_GlobalUniforms (std140 offsets in 4-byte words; see shaders.ts). */
-  private uploadGlobalUniforms(): void {
+  /** Words per batch in uniformStaging (GLOBAL_UNIFORMS_SIZE rounded up to the implementation's offset alignment). */
+  private readonly uniformStride: number;
+  private uniformStaging: Float32Array<ArrayBuffer>;
+  private uniformStagingInts: Int32Array<ArrayBuffer>;
+  private uniformSlots = 0;
+
+  /** Writes g_GlobalUniforms for the batch being recorded into the next slot of the staging array (std140 offsets in 4-byte words; see shaders.ts). */
+  private stageGlobalUniforms(): void {
+    const slot = this.uniformSlots++;
+
+    if ((slot + 1) * this.uniformStride > this.uniformStaging.length) {
+      const grown = new Float32Array(this.uniformStaging.length * 2);
+      grown.set(this.uniformStaging);
+      this.uniformStaging = grown;
+      this.uniformStagingInts = new Int32Array(grown.buffer);
+    }
+
     const f = this.uniformFloats;
     const i = this.uniformInts;
     const m = this.currentMaskingInfo!;
@@ -924,9 +990,7 @@ export class Renderer {
     i[66] = this.currentWrapModeS;
     i[67] = this.currentWrapModeT;
 
-    const gl = this.gl;
-    gl.bindBuffer(gl.UNIFORM_BUFFER, this.uniformBuffer);
-    gl.bufferSubData(gl.UNIFORM_BUFFER, 0, this.uniformData);
+    this.uniformStaging.set(f, slot * this.uniformStride);
 
     this.globalUniformsChanged = false;
   }
@@ -943,36 +1007,247 @@ export class Renderer {
   private quadStart = 0;
   private quadCount = 0;
 
-  /** Draws the quads added since the last flush with the current state. */
+  /** Ends the batch: the quads added since the last flush become a draw command with the current state. */
   flushCurrentBatch(): void {
     const count = this.quadCount - this.quadStart;
 
     if (count === 0)
       return;
 
-    const gl = this.gl;
-
     if (this.shader === null)
       throw new Error('No shader bound.');
 
     if (this.globalUniformsChanged)
-      this.uploadGlobalUniforms();
+      this.stageGlobalUniforms();
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
-    gl.bufferSubData(gl.ARRAY_BUFFER, this.quadStart * QUAD_FLOATS * 4, this.vertices, this.quadStart * QUAD_FLOATS, count * QUAD_FLOATS);
-    gl.drawElements(gl.TRIANGLES, count * 6, gl.UNSIGNED_SHORT, this.quadStart * 6 * 2);
+    const command = this.nextCommand();
+    command.clear = false;
+    command.quadStart = this.quadStart;
+    command.quadCount = count;
+    command.shader = this.shader;
+    command.uniforms = this.shaderUniforms;
+    command.texture = this.boundTexture;
+    command.wrapS = this.currentWrapModeS;
+    command.wrapT = this.currentWrapModeT;
+    command.uniformSlot = this.uniformSlots - 1;
 
     this.frameStatistics.drawCalls++;
     this.frameStatistics.quads += count;
 
     this.quadStart = this.quadCount;
+  }
 
-    // A full buffer starts over; orphaning keeps the draws above valid.
-    if (this.quadCount === MAX_QUADS) {
-      gl.bufferData(gl.ARRAY_BUFFER, this.vertices.byteLength, gl.STREAM_DRAW);
-      this.quadStart = this.quadCount = 0;
+  // #endregion
+
+  // #region Command list
+  // Not in the client, whose renderer issues each batch as it is flushed. See the note at the top of the file.
+
+  private commands: Command[] = [];
+  private commandCount = 0;
+
+  /** The next command, with the target, viewport, scissor and blending of the batch being recorded. */
+  private nextCommand(): Command {
+    let command = this.commands[this.commandCount];
+
+    if (command === undefined)
+      this.commands[this.commandCount] = command = new Command();
+
+    this.commandCount++;
+
+    const viewport = this.viewport!;
+    const scissor = this.scissor;
+
+    command.framebuffer = this.framebuffer;
+    command.viewportX = viewport.x;
+    command.viewportY = viewport.y;
+    command.viewportWidth = viewport.width;
+    command.viewportHeight = viewport.height;
+    command.scissorEnabled = this.scissorState === true && scissor !== null;
+
+    if (scissor !== null) {
+      command.scissorX = scissor.x;
+      command.scissorY = this.scissorY;
+      command.scissorWidth = scissor.width;
+      command.scissorHeight = scissor.height;
+    }
+
+    command.blendSource = this.blendSource;
+    command.blendDestination = this.blendDestination;
+    command.blendSourceAlpha = this.blendSourceAlpha;
+    command.blendDestinationAlpha = this.blendDestinationAlpha;
+    command.colorMask = this.colorMask;
+
+    return command;
+  }
+
+  private readonly deletions: (WebGLTexture | WebGLFramebuffer)[] = [];
+
+  /** @internal Deletes a texture or frame buffer once the recorded commands (which may still draw with it) have been executed. */
+  deleteWhenExecuted(object: WebGLTexture | WebGLFramebuffer): void {
+    this.deletions.push(object);
+  }
+
+  /** The buffer is full: executes what has been recorded and starts over. */
+  private executePending(): void {
+    this.flushCurrentBatch();
+    this.execute();
+
+    // (the slot of the batch being recorded is gone with the rest)
+    this.globalUniformsChanged = true;
+  }
+
+  /** Uploads the recorded vertices and uniform blocks, then issues the recorded commands. */
+  private execute(): void {
+    const gl = this.gl;
+    const count = this.commandCount;
+
+    if (count > 0) {
+      gl.bindVertexArray(this.vertexArray);
+
+      // (new storage each time, so nothing waits for the draws of the previous upload)
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, this.vertices.subarray(0, this.quadCount * QUAD_FLOATS), gl.STREAM_DRAW);
+
+      if (this.uniformSlots > 0) {
+        gl.bindBuffer(gl.UNIFORM_BUFFER, this.uniformBuffer);
+        gl.bufferData(gl.UNIFORM_BUFFER, this.uniformStaging.subarray(0, this.uniformSlots * this.uniformStride), gl.STREAM_DRAW);
+      }
+
+      gl.enable(gl.BLEND);
+      gl.activeTexture(gl.TEXTURE0);
+
+      // What has been applied so far. Other code (texture uploads, the atlas) changes GL state between executions, so nothing is assumed.
+      let framebuffer: WebGLFramebuffer | null | undefined;
+      let viewportX = NaN, viewportY = NaN, viewportWidth = NaN, viewportHeight = NaN;
+      let scissorEnabled: boolean | undefined;
+      let scissorX = NaN, scissorY = NaN, scissorWidth = NaN, scissorHeight = NaN;
+      let blendSource = -1, blendDestination = -1, blendSourceAlpha = -1, blendDestinationAlpha = -1;
+      let colorMask = -1;
+      let shader: Shader | null = null;
+      let uniforms: readonly ShaderUniform[] | null = null;
+      let texture: NativeTexture | null = null;
+      let uniformSlot = -1;
+
+      for (let i = 0; i < count; i++) {
+        const c = this.commands[i];
+
+        if (c.framebuffer !== framebuffer)
+          gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer = c.framebuffer);
+
+        if (c.viewportX !== viewportX || c.viewportY !== viewportY || c.viewportWidth !== viewportWidth || c.viewportHeight !== viewportHeight)
+          gl.viewport(viewportX = c.viewportX, viewportY = c.viewportY, viewportWidth = c.viewportWidth, viewportHeight = c.viewportHeight);
+
+        if (c.colorMask !== colorMask) {
+          colorMask = c.colorMask;
+          gl.colorMask((colorMask & 1) !== 0, (colorMask & 2) !== 0, (colorMask & 4) !== 0, (colorMask & 8) !== 0);
+        }
+
+        if (c.clear) {
+          if (scissorEnabled !== false) {
+            gl.disable(gl.SCISSOR_TEST);
+            scissorEnabled = false;
+          }
+
+          gl.clearColor(c.clearR, c.clearG, c.clearB, c.clearA);
+          gl.clear(gl.COLOR_BUFFER_BIT);
+          continue;
+        }
+
+        if (c.scissorEnabled !== scissorEnabled) {
+          if (c.scissorEnabled) gl.enable(gl.SCISSOR_TEST);
+          else gl.disable(gl.SCISSOR_TEST);
+
+          scissorEnabled = c.scissorEnabled;
+        }
+
+        if (c.scissorEnabled && (c.scissorX !== scissorX || c.scissorY !== scissorY || c.scissorWidth !== scissorWidth || c.scissorHeight !== scissorHeight))
+          gl.scissor(scissorX = c.scissorX, scissorY = c.scissorY, scissorWidth = c.scissorWidth, scissorHeight = c.scissorHeight);
+
+        if (c.blendSource !== blendSource || c.blendDestination !== blendDestination || c.blendSourceAlpha !== blendSourceAlpha || c.blendDestinationAlpha !== blendDestinationAlpha) {
+          gl.blendFuncSeparate(
+            blendSource = c.blendSource, blendDestination = c.blendDestination,
+            blendSourceAlpha = c.blendSourceAlpha, blendDestinationAlpha = c.blendDestinationAlpha);
+        }
+
+        if (c.shader !== shader) {
+          gl.useProgram(c.shader!.program);
+          shader = c.shader;
+          uniforms = null;
+        }
+
+        if (c.uniforms !== null && c.uniforms !== uniforms) {
+          uniforms = c.uniforms;
+
+          for (const u of uniforms) {
+            const location = shader!.getUniformLocation(u.name);
+
+            if (u.integer === true) gl.uniform1i(location, u.x);
+            else if (u.y !== undefined) gl.uniform2f(location, u.x, u.y);
+            else gl.uniform1f(location, u.x);
+          }
+        }
+
+        const native = c.texture!;
+
+        if (native !== texture) {
+          gl.bindTexture(gl.TEXTURE_2D, native.texture);
+          texture = native;
+        }
+
+        if (native.mipmapsDirty) {
+          gl.generateMipmap(gl.TEXTURE_2D);
+          native.mipmapsDirty = false;
+        }
+
+        // (GLTexture.Bind: the wrap mode of the native texture follows the one it is bound with; None is clamped by the shader's texRect.)
+        if (native.wrapS !== c.wrapS) {
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, c.wrapS === WrapMode.Repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE);
+          native.wrapS = c.wrapS;
+        }
+
+        if (native.wrapT !== c.wrapT) {
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, c.wrapT === WrapMode.Repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE);
+          native.wrapT = c.wrapT;
+        }
+
+        if (c.uniformSlot !== uniformSlot) {
+          uniformSlot = c.uniformSlot;
+          gl.bindBufferRange(gl.UNIFORM_BUFFER, 0, this.uniformBuffer, uniformSlot * this.uniformStride * 4, GLOBAL_UNIFORMS_SIZE);
+        }
+
+        gl.drawElements(gl.TRIANGLES, c.quadCount * 6, gl.UNSIGNED_SHORT, c.quadStart * 6 * 2);
+      }
+
+      if (colorMask !== 15)
+        gl.colorMask(true, true, true, true);
+
+      // (so that a command's texture, shader or uniforms can be collected)
+      for (let i = 0; i < count; i++) {
+        const c = this.commands[i];
+        c.shader = null;
+        c.uniforms = null;
+        c.texture = null;
+        c.framebuffer = null;
+      }
+    }
+
+    this.commandCount = 0;
+    this.uniformSlots = 0;
+    this.quadStart = this.quadCount = 0;
+
+    if (this.deletions.length > 0) {
+      for (const object of this.deletions) {
+        if (object instanceof WebGLTexture) gl.deleteTexture(object);
+        else gl.deleteFramebuffer(object);
+      }
+
+      this.deletions.length = 0;
     }
   }
+
+  // #endregion
+
+  // #region Quads
 
   /**
    * RendererExtensions.DrawQuad: adds a textured quad to the batch. The texture must be bound (bindTexture) and `texRect` and `coordRect`
@@ -985,7 +1260,7 @@ export class Renderer {
     blendRangeX: number, blendRangeY: number,
   ): void {
     if (this.quadCount === MAX_QUADS)
-      this.flushCurrentBatch();
+      this.executePending();
 
     const v = this.vertices;
     let o = this.quadCount++ * QUAD_FLOATS;
@@ -1089,7 +1364,7 @@ export class Renderer {
     blendRangeX: number, blendRangeY: number,
   ): void {
     if (this.quadCount === MAX_QUADS)
-      this.flushCurrentBatch();
+      this.executePending();
 
     const v = this.vertices;
     let o = this.quadCount++ * QUAD_FLOATS;
@@ -1107,14 +1382,14 @@ export class Renderer {
    * again loses most of their bits.
    */
   drawPremultiplied(draw: () => void): void {
-    const gl = this.gl;
+    const gl = WebGL2RenderingContext;
 
     this.flushCurrentBatch();
 
     if (this.currentBlending === BlendingParameters.Additive)
-      gl.blendFuncSeparate(gl.ONE, gl.ONE, this.usingBackbuffer ? gl.ZERO : gl.ONE, gl.ONE);
+      this.setBlendFactors(gl.ONE, gl.ONE, this.usingBackbuffer ? gl.ZERO : gl.ONE, gl.ONE);
     else
-      gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, this.usingBackbuffer ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
+      this.setBlendFactors(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, this.usingBackbuffer ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
 
     draw();
     this.flushCurrentBatch();
@@ -1134,7 +1409,7 @@ export class Renderer {
     this.bindNativeTexture(region.native);
 
     if (this.quadCount === MAX_QUADS)
-      this.flushCurrentBatch();
+      this.executePending();
 
     const left = region.left, top = region.top, right = region.right, bottom = region.bottom;
     const inflationX = inflationPercentageX * (right - left);
@@ -1293,25 +1568,25 @@ export class Renderer {
 
   /** Draws `drawHole` as a hole in the canvas for an underlay image shown at the brightness `tint`. */
   punchHole(colour: ColourInfo, tint: number, drawHole: (colour: ColourInfo) => void): void {
-    const gl = this.gl;
+    const gl = WebGL2RenderingContext;
 
     this.flushCurrentBatch();
-    gl.blendFunc(gl.ZERO, gl.ONE_MINUS_SRC_ALPHA);
+    this.setBlendFactors(gl.ZERO, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE_MINUS_SRC_ALPHA);
 
     if (tint >= 1)
       drawHole(colour);
     else {
       // The image shows through by the canvas's alpha, so a darker image is a hole that is less deep than what it removes of the colour.
-      gl.colorMask(true, true, true, false);
+      this.colorMask = 7;
       drawHole(colour);
       this.flushCurrentBatch();
 
-      gl.colorMask(false, false, false, true);
+      this.colorMask = 8;
       drawHole(colour.multiplyAlpha(Math.max(tint, 0)));
     }
 
     this.flushCurrentBatch();
-    gl.colorMask(true, true, true, true);
+    this.colorMask = 15;
 
     if (this.currentBlending !== null)
       this.setBlendImplementation(this.currentBlending);
@@ -1346,7 +1621,6 @@ export class Renderer {
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, frameBuffer.framebuffer);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, frameBuffer.native.texture, 0);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.frameBufferStack.length > 0 ? this.frameBufferStack[this.frameBufferStack.length - 1].framebuffer : null);
   }
 
   /** Renderer.BindFrameBuffer */
@@ -1365,11 +1639,12 @@ export class Renderer {
     this.setFrameBuffer(this.frameBufferStack.length > 0 ? this.frameBufferStack[this.frameBufferStack.length - 1] : null);
   }
 
-  private setFrameBuffer(frameBuffer: FrameBuffer | null): void {
-    const gl = this.gl;
+  /** The target of the batch being recorded (null: the backbuffer). */
+  private framebuffer: WebGLFramebuffer | null = null;
 
+  private setFrameBuffer(frameBuffer: FrameBuffer | null): void {
     this.flushCurrentBatch();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, frameBuffer?.framebuffer ?? null);
+    this.framebuffer = frameBuffer?.framebuffer ?? null;
 
     this.usingBackbuffer = frameBuffer === null;
     this.globalUniformsChanged = true;
@@ -1452,22 +1727,11 @@ export class Renderer {
     gl.uniform2f(shader.getUniformLocation('u_Size'), width, height);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-    // Back to the state the batch expects.
+    // (this is drawn at once, ahead of the commands recorded so far, which is of no consequence: they use other rectangles of the atlas.
+    // The recorded commands set the GL state they need when they are executed.)
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, null, 0);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.frameBufferStack.length > 0 ? this.frameBufferStack[this.frameBufferStack.length - 1].framebuffer : null);
-    gl.enable(gl.BLEND);
-    gl.bindVertexArray(this.vertexArray);
+    gl.colorMask(true, true, true, true);
 
-    if (this.shader !== null)
-      gl.useProgram(this.shader.program);
-
-    if (this.viewport !== null)
-      gl.viewport(this.viewport.x, this.viewport.y, this.viewport.width, this.viewport.height);
-
-    if (this.scissorState === true)
-      gl.enable(gl.SCISSOR_TEST);
-
-    this.boundTexture = null;
     atlas.mipmapsDirty = true;
 
     return {

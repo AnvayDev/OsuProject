@@ -264,14 +264,8 @@ export class TrianglesV2 extends CanvasDrawable {
     // texelSize = 1.5f / triangleQuad.Height: the height of a triangle on screen, in pixels (pixelRatio per screen-space unit).
     const texelSize = 1.5 / (Math.hypot(triangleHeight * m.m21, triangleHeight * m.m22) * renderer.pixelRatio);
 
-    const shader = renderer.loadShader('TriangleBorder', triangle_border_fs);
-    const gl = renderer.gl;
-
-    renderer.bindShader(shader);
-    // (the uniforms belong to this drawable's quads)
-    renderer.flushCurrentBatch();
-    gl.uniform1f(shader.getUniformLocation('thickness'), this.thickness);
-    gl.uniform1f(shader.getUniformLocation('texelSize'), texelSize);
+    renderer.bindShader(renderer.loadShader('TriangleBorder', triangle_border_fs));
+    renderer.setShaderUniforms([{ name: 'thickness', x: this.thickness }, { name: 'texelSize', x: texelSize }]);
 
     renderer.bindNativeTexture(renderer.whiteRegion.native);
 
@@ -318,7 +312,6 @@ export class TrianglesV2 extends CanvasDrawable {
         0, 0, 1, 1, coordLeft, coordTop, coordLeft + width / relativeWidth, coordTop + height / relativeHeight, 0, 0);
     }
 
-    renderer.flushCurrentBatch();
     renderer.bindShader(renderer.textureShader);
 
     return true;

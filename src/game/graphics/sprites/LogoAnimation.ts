@@ -113,17 +113,12 @@ export class LogoAnimation extends Drawable {
     if (texture === null)
       return;
 
-    const shader = renderer.loadShader('LogoAnimation', logo_animation_fs);
-
-    renderer.bindShader(shader);
-    // (the uniform belongs to this quad)
-    renderer.flushCurrentBatch();
-    renderer.gl.uniform1f(shader.getUniformLocation('progress'), this._animationProgress);
+    renderer.bindShader(renderer.loadShader('LogoAnimation', logo_animation_fs));
+    renderer.setShaderUniforms([{ name: 'progress', x: this._animationProgress }]);
 
     if (renderer.bindTexture(texture))
       renderer.drawQuadUV(this.screenSpaceDrawQuad, this.drawColourInfo.colour, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0);
 
-    renderer.flushCurrentBatch();
     renderer.bindShader(renderer.textureShader);
   }
 
