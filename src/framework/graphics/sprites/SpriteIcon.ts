@@ -132,8 +132,11 @@ export class SpriteIcon extends Drawable {
 
     const page = decodedPage(texture.pageUrl);
 
-    if (page === null)
+    if (page === null) {
+      // (not loaded yet: asked for here, drawn once it is decoded)
+      void loadPage(texture.pageUrl);
       return;
+    }
 
     const region = renderer.atlasRegion(texture.pageUrl, page, texture.x, texture.y, texture.width, texture.height);
 

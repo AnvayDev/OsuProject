@@ -470,13 +470,14 @@ export class SpriteText extends Drawable {
         const page = decodedPage(texture.pageUrl);
 
         if (page === null) {
+          // (a page nobody loaded: a fallback font's, or after a font change. It is asked for here and looked up again on the next draw.)
+          void loadPage(texture.pageUrl);
           this.partRegions[i] = null;
           complete = false;
         } else
           this.partRegions[i] = renderer.atlasRegion(texture.pageUrl, page, texture.x, texture.y, texture.width, texture.height);
       }
 
-      // (a page that isn't decoded yet is looked up again on the next draw)
       this.partsCharactersVersion = complete ? this.charactersVersion : -1;
       this.partsRenderer = renderer;
     }
