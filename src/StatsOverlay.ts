@@ -3,6 +3,7 @@
 // and quads. Time spent by the GPU and the compositor is not visible to a page; a frame interval above the display's refresh interval is
 // how it shows. Click the readout to copy the numbers as JSON.
 
+import type { Game } from '@fw/Game';
 import type { Drawable } from '@fw/graphics/Drawable';
 import type { GLContainer } from '@fw/graphics/containers/GLContainer';
 import type { GameHost } from '@fw/platform/GameHost';
@@ -10,7 +11,25 @@ import type { GameHost } from '@fw/platform/GameHost';
 /** Frames per sample window. */
 const window_size = 240;
 
-export function installStatsOverlay(host: GameHost): void {
+/** The logo visualiser's bar amplitudes (0 to 1 of the full bar length): how many are showing, their median and their largest. */
+function visualiserAmplitudes(d: Drawable): { showing: number; median: number; max: number } | undefined {
+  const amplitudes = (d as unknown as { frequencyAmplitudes?: Float32Array }).frequencyAmplitudes;
+
+  if (amplitudes !== undefined) {
+    const bars = [...amplitudes.subarray(0, 200)].sort((a, b) => a - b);
+    const round = (v: number) => Math.round(v * 10000) / 10000;
+    return { showing: bars.filter(v => v >= 1 / 600).length, median: round(bars[100]), max: round(bars[199]) };
+  }
+
+  for (const child of (d as unknown as { internalChildren?: readonly Drawable[] }).internalChildren ?? []) {
+    const found = visualiserAmplitudes(child);
+    if (found !== undefined) return found;
+  }
+
+  return undefined;
+}
+
+export function installStatsOverlay(host: GameHost, game: Game): void {
   const element = document.createElement('pre');
   element.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:1000;margin:0;padding:6px 8px;font:11px/1.35 ui-monospace,Menlo,monospace;'
     + 'color:#fff;background:rgba(0,0,0,0.75);border-radius:4px;cursor:pointer;white-space:pre';
@@ -84,6 +103,9 @@ export function installStatsOverlay(host: GameHost): void {
         drawCalls: statistics?.drawCalls, quads: statistics?.quads,
         canvas: `${document.querySelector('canvas')?.width}x${document.querySelector('canvas')?.height}`, devicePixelRatio: window.devicePixelRatio,
         renderer: statistics !== undefined ? 'webgl' : 'dom',
+        // (the logo visualiser's spectrum depends on the rate audio is analysed at, which is the output device's)
+        audioSampleRate: (game as unknown as { audio?: { context?: { sampleRate?: number } } }).audio?.context?.sampleRate,
+        visualiserBars: root !== null ? visualiserAmplitudes(root) : undefined,
       };
 
       element.textContent = `${report.fps} fps   frame ${interval.mean} ms (p95 ${interval.p95}, max ${interval.max})\n`

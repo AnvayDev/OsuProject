@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bassFft512, peakLevel } from '@fw/audio/AmplitudeProcessor';
+import { bassFft512, peakLevel, resample } from '@fw/audio/AmplitudeProcessor';
 import { AdjustableAudioComponent, AdjustableProperty } from '@fw/audio/AudioComponent';
 import { AudioCollectionManager } from '@fw/audio/AudioCollectionManager';
 import { TrackVirtual } from '@fw/audio/track/TrackVirtual';
@@ -27,6 +27,34 @@ describe('BASS amplitude formulas (measured against libbass 2.4)', () => {
     expect(out[0]).toBeCloseTo(0.5, 6);
     expect(out[1]).toBeCloseTo(0.5, 6);
     expect(out[2]).toBeCloseTo(0, 6);
+  });
+
+  it('the FFT is taken at 44.1 kHz whatever the context rate: a 1 kHz tone lands in the same bin from 16, 44.1 and 48 kHz', () => {
+    // bin width at 44.1 kHz is 86.13 Hz, so 1033.6 Hz is the centre of bin 12
+    const tone = 12 * 44100 / 512;
+
+    for (const rate of [16000, 44100, 48000]) {
+      const source = Float32Array.from({ length: 2048 }, (_, n) => Math.sin(2 * Math.PI * tone * n / rate));
+      const samples = new Float32Array(512);
+      resample(source, rate / 44100, samples);
+
+      const out = new Float32Array(256);
+      bassFft512(samples, out);
+
+      const peak = out.indexOf(Math.max(...out));
+      expect(peak).toBe(12);
+      expect(out[12]).toBeGreaterThan(0.97);
+      // nothing far from the tone
+      expect(Math.max(...out.slice(40))).toBeLessThan(0.01);
+    }
+  });
+
+  it('resampling with a step of 1 copies the last samples', () => {
+    const source = Float32Array.from({ length: 600 }, (_, n) => n);
+    const samples = new Float32Array(512);
+    resample(source, 1, samples);
+    expect(samples[0]).toBe(88);
+    expect(samples[511]).toBe(599);
   });
 
   it('level is the peak |x| of the last 1/60 s', () => {

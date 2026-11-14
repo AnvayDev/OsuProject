@@ -49,6 +49,32 @@ export function bassFft512(samples: ArrayLike<number>, output: Float32Array): vo
     output[k] = Math.hypot(re[k], im[k]) * (k === 0 ? 2 : 4) / N;
 }
 
+/** The sample rate BASS's FFT bins are assumed at: that of the tracks osu! plays. */
+const reference_sample_rate = 44100;
+
+/**
+ * Fills `output` with the most recent samples of `source` as they would be at a rate `step` times lower (linear interpolation; both
+ * end at the same instant). With a step of 1 it copies the last samples.
+ */
+export function resample(source: ArrayLike<number>, step: number, output: Float32Array): void {
+  const last = source.length - 1;
+  const count = output.length;
+
+  for (let i = 0; i < count; i++) {
+    const position = last - (count - 1 - i) * step;
+
+    if (position <= 0) {
+      output[i] = source[0];
+      continue;
+    }
+
+    const index = Math.floor(position);
+    const fraction = position - index;
+
+    output[i] = index >= last ? source[last] : source[index] + (source[index + 1] - source[index]) * fraction;
+  }
+}
+
 /** BASS_ChannelGetLevel: the peak |x| of the last `count` samples. */
 export function peakLevel(samples: ArrayLike<number>, count: number): number {
   let peak = 0;
@@ -68,6 +94,10 @@ export class AmplitudeProcessor {
   private readonly right: AnalyserNode;
   private readonly mono: AnalyserNode;
 
+  private readonly sourceSamples: number;
+  private readonly sourceBuffer: Float32Array<ArrayBuffer>;
+  private readonly resampleStep: number;
+
   private readonly levelBuffer: Float32Array<ArrayBuffer>;
   private readonly monoBuffer = new Float32Array(N);
   private readonly levelSamples: number;
@@ -86,8 +116,17 @@ export class AmplitudeProcessor {
 
     // AnalyserNode down-mixes its input to mono ((L+R)/2 for stereo), as BASS does for a combined FFT.
     this.mono = context.createAnalyser();
-    this.mono.fftSize = N;
     source.connect(this.mono);
+
+    // BASS takes the FFT of the channel's own samples, which for osu! tracks are at 44.1 kHz: a bin is 86 Hz wide whatever the output
+    // device. The analyser sees the signal at the context's rate, which is the output device's (48 kHz on most Macs, 16 or 24 kHz for
+    // Bluetooth headphones while their microphone is in use). Without a correction a 16 kHz context squeezes 0 to 6 kHz into the 200
+    // bins the logo visualiser shows, and every bar has something to show. So the last 512 samples' worth of time (at 44.1 kHz) is read
+    // at the context's rate and resampled.
+    this.sourceSamples = Math.min(Math.ceil((N - 1) * context.sampleRate / reference_sample_rate) + 2, 32768);
+    this.mono.fftSize = Math.max(N, 2 ** Math.ceil(Math.log2(this.sourceSamples)));
+    this.sourceBuffer = new Float32Array(this.mono.fftSize);
+    this.resampleStep = context.sampleRate / reference_sample_rate;
 
     this.levelBuffer = new Float32Array(1024);
     this.levelSamples = Math.round(context.sampleRate / 60);
@@ -104,7 +143,8 @@ export class AmplitudeProcessor {
     this.right.getFloatTimeDomainData(this.levelBuffer);
     const rightChannel = peakLevel(this.levelBuffer, this.levelSamples);
 
-    this.mono.getFloatTimeDomainData(this.monoBuffer);
+    this.mono.getFloatTimeDomainData(this.sourceBuffer);
+    resample(this.sourceBuffer, this.resampleStep, this.monoBuffer);
     const frequencyData = new Float32Array(ChannelAmplitudes.AMPLITUDES_SIZE);
     bassFft512(this.monoBuffer, frequencyData);
 

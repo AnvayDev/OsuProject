@@ -1070,6 +1070,13 @@ Framework source: `fw/Audio/BassAmplitudeProcessor.cs:32-52`, `fw/Audio/Track/Ch
   `getFloatTimeDomainData`, peak `|x|`, for L/R. A mono-mix `AnalyserNode` (its input is down-mixed to (L+R)/2) with `fftSize = 512`:
   `getFloatTimeDomainData` → our own FFT with the formula above. Don't use `getFloatFrequencyData`: it uses a Blackman window, 1/N scaling and
   smoothing. No calibration factor is needed.
+- **The FFT is taken at 44.1 kHz whatever the AudioContext's rate (2026-11-14).** BASS analyses the channel's own samples, so a bin is
+  86 Hz wide on any output device. An `AnalyserNode` sees the context's rate, which is the output device's: 48 kHz on most Macs, 16 or
+  24 kHz for Bluetooth headphones while their microphone profile is active. At 16 kHz the 200 bins the visualiser shows would cover 0 to
+  6 kHz, where music always has energy, and every bar would show. `AmplitudeProcessor` reads the last 512 samples' worth of time at the
+  context's rate and resamples it (linear) to 44.1 kHz before the FFT. Tracks at other rates are not distinguished (the media element
+  doesn't tell). The user reported a ring of short bars all around the logo that the client doesn't show; whether this was the cause
+  on their machine is not confirmed (`?stats=1` reports `audioSampleRate` and the bars' statistics).
 
 ---
 
